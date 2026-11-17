@@ -179,7 +179,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
         const current = byLetter[letter]
         const selectedIds = current.map(r => r.userId)
         return (
-          <section key={letter} className="border border-slate-200 rounded-md p-4">
+          <section key={letter} className="border border-slate-200 rounded-md p-4" data-raci-letter={letter}>
             <header className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold text-slate-800">
                 <span className="inline-block w-6 text-center text-xs font-mono bg-slate-100 border border-slate-200 rounded mr-2 py-0.5">{letter}</span>
@@ -279,11 +279,12 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
   )
 
   // Users holding a different whole-document letter can't take this one too
-  // (one letter per person per document) — the picker greys them out.
+  // (one letter per person per document) — the picker greys them out. The one exception: a Reviewer (C) may also
+  // be an Approver (A), and the other way round (the API's canHoldTogether, document-raci/service.ts).
   function heldElsewhere(letter: RaciLetter): Map<string, RaciLetter> {
     const out = new Map<string, RaciLetter>()
     for (const l of LETTER_ORDER) {
-      if (l === letter) continue
+      if (l === letter || (l === 'A' && letter === 'C') || (l === 'C' && letter === 'A')) continue
       for (const r of byLetter[l]) if (r.sectionId === null) out.set(r.userId, l)
     }
     return out

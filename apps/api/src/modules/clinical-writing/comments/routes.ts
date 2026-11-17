@@ -18,7 +18,7 @@ import { mentionableUsers, mentionNotification } from './mentions.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
-import { APPROVE_DOCUMENT_REF, recordApprovalAndMaybeStartChain } from '../signatures/auto-start.js'
+import { APPROVE_DOCUMENT_REF } from '../signatures/auto-start.js'
 import { COMMENT_LOCKED_ROLES, actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
@@ -349,6 +349,15 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send(VERDICT_FORBIDDEN)
     }
 
+    // An Approver approves the whole document by signing it (Approve & E-sign), once review and the CRM
+    // meeting are complete — never as a separate comment, and never earlier.
+    if (parsed.data.verdict === 'approve' && parsed.data.sectionRef === APPROVE_DOCUMENT_REF) {
+      return reply.code(409).send({
+        error:   'approve_by_signing',
+        message: 'Approvers approve the document with Approve & E-sign, once review and the CRM meeting are complete.',
+      })
+    }
+
     if (parsed.data.verdict === 'approve' && await pendingRevision(app.prisma, documentId, parsed.data.sectionRef)) {
       return reply.code(409).send({
         error:   'section_returned',
@@ -408,25 +417,6 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    // An Approver's whole-document approval counts towards the signature chain: once every Approver has
-    // approved a document awaiting signature, the chain starts by itself. The approval is already saved,
-    // so a failure here must not fail it (the chain can still be started by hand).
-    let signatureChainStarted = false
-    // Set when every Approver has approved but a gate (checklist / content) stopped the chain: why.
-    let signatureChainBlockedReason: string | null = null
-    if (parsed.data.verdict === 'approve' && parsed.data.sectionRef === APPROVE_DOCUMENT_REF) {
-      try {
-        const auto = await recordApprovalAndMaybeStartChain(app, {
-          documentId, actorId: request.user!.id, ipAddress: request.ip ?? null,
-        })
-        signatureChainStarted = auto.chainStarted
-        const blocked = auto.blocked as { message?: unknown } | undefined
-        signatureChainBlockedReason = typeof blocked?.message === 'string' ? blocked.message : null
-      } catch (err) {
-        request.log.warn({ err, documentId }, 'automatic signature chain start failed')
-      }
-    }
-
     const [reviewer] = await Promise.all([
       app.prisma.user.findUnique({ where: { id: created.reviewerId }, select: { name: true, initials: true } }),
     ])
@@ -445,7 +435,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         request.log.warn({ err, recipientId: person.id, commentId: id }, 'mention notification failed')
       }
     }
-    return reply.code(201).send({ ...commentShape(created, reviewer), signatureChainStarted, signatureChainBlockedReason })
+    return reply.code(201).send(commentShape(created, reviewer))
   })
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -675,7 +665,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
-async function nextCommentId(prisma: import('@prisma/client').PrismaClient): Promise<string> {
+export async function nextCommentId(prisma: import('@prisma/client').PrismaClient): Promise<string> {
   // CMT-### is application-generated and must be unique table-wide (it is the
   // primary key). We query the current max then +1 — a race is possible but the
   // UNIQUE constraint rejects the loser and the handler's retry loop recomputes.

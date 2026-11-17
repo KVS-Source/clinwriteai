@@ -3,8 +3,13 @@
 // real comments still do. Fastify inject() over an in-memory Prisma double.
 
 import Fastify from 'fastify'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { crmRoutes } from './routes.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// Completing the meeting starts signing; the chain itself is covered in signatures/.
+const startChainWhenReviewDone = vi.hoisted(() => vi.fn(async () => ({ chainStarted: true })))
+vi.mock('../signatures/auto-start.js', () => ({ startChainWhenReviewDone }))
+
+const { crmRoutes } = await import('./routes.js')
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
 type Row = Record<string, any>
@@ -62,6 +67,7 @@ function fakePrisma() {
         && (!where.letter || where.letter.in.includes(r.letter))),
       findFirst: async ({ where }: Row) => raci.find(r =>
         r.documentId === where.documentId && r.userId === where.userId && (!where.letter || where.letter.in.includes(r.letter))) ?? null,
+      count: async ({ where }: Row) => raci.filter(r => matches(r, where)).length,
     },
     user: { findMany: async ({ where }: Row) => users.filter(u => where.id.in.includes(u.id) && !(where.role?.notIn ?? []).includes(u.role)) },
     projectMember:     { findMany: async () => [{ projectId: 'P-1', userId: 'u-pm', user: { role: 'pm' } }] },
@@ -136,6 +142,39 @@ describe('CRM resolve + complete', () => {
     t.db.comments.push({ id: 'c-real', documentId: 'DOC-1', status: 'open', verdict: null })
     const res = await t.app.inject({ method: 'POST', url: '/crm/m1/resolve', payload: { commentId: 'c-real', resolutionType: 'accept', resolutionNote: '' } })
     expect(res.statusCode).toBe(400)
+  })
+
+  it('cannot complete while a Reviewer has not clicked Mark review done, and starts no signing', async () => {
+    startChainWhenReviewDone.mockClear()
+    t.db.raci.push(
+      { documentId: 'DOC-1', userId: 'u-c',  letter: 'C', reviewedAt: null, removedAt: null },
+      { documentId: 'DOC-1', userId: 'u-c2', letter: 'C', reviewedAt: new Date(), removedAt: null },
+    )
+    const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
+    expect(res.statusCode).toBe(422)
+    expect(res.json()).toMatchObject({ error: 'reviews_pending', pendingReviewers: 1 })
+    expect(t.db.documents[0].status).toBe('crm_in_progress')
+    expect(t.db.meetings[0].status).toBe('in_progress')
+    expect(startChainWhenReviewDone).not.toHaveBeenCalled()
+  })
+
+  it('once every Reviewer is done, completing the meeting moves to signing and starts the chain', async () => {
+    startChainWhenReviewDone.mockClear()
+    t.db.raci.push(
+      { documentId: 'DOC-1', userId: 'u-c',   letter: 'C', reviewedAt: new Date(), removedAt: null },
+      { documentId: 'DOC-1', userId: 'u-old', letter: 'C', reviewedAt: null, removedAt: new Date() },   // removed: doesn't count
+    )
+    const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
+    expect(res.statusCode).toBe(200)
+    expect(t.db.documents[0].status).toBe('pending_signature')
+    expect(startChainWhenReviewDone).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ documentId: 'DOC-1', actorId: 'u-chair' }))
+  })
+
+  it('a failed chain start does not fail the completed meeting', async () => {
+    startChainWhenReviewDone.mockRejectedValueOnce(new Error('down'))
+    const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
+    expect(res.statusCode).toBe(200)
+    expect(t.db.documents[0].status).toBe('pending_signature')
   })
 })
 
@@ -252,8 +291,11 @@ describe('a project manager running a CRM', () => {
     expect(db.documents[0]!.status).toBe('crm_in_progress')
     expect(db.meetings[0]!.returnToStatus).toBe('in_authoring')
 
+    startChainWhenReviewDone.mockClear()
+    db.raci.push({ documentId: 'DOC-1', userId: 'u-c', letter: 'C', reviewedAt: null, removedAt: null })   // not checked: no signing follows
     expect((await app.inject({ method: 'POST', url: `/crm/${id}/complete` })).statusCode).toBe(200)
     expect(db.documents[0]!.status).toBe('in_authoring')   // as it was, not on to signature
+    expect(startChainWhenReviewDone).not.toHaveBeenCalled()
   })
 
   it('cancelling a meeting held during authoring also goes back to authoring', async () => {

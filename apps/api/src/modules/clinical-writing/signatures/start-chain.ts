@@ -1,5 +1,5 @@
 // Starting a Part 11 signature chain — shared by the manual route (POST
-// /documents/:id/signature-chains) and the automatic start that follows the last Approver's approval.
+// /documents/:id/signature-chains) and the automatic start when the CRM meeting completes (auto-start.ts).
 //
 // Everything here is the chain's own rules, unchanged from when it lived in the route: the document
 // must be pending_signature with no active chain, the two gates (mandatory checklist items, signable
@@ -31,21 +31,30 @@ export type SignerInput = {
 
 // In-app notice to a signer that it's their turn (contract §9 "notifies next signer"). Never blocks or
 // fails the signature itself.
+// In an approvers_first chain an Approver approves and signs in one step from the Approver View, so their
+// notice links there; everyone else signs on the E-Signature tab.
 export function makeNotifySigners(app: FastifyInstance) {
   return async (
-    signers: Array<{ signerId: string; step: number }>,
+    signers: Array<{ signerId: string; step: number; meaning?: string }>,
     doc: { id: string; projectId: string; title: string },
     startedBy?: string,
+    chainType?: string,
   ) => {
     if (!app.hasDecorator('notifications')) return
+    const base = `/projects/${doc.projectId}/clinical-writing/documents/${doc.id}`
     for (const s of signers) {
+      const approveAndSign = chainType === 'approvers_first' && s.meaning === 'approved'
       try {
         await app.notifications.send({
           recipientId: s.signerId,
           kind:        'signature_requested',
-          title:       `Your signature is needed on "${doc.title}"`,
-          body:        `It's your turn to sign (step ${s.step}). Open the E-Signature tab to review and sign.`,
-          linkPath:    `/projects/${doc.projectId}/clinical-writing/documents/${doc.id}/sign`,
+          title:       approveAndSign ? `Your approval is needed on "${doc.title}"` : `Your signature is needed on "${doc.title}"`,
+          body:        approveAndSign
+            ? 'Review and CRM are complete. Open the document to read it and use Approve & E-sign.'
+            : chainType === 'approvers_first'
+              ? 'Every approver has signed. Open the E-Signature tab to review and sign.'
+              : `It's your turn to sign (step ${s.step}). Open the E-Signature tab to review and sign.`,
+          linkPath:    approveAndSign ? `${base}/review` : `${base}/sign`,
           payload:     { documentId: doc.id, projectId: doc.projectId, step: s.step, ...(startedBy ? { startedBy } : {}) },
         })
       } catch (err) {
@@ -83,9 +92,9 @@ export async function startSignatureChain(app: FastifyInstance, args: {
   })
   if (activeChain) return { ok: false, status: 409, body: { error: 'chain_already_active', chainId: activeChain.id } }
 
-  // Signing starts only once every Approver (A) has approved the document. Normally the chain starts by
-  // itself at that moment; this also stops anyone starting it by hand before then.
-  const approvers = await app.prisma.documentRaci.findMany({
+  // Older chain types sign only once every Approver (A) has approved the document separately. In an
+  // approvers_first chain the Approvers' signatures ARE their approval, so there is nothing to wait for.
+  const approvers = chainType === 'approvers_first' ? [] : await app.prisma.documentRaci.findMany({
     where:  { documentId, letter: 'A', removedAt: null },
     select: { documentApprovedAt: true },
   })
@@ -197,6 +206,7 @@ export async function startSignatureChain(app: FastifyInstance, args: {
     (withRecords?.records ?? []).filter(r => r.status === 'awaiting'),
     { id: doc.id, projectId: doc.projectId, title: doc.title },
     actorId,
+    chainType,
   )
   return { ok: true, chain: withRecords }
 }

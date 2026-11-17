@@ -173,6 +173,35 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    // Phase M-B.5 — notify co-authors that a reviewer round is open
+    // and they should respond.
+    if (app.notifications) {
+      const pubRow = await app.prisma.publication.findUnique({
+        where:  { id: publicationId },
+        select: { title: true, projectId: true },
+      })
+      if (pubRow) {
+        const authors = await app.prisma.publicationAuthor.findMany({
+          where:  { publicationId, removedAt: null, userId: { not: null } },
+          select: { userId: true },
+        })
+        const recipients = Array.from(new Set(
+          authors.map(a => a.userId!).filter(id => id !== request.user!.id),
+        ))
+        for (const recipientId of recipients) {
+          await app.notifications.send({
+            recipientId,
+            kind:        'publication.peer_review_opened',
+            severity:    'info',
+            title:       `Reviewer round ${roundNumber} opened on "${pubRow.title}"`,
+            body:        `${parsed.data.reviewerCount ?? '—'} reviewers · journal ref ${parsed.data.journalSubmissionRef ?? '—'}`,
+            linkPath:    `/projects/${pubRow.projectId}/scientific-writing/publications/${publicationId}/peer-review`,
+            payload:     { publicationId, projectId: pubRow.projectId, roundId: created.id, roundNumber },
+          }).catch(err => app.log.warn({ err, recipientId }, 'publication.peer_review_opened: notification send failed'))
+        }
+      }
+    }
+
     return reply.code(201).send(reviewRoundShape(created))
   })
 

@@ -381,6 +381,12 @@ async function buildServer() {
     await import('./modules/scientific-writing/publications/ai-suggest-routes.js')
   await app.register(publicationAiSuggestRoutes, { prefix: '/publications' })
 
+  // Phase M-B.5 — publication section comments (threaded, @mention
+  // notifications, R/A/C gating).
+  const { publicationCommentRoutes } =
+    await import('./modules/scientific-writing/publications/comment-routes.js')
+  await app.register(publicationCommentRoutes, { prefix: '/publications' })
+
   const { citationsRoutes, pubmedRoutes } = await import('./modules/scientific-writing/citations/routes.js')
   await app.register(citationsRoutes, { prefix: '/publications' })
   // pubmedRoutes mounts at root — the client's citation-search endpoint

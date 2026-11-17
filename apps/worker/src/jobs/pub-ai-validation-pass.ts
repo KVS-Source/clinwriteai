@@ -405,6 +405,42 @@ export const handleAiValidationPassPublication: JobHandler<PubAiValidationPassPa
   }).catch(() => undefined)
 
   if (stop) {
+    // Phase M-B.5 — notify all co-authors that the drafting + validation
+    // chain finished. Includes the residual-failing count so the author
+    // knows whether sections still need manual fixes. Direct Prisma
+    // insert (worker can't use app.notifications.send).
+    try {
+      const pubRow = await prisma.publication.findUnique({
+        where:  { id: publicationId },
+        select: { title: true, projectId: true },
+      })
+      const authors = await prisma.publicationAuthor.findMany({
+        where:  { publicationId, removedAt: null, userId: { not: null } },
+        select: { userId: true },
+      })
+      const recipientIds = Array.from(new Set(authors.map(a => a.userId!)))
+      const severity = failingIds.length === 0 ? 'info' : 'warning'
+      const body = failingIds.length === 0
+        ? `All sections cleared validation at ${confidenceOverall}% confidence (${iteration} pass${iteration === 1 ? '' : 'es'}).`
+        : `${failingIds.length} section${failingIds.length === 1 ? '' : 's'} still failing after ${iteration} pass${iteration === 1 ? '' : 'es'} (${confidenceOverall}% overall).`
+      for (const recipientId of recipientIds) {
+        await prisma.notification.create({
+          data: {
+            recipientId,
+            kind:        'publication.validation_complete',
+            severity,
+            title:       `AI validation ${failingIds.length === 0 ? 'complete' : 'complete (with residuals)'} — "${pubRow?.title ?? ''}"`,
+            body,
+            linkPath:    pubRow ? `/projects/${pubRow.projectId}/scientific-writing/publications/${publicationId}/edit` : null,
+            channels:    ['in_app'],
+            payload:     { publicationId, iteration, confidenceOverall, failing: failingIds.length },
+          },
+        }).catch(err => log.warn({ err, recipientId }, 'publication.validation_complete: notification write failed'))
+      }
+    } catch (err) {
+      log.warn({ err, publicationId }, 'publication.validation_complete: fan-out failed')
+    }
+
     return {
       publicationId, iteration,
       passing:           rows.length - failingIds.length,

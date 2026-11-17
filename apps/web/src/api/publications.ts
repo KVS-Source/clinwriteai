@@ -215,6 +215,48 @@ export const publicationsApi = {
       `/publications/${publicationId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
       body,
     ),
+
+  // --- Section comments (Phase M-B.5) ------------------------------------
+  listComments: (publicationId: string, sectionId?: string) =>
+    api.get<{ publicationId: string; comments: PublicationSectionCommentRow[] }>(
+      `/publications/${publicationId}/comments${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`,
+    ),
+  createComment: (
+    publicationId: string,
+    sectionId: string,
+    body: {
+      text:             string
+      severity?:        'info' | 'warning' | 'blocking'
+      parentCommentId?: string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<PublicationSectionCommentRow>(
+      `/publications/${publicationId}/sections/${encodeURIComponent(sectionId)}/comments`,
+      body,
+    ),
+  resolveComment: (publicationId: string, commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<PublicationSectionCommentRow>(
+      `/publications/${publicationId}/comments/${encodeURIComponent(commentId)}/resolve`,
+      body,
+    ),
+}
+
+export interface PublicationSectionCommentRow {
+  id:               string
+  publicationId:    string
+  sectionId:        string
+  authorId:         string
+  authorName:       string
+  text:             string
+  severity:         'info' | 'warning' | 'blocking'
+  status:           'open' | 'resolved'
+  resolvedBy:       string | null
+  resolvedAt:       string | null
+  resolutionNote:   string | null
+  parentCommentId:  string | null
+  mentionedUserIds: string[]
+  createdAt:        string
 }
 
 // --- Section + lock types ---

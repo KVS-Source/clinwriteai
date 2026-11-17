@@ -29,6 +29,7 @@ import {
   renderPubPolicyPromptBlock,
   SECTION_GROUNDING_RULES,
 } from '../policy/resolve.js'
+import { actorCanEditPublicationContent, PUBLICATION_EDIT_FORBIDDEN } from './access/publication-raci.js'
 
 const writeGate = requireAuth({ modules: ['B'] })
 
@@ -71,6 +72,9 @@ export const publicationAiSuggestRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
     if (!pub.currentVersionId) return reply.code(409).send({ error: 'no_current_version' })
+    if (!(await actorCanEditPublicationContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(PUBLICATION_EDIT_FORBIDDEN)
+    }
 
     const section = await app.prisma.publicationSectionContent.findFirst({
       where:  { publicationVersionId: pub.currentVersionId, sectionId },

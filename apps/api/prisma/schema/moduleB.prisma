@@ -709,3 +709,43 @@ model PublicationSectionLock {
   @@index([userId])
   @@index([lastHeartbeatAt])
 }
+
+// --------------------------------------------------------------------------
+// PublicationSectionComment — Phase M-B.5 (migration 78).
+//
+// Threaded comments per publication section. Mirror of Module A's
+// Comment model but scoped to publications (no entityType reuse — the
+// clinical Comment carries document-specific columns like `verdict`
+// and `externalEmail` that don't apply here).
+//
+// Role gates (enforced at the route edge):
+//   - R, A, C authors can create comments
+//   - I authors are read-only
+//   - PM / admin can read everything, create comments
+//   - Only the comment author or R/A can resolve
+//
+// mentionedUserIds fires 'publication.comment_mention' notifications
+// at create time (same shape as clinical comment.mention).
+// --------------------------------------------------------------------------
+
+model PublicationSectionComment {
+  id                String    @id @default(uuid())
+  publicationId     String
+  sectionId         String                                                 // stable section key
+  authorId          String                                                 // User.id of the commenter
+  authorName        String                                                 // denormalised at create time (externals have no User row)
+  text              String
+  severity          String    @default("info")                             // 'info' | 'warning' | 'blocking'
+  status            String    @default("open")                             // 'open' | 'resolved'
+  resolvedBy        String?
+  resolvedAt        DateTime?
+  resolutionNote    String?
+  parentCommentId   String?                                                // optional thread parent (self-reference)
+  mentionedUserIds  String[]  @default([])                                 // notification fan-out at create
+  createdAt         DateTime  @default(now())
+
+  @@map("publication_section_comments")
+  @@index([publicationId])
+  @@index([publicationId, sectionId])
+  @@index([parentCommentId])
+}

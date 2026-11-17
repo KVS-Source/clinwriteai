@@ -109,6 +109,21 @@ export const authorsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    // Phase M-B.5 — notify an existing internal co-author on add. External
+    // authors (userId=null) are invited via inviteEmail; the KOL
+    // invitation surface sends a different message so skip here.
+    if (!created.isExternal && created.userId && created.userId !== request.user!.id && app.notifications) {
+      await app.notifications.send({
+        recipientId: created.userId,
+        kind:        'publication.author_added',
+        severity:    'info',
+        title:       `You were added to "${pub.title}"`,
+        body:        `${created.role} (${created.raci}) on ${pub.type}${pub.subtype ? ' · ' + pub.subtype : ''}.`,
+        linkPath:    `/projects/${pub.projectId}/scientific-writing/publications/${publicationId}`,
+        payload:     { publicationId, projectId: pub.projectId, authorId: created.id, raci: created.raci },
+      }).catch(err => request.log.warn({ err, publicationId }, 'publication.author_added: notification send failed'))
+    }
+
     return reply.code(201).send(created)
   })
 

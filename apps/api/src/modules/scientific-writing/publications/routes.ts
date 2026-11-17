@@ -22,6 +22,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { buildGppReport } from './gpp/builder.js'
 import { renderGppReportPdf } from './gpp/pdf-renderer.js'
 import { initialisePublicationVersion, type PublicationSectionPayload } from './section-service.js'
+import { actorCanEditPublicationContent, PUBLICATION_EDIT_FORBIDDEN } from './access/publication-raci.js'
 import {
   canAdvancePublication,
   InvalidPublicationStageError,
@@ -421,6 +422,56 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
     return publicationShape({ ...withOwner, project })
   })
 
+  // Phase M-B.5 — fan out stage-change notifications to all authors
+  // (except the actor). `submission_ready`, `revision_requested`,
+  // `published` are the three notification-worthy transitions; other
+  // stage changes just audit without a notification.
+  async function fanOutStageNotification(args: {
+    publicationId: string
+    projectId:     string
+    title:         string
+    from:          PublicationStage
+    to:            PublicationStage
+    actorId:       string
+    reason?:       string | null
+  }): Promise<void> {
+    if (!app.notifications) return
+    let kind: string | null = null
+    let heading: string | null = null
+    if (args.to === 'submission') {
+      kind = 'publication.submission_ready'
+      heading = `Publication "${args.title}" is ready for journal submission`
+    } else if (args.to === 'authoring' && (args.from === 'review' || args.from === 'submission')) {
+      kind = 'publication.revision_requested'
+      heading = `Revision requested on "${args.title}"`
+    } else if (args.to === 'published') {
+      kind = 'publication.published'
+      heading = `"${args.title}" has been published`
+    }
+    if (!kind || !heading) return
+
+    const authors = await app.prisma.publicationAuthor.findMany({
+      where:  { publicationId: args.publicationId, removedAt: null, userId: { not: null } },
+      select: { userId: true },
+    })
+    const recipientIds = Array.from(new Set(
+      authors.map(a => a.userId!).filter(id => id !== args.actorId),
+    ))
+    const body = args.reason ? `${args.from} → ${args.to} · ${args.reason}` : `${args.from} → ${args.to}`
+    const linkPath = `/projects/${args.projectId}/scientific-writing/publications/${args.publicationId}`
+    for (const recipientId of recipientIds) {
+      await app.notifications.send({
+        recipientId,
+        kind,
+        severity: kind === 'publication.revision_requested' ? 'warning' : 'info',
+        title:    heading,
+        body,
+        linkPath,
+        payload:  { publicationId: args.publicationId, projectId: args.projectId, from: args.from, to: args.to },
+      }).catch(err => app.log.warn({ err, kind, recipientId }, 'stage notification send failed'))
+    }
+  }
+
   app.post('/:publicationId/advance-stage', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
@@ -462,6 +513,11 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    await fanOutStageNotification({
+      publicationId, projectId: pub.projectId, title: pub.title,
+      from, to, actorId: request.user!.id,
+    })
+
     return updated
   })
 
@@ -493,6 +549,11 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
       entityId: publicationId,
       details: { from, to, reason: parsed.data.reason ?? null },
       ipAddress: request.ip ?? null,
+    })
+
+    await fanOutStageNotification({
+      publicationId, projectId: pub.projectId, title: pub.title,
+      from, to, actorId: request.user!.id, reason: parsed.data.reason ?? null,
     })
 
     return updated
@@ -531,6 +592,9 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
         error:   'no_current_version',
         message: 'Publication has no current version. Create flow should have seeded v0.1.',
       })
+    }
+    if (!(await actorCanEditPublicationContent(app.prisma, request.user!, publicationId))) {
+      return reply.code(403).send(PUBLICATION_EDIT_FORBIDDEN)
     }
     if (pub.aiDraftState === 'drafting' || pub.aiDraftState === 'validating') {
       return reply.code(409).send({

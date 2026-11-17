@@ -29,13 +29,10 @@ import {
   requirePublicationLockHeldBy,
   PUBLICATION_LOCK_STALE_SECONDS,
 } from './section-lock-service.js'
+import { actorCanEditPublicationContent, PUBLICATION_EDIT_FORBIDDEN } from './access/publication-raci.js'
 
 const gate      = requireAuth({ modules: ['B'] })
 const writeGate = requireAuth({ modules: ['B'] })
-
-// Full PublicationAuthor.raci gating lands in Phase M-B.5. For now any
-// authed Module-B user can edit; auditor-read-only + guests are already
-// blocked at the gate.
 
 const patchSectionSchema = z.object({
   contentHtml: z.string().max(5_000_000),
@@ -94,6 +91,10 @@ export const publicationSectionRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
 
+    if (!(await actorCanEditPublicationContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(PUBLICATION_EDIT_FORBIDDEN)
+    }
+
     // Lock gate — mirror sPM-autosave on Module A. Another live holder blocks.
     const blocker = await requirePublicationLockHeldBy(app.prisma, {
       publicationId: id, sectionId, userId: request.user!.id,
@@ -143,6 +144,10 @@ export const publicationSectionRoutes: FastifyPluginAsync = async (app) => {
       where: { id }, select: { id: true, deletedAt: true },
     })
     if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    if (!(await actorCanEditPublicationContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(PUBLICATION_EDIT_FORBIDDEN)
+    }
 
     const result = await acquirePublicationLock(app.prisma, {
       publicationId: id, sectionId, userId: request.user!.id,
@@ -236,6 +241,9 @@ export const publicationSectionRoutes: FastifyPluginAsync = async (app) => {
       where: { id }, select: { id: true, deletedAt: true },
     })
     if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditPublicationContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(PUBLICATION_EDIT_FORBIDDEN)
+    }
     try {
       const version = await sectionSvc.bumpVersion({
         publicationId:    id,

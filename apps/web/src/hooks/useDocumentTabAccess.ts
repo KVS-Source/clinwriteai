@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
+import type { CRMMeeting } from '@platform/types'
 import { raciApi, type DocumentRaciRow } from '../api/raci'
+import { crmApi } from '../api/crm'
 import { useCurrentUser } from './useCurrentUser'
 import { holdsRole } from '../config/roles'
 
@@ -24,9 +26,21 @@ export function useDocumentTabAccess(documentId: string | undefined): DocumentTa
     enabled:   !!documentId && !!me?.id,
     staleTime: 30_000,
   })
-  if (meLoading || (!!me?.id && rowsLoading)) return undefined
   const mine = new Set((rows ?? []).filter(r => r.userId === me?.id && !r.removedAt).map(r => r.letter))
-  return tabAccessForLetters(mine, { pm: !!me && holdsRole(me, 'pm') })
+  const access = tabAccessForLetters(mine, { pm: !!me && holdsRole(me, 'pm') })
+  // An Approver-only person has the CRM tab while they are invited to a scheduled or running meeting.
+  const { data: meetings, isLoading: meetingsLoading } = useQuery<CRMMeeting[]>({
+    queryKey: ['crm-meetings', documentId],
+    queryFn:  () => crmApi.getMeetings(documentId!),
+    enabled:  !!documentId && !!me?.id && !rowsLoading && access.approverOnly,
+  })
+  if (meLoading || (!!me?.id && rowsLoading)) return undefined
+  if (!access.approverOnly) return access
+  if (meetingsLoading) return undefined
+  const invited = (meetings ?? []).some(m =>
+    (m.status === 'scheduled' || m.status === 'in_progress')
+    && (m.chair.userId === me?.id || m.attendees.some(a => a.userId === me?.id)))
+  return invited ? { ...access, crm: true } : access
 }
 
 /** The tab rule on its own, from a user's active RACI letters on the document. */
@@ -34,7 +48,8 @@ export function tabAccessForLetters(letters: ReadonlySet<string>, opts: { pm?: b
   const author = letters.has('R')
   const reviewSide = letters.has('C') || letters.has('Q') || letters.has('A')
   // An Approver (A) who is not also Author, Reviewer or QC: their tab is "Approver View"
-  // and they have no CRM tab (the Comments Resolution Meeting is for the review team).
+  // and they have no CRM tab (the Comments Resolution Meeting is for the review team), except
+  // while they are invited to an open meeting (useDocumentTabAccess adds that).
   const approverOnly = letters.has('A') && !letters.has('R') && !letters.has('C') && !letters.has('Q')
   return {
     editor: author || !reviewSide || !!opts.pm,

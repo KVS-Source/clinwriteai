@@ -28,6 +28,7 @@ function fakePrisma() {
     { id: 'u-i', name: 'Ira Informed', initials: 'II', role: 'contributor' }, { id: 'u-ta', name: 'Tia Admin', initials: 'TA', role: 'tenant-admin' },
     { id: 'u-out', name: 'Olly Outsider', initials: 'OO', role: 'contributor' },
     { id: 'u-pm2', name: 'Pia Other-PM', initials: 'PO', role: 'pm' },   // a PM who can see the project but is not listed as a member
+    { id: 'u-a', name: 'Ada Approver', initials: 'AA', role: 'contributor' }, { id: 'u-ac', name: 'Cal Approver-Reviewer', initials: 'CA', role: 'contributor' },
   ]
   // Minimal where-matcher: equality, { not }, { in }, OR, null.
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([k, v]) => {
@@ -384,6 +385,33 @@ describe('who can be in a meeting (CW-014, CW-098)', () => {
     const res = await schedule(app, { chairId: 'u-c', attendees: [{ userId: 'u-i', roleInCrm: 'Observer' }, { userId: 'u-qc', roleInCrm: 'Reviewer' }] })
     expect(res.statusCode).toBe(201)
     expect(db.attendees.map(a => a.userId).sort()).toEqual(['u-c', 'u-i', 'u-qc'])
+  })
+
+  it('invites every Approver automatically, as Approver unless they also review, and notifies them', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    const sent: Array<Record<string, unknown>> = []
+    app.decorate('notifications', { send: async (n: Record<string, unknown>) => { sent.push(n); return n } } as never)
+    db.documents[0]!.status = 'in_review'; people(db)
+    db.raci.push({ documentId: 'DOC-1', userId: 'u-a', letter: 'A' }, { documentId: 'DOC-1', userId: 'u-ac', letter: 'A' }, { documentId: 'DOC-1', userId: 'u-ac', letter: 'C' })
+    // The form sent the Approver-only person as a Reviewer and left the other Approver out.
+    const res = await schedule(app, { chairId: 'u-c', attendees: [{ userId: 'u-a', roleInCrm: 'Reviewer' }] })
+    expect(res.statusCode).toBe(201)
+    const roles = Object.fromEntries(db.attendees.map(a => [a.userId, a.roleInCrm]))
+    expect(roles).toEqual({ 'u-c': 'Chair', 'u-a': 'Approver', 'u-ac': 'Approver' })
+    expect(sent.map(n => n.recipientId).sort()).toEqual(['u-a', 'u-ac'])
+    expect(sent[0]).toMatchObject({ kind: 'crm.meeting_invited', linkPath: '/projects/P-1/clinical-writing/documents/DOC-1/crm' })
+  })
+
+  it('shows an Approver attendee with the letter A', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.raci.push({ documentId: 'DOC-1', userId: 'u-a', letter: 'A' })
+    db.meetings[0]!.attendees = [{ userId: 'u-a', roleInCrm: 'Approver' }]
+    db.meetings[0]!.resolutions = []
+    db.meetings[0]!.scheduledDate = new Date('2099-01-01'); db.meetings[0]!.createdAt = new Date()
+    db.prisma.crmMeeting.findMany = async () => db.meetings
+    const res = await app.inject({ method: 'GET', url: '/documents/DOC-1/crm' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()[0].attendees[0]).toMatchObject({ userId: 'u-a', raci: 'A', role: 'Approver' })
   })
 
   it.each([

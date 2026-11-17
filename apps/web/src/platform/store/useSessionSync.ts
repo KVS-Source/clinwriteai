@@ -63,10 +63,14 @@ function syncOnce(): Promise<void> {
   // (otherwise the switcher would be undone on its own reload). The menu has
   // a "use my real sign-in" action to drop the override. Bypass mode only —
   // with real sign-in the API ignores the persona header.
-  if (AUTH_BYPASS && hasPersonaOverride()) { settled = true; status = 'signed-in'; return Promise.resolve() }
+  // The persona is still looked up: the API answers as it (X-Demo-Persona) with every role it holds, which
+  // the role switcher needs. If the API answers as someone else (persona not in the database), keep the
+  // persona on screen.
+  const pinnedPersona = AUTH_BYPASS && hasPersonaOverride() ? usePlatformStore.getState().currentUser.id : null
   inflight ??= api
     .get<MeResponse>('/auth/me', { on401: 'throw' })
     .then(me => {
+      if (pinnedPersona && me?.id !== pinnedPersona) { status = 'signed-in'; return }
       // Ignore anything that isn't a real user payload (e.g. a mock handler).
       if (me?.id && me?.role && Array.isArray(me.modules)) {
         usePlatformStore.getState().setSessionUser(toPlatformUser(me))

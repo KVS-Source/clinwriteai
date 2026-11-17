@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { raciApi, type DocumentRaciRow } from '../api/raci'
 import { useCurrentUser } from './useCurrentUser'
+import { holdsRole } from '../config/roles'
 
 // Which of the Editor and Reviewer View tabs the signed-in user gets on this document, from
 // their RACI letters on it (action table rows 6-14).
@@ -9,6 +10,7 @@ import { useCurrentUser } from './useCurrentUser'
 //    checklist) all live in Reviewer View. So anyone holding C, Q or A without R gets no Editor.
 //  - Reviewer View: everyone except a pure Author (R with no C/Q/A).
 //  - No letter at all (PM, auditor, admin, Informed): both tabs, read-only as the screens decide.
+//  - A Project Manager always keeps Editor and CRM, even when assigned as Approver (A) on the document.
 // undefined while the answer is loading; a failed lookup leaves both tabs open (the server
 // still decides what each screen may do).
 export type DocumentTabAccess = { editor: boolean; review: boolean; crm: boolean; approverOnly: boolean }
@@ -23,20 +25,23 @@ export function useDocumentTabAccess(documentId: string | undefined): DocumentTa
   })
   if (meLoading || (!!me?.id && rowsLoading)) return undefined
   const mine = new Set((rows ?? []).filter(r => r.userId === me?.id && !r.removedAt).map(r => r.letter))
-  return tabAccessForLetters(mine)
+  return tabAccessForLetters(mine, !!me && holdsRole(me, 'pm'))
 }
 
-/** The tab rule on its own, from a user's active RACI letters on the document. */
-export function tabAccessForLetters(letters: ReadonlySet<string>): DocumentTabAccess {
+/** The tab rule on its own, from a user's active RACI letters on the document (and whether they are a PM). */
+export function tabAccessForLetters(letters: ReadonlySet<string>, isPm = false): DocumentTabAccess {
   const author = letters.has('R')
   const reviewSide = letters.has('C') || letters.has('Q') || letters.has('A')
   // An Approver (A) who is not also Author, Reviewer or QC: their tab is "Approver View"
   // and they have no CRM tab (the Comments Resolution Meeting is for the review team).
   const approverOnly = letters.has('A') && !letters.has('R') && !letters.has('C') && !letters.has('Q')
   return {
-    editor: author || !reviewSide,
+    // A Project Manager keeps the Editor and CRM tabs even when they are on the document as Approver (e.g. a second
+    // PM assigned as A): they run the project and the Comments Resolution Meeting. What they may change in the
+    // Editor is still decided by the server and their letters.
+    editor: author || !reviewSide || isPm,
     review: reviewSide || !author,
-    crm: !approverOnly,
+    crm: !approverOnly || isPm,
     approverOnly,
   }
 }

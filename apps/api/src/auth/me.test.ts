@@ -62,6 +62,33 @@ describe('GET /auth/me', () => {
   })
 })
 
+describe('GET /auth/demo-personas', () => {
+  it('lists every role each person holds, primary first, so the switcher can show a Contributor + PM as both', async () => {
+    const prev = process.env.AUTH_BYPASS_EMAIL
+    process.env.AUTH_BYPASS_EMAIL = 'demo@clinwrite.ai'
+    try {
+      const app = Fastify()
+      app.decorate('prisma', { user: { findMany: vi.fn(async () => [
+        { id: 'u-abh', name: 'Abhishek', email: 'a@x', role: 'contributor', additionalRoles: ['pm'], modules: ['A'], status: 'active', lastActiveAt: null, tenantId: 't1' },
+        { id: 'u-alex', name: 'Alex Thornton', email: 'b@x', role: 'pm', additionalRoles: [], modules: ['A'], status: 'active', lastActiveAt: null, tenantId: 't1' },
+      ]) } } as never)
+      app.decorateRequest('user', null)
+      app.addHook('onRequest', async (r) => { Object.assign(r, { user: { id: 'u1', email: 'x@x', role: 'contributor', modules: ['A'], tenantId: 't1' } }) })
+      await app.register(authRoutes)
+      current = app
+      const res = await app.inject({ method: 'GET', url: '/auth/demo-personas' })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual([
+        expect.objectContaining({ id: 'u-abh', role: 'contributor', roles: ['contributor', 'pm'] }),
+        expect.objectContaining({ id: 'u-alex', role: 'pm', roles: ['pm'] }),
+      ])
+      expect(res.json()[0]).not.toHaveProperty('additionalRoles')
+    } finally {
+      if (prev === undefined) delete process.env.AUTH_BYPASS_EMAIL; else process.env.AUTH_BYPASS_EMAIL = prev
+    }
+  })
+})
+
 describe('initialsOf', () => {
   it.each([['Mr Rohan Iyer', 'RI'], ['Dr. Elena Vasquez', 'EV'], ['Alex Thornton', 'AT'], ['madonna', 'M']])('%s → %s', (n, i) => expect(initialsOf(n)).toBe(i))
 })

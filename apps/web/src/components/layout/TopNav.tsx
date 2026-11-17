@@ -16,7 +16,7 @@ import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../config/modules'
 import { useTranslation } from 'react-i18next'
 import { useAppLanguage } from '../../i18n/useAppLanguage'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS } from '../../i18n'
-import { chooseActiveRole, clearActiveRole, watchActiveRole } from '../../config/activeRole'
+import { chooseActiveRole, forgetSignedInUser, watchActiveRole } from '../../config/activeRole'
 import { useTopNavSectionFor } from './topNavSection'
 
 // Module slug → i18n key for the breadcrumb crumb between the project and
@@ -74,11 +74,15 @@ function initialsFor(name: string): string {
 // tenantId=null; tenant-scoped admins = ('admin'|'tenant-admin') with a
 // tenant id. 'pm' is its own bucket since migration 48 (canonical role).
 const ADMIN_ROLES = new Set(['admin', 'tenant-admin', 'super-admin'])
+// Every role a persona holds, primary first (the list sends `roles`; older APIs only `role`).
+const personaRoles = (u: PlatformUser): string[] => (u.roles && u.roles.length > 0 ? u.roles : [u.role])
+// A user holding PM (main or extra role, e.g. Contributor + PM) is filed under Project Managers.
 function groupPersonas(users: PlatformUser[]) {
+  const isPm          = (u: PlatformUser) => personaRoles(u).includes('pm')
   const platformAdmin = users.filter(u => ADMIN_ROLES.has(u.role) && (u.tenantId ?? null) == null)
   const tenantAdmin   = users.filter(u => ADMIN_ROLES.has(u.role) && (u.tenantId ?? null) != null)
-  const pms           = users.filter(u => u.role === 'pm' && u.status === 'active')
-  const moduleUsers   = users.filter(u => !ADMIN_ROLES.has(u.role) && u.role !== 'pm' && u.status === 'active')
+  const pms           = users.filter(u => !ADMIN_ROLES.has(u.role) && isPm(u) && u.status === 'active')
+  const moduleUsers   = users.filter(u => !ADMIN_ROLES.has(u.role) && !isPm(u) && u.status === 'active')
   const invited       = users.filter(u => u.status === 'invited')
   return [
     { labelKey: 'component.top_nav.persona_group_platform_admin',   users: platformAdmin },
@@ -315,7 +319,7 @@ export function TopNav() {
     setLoggingOut(true)
     try { await authApi.logout() } catch { /* still sign out locally */ }
     clearPersonaOverride()
-    clearActiveRole()
+    forgetSignedInUser()
     logoutLocal()
     window.location.assign('/sign-in')
   }
@@ -325,7 +329,7 @@ export function TopNav() {
   const signOut = async () => {
     setSigningOut(true)
     await authApi.logout().catch(() => undefined)
-    clearActiveRole()
+    forgetSignedInUser()
     window.location.assign('/sign-in')
   }
 
@@ -518,7 +522,8 @@ export function TopNav() {
                     <p className="px-3 pt-3 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t(group.labelKey)}</p>
                     {group.users.map(u => {
                       const isCurrent = u.id === currentUser.id
-                      const roleLabel = PLATFORM_USER_ROLE_LABEL[u.role] ?? u.role
+                      // Both roles for a two-role user, e.g. "Contributor · Project Manager".
+                      const roleLabel = personaRoles(u).map(r => PLATFORM_USER_ROLE_LABEL[r as keyof typeof PLATFORM_USER_ROLE_LABEL] ?? r).join(' · ')
                       return (
                         <button
                           key={u.id}
@@ -527,6 +532,7 @@ export function TopNav() {
                           disabled={u.status === 'invited'}
                           data-persona-option={u.id}
                           data-persona-current={isCurrent || undefined}
+                          data-persona-roles={personaRoles(u).join(',')}
                           className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                           style={{ backgroundColor: isCurrent ? '#EFF6FF' : undefined }}
                         >

@@ -24,6 +24,12 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { bestLibraryMatch } from './library-match.js'
 import { extractClaimsWithClaude, buildStubClaims, normaliseClaimText, type ExtractedClaim } from './ai-extract.js'
 import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
+import {
+  bestLibraryMatchPgvector,
+  embedClaimText,
+  isPgvectorClaimSearchEnabled,
+  writeClaimEmbedding,
+} from './claim-embedding-service.js'
 
 const createClaimSchema = z.object({
   claimText: z.string().min(1),
@@ -192,8 +198,29 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true, title: true, body: true },
     })
 
+    // M-C.7b: prefer pgvector cosine when the flag + extension + key
+    // all line up. Any failure (missing extension, timeouts, empty
+    // response) falls through to Jaccard below so demos never break
+    // on a half-provisioned environment.
+    const pgvectorEnabled = await isPgvectorClaimSearchEnabled(app.prisma)
+    let similarityEngine: 'jaccard' | 'pgvector-cosine' = 'jaccard'
+    const pgvectorMatches: Map<string, { similarityPct: number; libraryBody: string | null; librarySectionId: string | null; libraryTitle: string | null }> = new Map()
+    if (pgvectorEnabled) {
+      for (const c of claims) {
+        const vec = await embedClaimText(c.claimText)
+        if (!vec) continue
+        await writeClaimEmbedding(app.prisma, c.id, vec)
+        const match = await bestLibraryMatchPgvector(app.prisma, vec, item.taTag)
+        if (match) {
+          pgvectorMatches.set(c.id, match)
+          similarityEngine = 'pgvector-cosine'
+        }
+      }
+    }
+
     const results = claims.map(c => {
-      const match = bestLibraryMatch(c.claimText, libraryCandidates)
+      const pgv = pgvectorMatches.get(c.id)
+      const match = pgv ?? bestLibraryMatch(c.claimText, libraryCandidates)
       return { claim: c, match }
     })
 
@@ -224,7 +251,8 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
         extractedCount,                           // new claims surfaced by AI in this run
         libraryPoolSize:    libraryCandidates.length,
         matchedCount,
-        similarityEngine:   'jaccard',           // swap to 'pgvector-cosine' when X-2 lands
+        similarityEngine,                         // 'pgvector-cosine' when flag + extension are live
+        pgvectorMatchCount: pgvectorMatches.size,
         extractionEngine:   aiConfigured ? aiModel : 'stub',
       },
       ipAddress: request.ip ?? null,

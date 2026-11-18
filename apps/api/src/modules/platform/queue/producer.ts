@@ -46,8 +46,10 @@ export type QueueJobName =
   | 'regulatory.distill_best_practice'
   | 'regulatory.ai_initial_draft'
   | 'regulatory.ai_validation_pass'
-  // Module E — ideation-publishing BP distiller (M-E.1).
+  // Module E — ideation-publishing BP distiller (M-E.1) + initial draft + 85% loop (M-E.3).
   | 'ideation.distill_best_practice'
+  | 'ideation.ai_initial_draft'
+  | 'ideation.ai_validation_pass'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

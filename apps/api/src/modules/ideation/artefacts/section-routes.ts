@@ -1,4 +1,4 @@
-// Ideation artefact section + version + lock routes — Phase M-D.2.
+// Ideation artefact section + version + lock routes — Phase M-E.2.
 // Mirror of MedContentSection routes.
 //
 //   GET    /ideation-artefacts/:id/sections
@@ -227,5 +227,72 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
       if (mapped) return reply.code(mapped.code).send(mapped.body)
       throw err
     }
+  })
+
+  // Phase M-E.3 — kick off the AI initial-draft worker.
+  const draftRequestSchema = z.object({
+    aiInstructions: z.string().max(2000).optional(),
+  })
+  app.post('/:ideationArtefactId/ai-initial-draft', { preHandler: writeGate }, async (request, reply) => {
+    const { ideationArtefactId } = request.params as { ideationArtefactId: string }
+    const parsed = draftRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const art = await app.prisma.ideationArtefact.findUnique({
+      where: { id: ideationArtefactId },
+      select: {
+        id: true, ideationProjectId: true,
+        aiDraftState: true, currentVersionId: true,
+      },
+    })
+    if (!art) return reply.code(404).send({ error: 'not_found' })
+    if (!art.currentVersionId) {
+      return reply.code(409).send({
+        error:   'no_current_version',
+        message: 'Ideation artefact has no current version. Create flow should have seeded v0.1 when a docType was provided.',
+      })
+    }
+    if (art.aiDraftState === 'drafting' || art.aiDraftState === 'validating') {
+      return reply.code(409).send({
+        error:   'already_running',
+        state:   art.aiDraftState,
+        message: `AI draft chain is already ${art.aiDraftState} for this artefact.`,
+      })
+    }
+
+    if (parsed.data.aiInstructions !== undefined) {
+      await app.prisma.ideationArtefact.update({
+        where: { id: ideationArtefactId },
+        data:  { aiInstructions: parsed.data.aiInstructions.trim() || null, aiDraftState: 'idle' },
+      })
+    }
+
+    const parent = await app.prisma.ideationProject.findUnique({
+      where: { id: art.ideationProjectId }, select: { projectId: true },
+    })
+
+    const jobId = `idea-ai-initial-draft-${ideationArtefactId}`
+    try {
+      await app.queue.enqueue('ideation.ai_initial_draft', {
+        ideationArtefactId,
+        projectId: parent?.projectId ?? art.ideationProjectId,
+        actorId:   request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      request.log.warn({ err, ideationArtefactId }, 'idea ai-initial-draft: enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue the draft job.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ideation_artefact_ai_initial_draft_enqueued',
+      entityType: 'ideation_artefact',
+      entityId:   ideationArtefactId,
+      details:    { jobId, hasAiInstructions: parsed.data.aiInstructions !== undefined },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({ jobId, ideationArtefactId, state: 'enqueued' })
   })
 }

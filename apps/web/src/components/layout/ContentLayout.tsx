@@ -10,6 +10,7 @@ export function ContentLayout() {
   const tabs: SubNavTab[] = [
     { to: base,                  label: t('component.content_layout.tab_briefing'),     end: true },
     { to: `${base}/editor`,      label: t('component.content_layout.tab_editor') },
+    { to: `${base}/live-editor`, label: 'Live editor' },
     { to: `${base}/pre-mlr`,     label: t('component.content_layout.tab_pre_mlr') },
     { to: `${base}/mlr-review`,  label: t('component.content_layout.tab_mlr_review') },
     { to: `${base}/formatting`,  label: t('component.content_layout.tab_formatting') },

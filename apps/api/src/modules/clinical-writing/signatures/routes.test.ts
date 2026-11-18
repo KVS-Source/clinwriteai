@@ -216,19 +216,38 @@ describe('signature chain routes', () => {
     expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
   })
 
-  it('SIGNATURE_SKIP_CONTENT_GATE=1 (test switch) opens the chain despite an empty section, but never in production', async () => {
+  it('SIGNATURE_SKIP_CONTENT_GATE=1 (test switch) opens the chain despite an empty section; in production it is ignored unless SIGNATURE_ALLOW_SKIP_IN_PROD=1 is also set', async () => {
     const sections = t.db.documents[0].currentVersion.sections as Row[]
     sections.push({ sectionId: 's2', sectionNumber: '2', sectionTitle: 'Synopsis', contentHtml: '<p></p>' })
-    const prev = { skip: process.env.SIGNATURE_SKIP_CONTENT_GATE, env: process.env.NODE_ENV }
+    const prev = {
+      skip: process.env.SIGNATURE_SKIP_CONTENT_GATE,
+      prodOverride: process.env.SIGNATURE_ALLOW_SKIP_IN_PROD,
+      env: process.env.NODE_ENV,
+    }
     try {
+      // Prod, skip on, no override — gate stays closed.
       process.env.SIGNATURE_SKIP_CONTENT_GATE = '1'
+      delete process.env.SIGNATURE_ALLOW_SKIP_IN_PROD
       process.env.NODE_ENV = 'production'
       expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(409)
+
+      // Non-prod — skip alone is enough.
       process.env.NODE_ENV = 'development'
+      expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
+      expect(t.db.chains).toHaveLength(1)
+
+      // Clean the chain so the second POST isn't rejected as "chain_already_active".
+      t.db.chains.length = 0
+      t.db.records.length = 0
+
+      // Prod with explicit override — gate opens.
+      process.env.NODE_ENV = 'production'
+      process.env.SIGNATURE_ALLOW_SKIP_IN_PROD = '1'
       expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
       expect(t.db.chains).toHaveLength(1)
     } finally {
       if (prev.skip === undefined) delete process.env.SIGNATURE_SKIP_CONTENT_GATE; else process.env.SIGNATURE_SKIP_CONTENT_GATE = prev.skip
+      if (prev.prodOverride === undefined) delete process.env.SIGNATURE_ALLOW_SKIP_IN_PROD; else process.env.SIGNATURE_ALLOW_SKIP_IN_PROD = prev.prodOverride
       if (prev.env === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prev.env
     }
   })

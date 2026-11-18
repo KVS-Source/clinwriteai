@@ -15,7 +15,7 @@
 // AI classifier lands when the Anthropic connector is procured (same
 // gate as Module A's AI endpoints).
 
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyInstance } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
@@ -23,6 +23,7 @@ import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { medContentShape } from './routes.js'
 import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
+import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -59,6 +60,99 @@ const confirmSchema = z.object({
   targetAudience: z.array(z.string()).default([]),
   overrides: z.array(z.string()).default([]),
 })
+
+const VISION_DOC_TYPES = new Set([
+  'hcp_slide_deck', 'mi_letter', 'pil', 'cme_module',
+  'disease_dossier', 'eu_ctr_pls', 'advisory_report',
+])
+
+const VISION_PROMPT = [
+  'You are classifying a medical-communications source document.',
+  '',
+  'Return ONLY compact JSON in this exact shape, nothing else:',
+  '{"documentType":"hcp_slide_deck|mi_letter|pil|cme_module|disease_dossier|eu_ctr_pls|advisory_report",',
+  ' "typeConfidence":0-100,',
+  ' "studyTitle":"...",',
+  ' "studyConfidence":0-100,',
+  ' "version":"vX.Y or null",',
+  ' "therapeuticArea":"short label or null"}',
+  '',
+  'Rules:',
+  '- Pick ONE documentType from the list above. No other values.',
+  '- If you cannot tell, pick the closest + lower the confidence.',
+  '- studyTitle is the drug / product / disease name if present, otherwise "(unidentified)".',
+  '- version is any explicit version string in the document, otherwise null.',
+  '- therapeuticArea is a short label (e.g. "Oncology", "Cardiometabolic").',
+  '- Do not wrap in code fences. Do not explain.',
+].join('\n')
+
+interface VisionClassification {
+  documentType:     string
+  typeConfidence:   number
+  studyTitle:       string
+  studyConfidence:  number
+  version:          string | null
+  therapeuticArea:  string | null
+}
+
+/** Best-effort Claude-vision classifier. Returns null on any failure
+ *  (no key, non-PDF, timeout, malformed JSON) so the caller falls back
+ *  to the filename heuristic without leaking a surprise 500. */
+export async function classifyMedContentWithVision(
+  app:       FastifyInstance,
+  buf:       Buffer,
+  mimetype:  string,
+  fileName:  string,
+  tenantId:  string,
+  projectId: string,
+  actorId:   string,
+): Promise<VisionClassification | null> {
+  if (mimetype.toLowerCase() !== 'application/pdf') return null
+
+  let model: string
+  try {
+    const engine = await resolveAiEngineSettings(app.prisma)
+    model = engine.default
+    if (!app.aiGateway.isConfigured(model)) return null
+  } catch {
+    return null
+  }
+
+  let responseText: string
+  try {
+    const res = await app.aiGateway.chat({
+      tenantId,
+      projectId,
+      actorId,
+      module:    'C',
+      intent:    'classify_med_upload',
+      model,
+      prompt:    VISION_PROMPT,
+      documents: [{ mediaType: 'application/pdf', data: buf, label: fileName }],
+      maxOutputTokens: 300,
+    })
+    responseText = res.responseText
+  } catch {
+    return null
+  }
+
+  const trimmed = responseText.trim().replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '')
+  let parsed: unknown
+  try { parsed = JSON.parse(trimmed) } catch { return null }
+  if (!parsed || typeof parsed !== 'object') return null
+
+  const p = parsed as Partial<VisionClassification>
+  if (!p.documentType || !VISION_DOC_TYPES.has(p.documentType)) return null
+
+  return {
+    documentType:    p.documentType,
+    typeConfidence:  Math.max(0, Math.min(100, Math.round(Number(p.typeConfidence ?? 0)))),
+    studyTitle:      typeof p.studyTitle === 'string' ? p.studyTitle : '(unidentified)',
+    studyConfidence: Math.max(0, Math.min(100, Math.round(Number(p.studyConfidence ?? 0)))),
+    version:         typeof p.version === 'string' && p.version.trim().length > 0 ? p.version : null,
+    therapeuticArea: typeof p.therapeuticArea === 'string' && p.therapeuticArea.trim().length > 0 ? p.therapeuticArea : null,
+  }
+}
 
 export function classifyMedContentByFilename(filename: string) {
   const lc = filename.toLowerCase()
@@ -120,7 +214,32 @@ export const medContentUploadRoutes: FastifyPluginAsync = async (app) => {
       metadata: { originalFilename: file.filename, projectId, uploadedBy: request.user!.id, module: 'C' },
     })
 
-    const classification = classifyMedContentByFilename(file.filename)
+    const filenameClassification = classifyMedContentByFilename(file.filename)
+    // Claude-vision one-shot. Overrides the filename heuristic when it
+    // has strictly higher documentType confidence. Null on any failure
+    // (no key, non-PDF, malformed response) so the filename result
+    // keeps carrying the demo.
+    const visionClassification = await classifyMedContentWithVision(
+      app, buf, file.mimetype, file.filename,
+      request.user!.tenantId ?? 'unknown', projectId, request.user!.id,
+    )
+    const useVision = !!visionClassification
+      && visionClassification.typeConfidence > filenameClassification.typeConfidence
+    const classification = useVision
+      ? {
+          ...filenameClassification,
+          documentType:   visionClassification!.documentType,
+          typeConfidence: visionClassification!.typeConfidence,
+          studyTitle:     visionClassification!.studyTitle,
+          studyConfidence: visionClassification!.studyConfidence,
+          version:        visionClassification!.version ?? filenameClassification.version,
+          versionConfidence: visionClassification!.version ? 85 : filenameClassification.versionConfidence,
+          therapeuticArea:   visionClassification!.therapeuticArea ?? filenameClassification.therapeuticArea,
+          taConfidence:      visionClassification!.therapeuticArea ? 70 : filenameClassification.taConfidence,
+          stub:              false,
+          classifiedBy:      'claude-vision',
+        }
+      : { ...filenameClassification, classifiedBy: 'filename' as const }
 
     const row = await app.prisma.contentUpload.create({
       data: {
@@ -147,7 +266,9 @@ export const medContentUploadRoutes: FastifyPluginAsync = async (app) => {
         fileName: file.filename,
         fileSizeBytes: buf.length,
         contentType: file.mimetype,
-        detectedType: classification.documentType,
+        detectedType:   classification.documentType,
+        classifiedBy:   useVision ? 'claude-vision' : 'filename',
+        typeConfidence: classification.typeConfidence,
       },
       ipAddress: request.ip ?? null,
     })

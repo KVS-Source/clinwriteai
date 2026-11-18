@@ -40,6 +40,7 @@ import { MedicalWritingHome } from '../screens/medical-writing/MedicalWritingHom
 import { ContentBriefing }   from '../screens/medical-writing/ContentBriefing'
 import { KOLAdvisoryBoardSession } from '../screens/medical-writing/KOLAdvisoryBoardSession'
 import { ContentEditor }         from '../screens/medical-writing/ContentEditor'
+import { MedContentLiveEditor }  from '../screens/medical-writing/MedContentLiveEditor'
 import { PreMLRCheckPanel }      from '../screens/medical-writing/PreMLRCheckPanel'
 import { MLRReview }              from '../screens/medical-writing/MLRReview'
 import { ClaimsMatrixPanel }      from '../screens/medical-writing/ClaimsMatrixPanel'
@@ -276,6 +277,7 @@ export const router = createBrowserRouter([
                 children: [
                   { index: true,         element: <ContentBriefing /> },
                   { path: 'editor',      element: <ContentEditor /> },
+                  { path: 'live-editor', element: <MedContentLiveEditor /> },
                   { path: 'pre-mlr',     element: <PreMLRCheckPanel /> },
                   { path: 'mlr-review',  element: <MLRReview /> },
                   { path: 'formatting',  element: <FormattingAccessibility /> },

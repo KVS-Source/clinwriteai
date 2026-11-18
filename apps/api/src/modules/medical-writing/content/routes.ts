@@ -161,20 +161,113 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
     const taTag = await resolveTa(app.prisma, parsed.data.taTag, project.therapeuticArea)
     if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag))
 
-    const created = await app.prisma.medContentItem.create({
-      data: {
-        projectId,
-        sourceModuleAProjectId: srcProjectId,
-        sourceModuleBPubId: parsed.data.sourceModuleBPubId ?? null,
-        type: dbType,
-        title: parsed.data.title,
-        complianceTrack: dbTrack,
-        taTag,
-        channels: parsed.data.channels,
-        targetAudience: parsed.data.targetAudience,
-        ownerId: parsed.data.ownerId ?? request.user!.id,
-        createdBy: request.user!.id,
-      },
+    // Phase M-C.1/2 — resolve the current MedContentTypePolicy for
+    // this docType + latest-approved AiPromptRecord + BestPracticeRecord
+    // so the new item pins them at create time. Later admin approvals
+    // of newer versions don't retroactively change what AI saw for an
+    // already-authored item. Falls back to the policy's legacy columns
+    // when no approved AiPrompt / BP record exists yet.
+    const policyDocType = dbType.replace(/-/g, '_').toLowerCase()
+    const policy = await app.prisma.medContentTypePolicy.findFirst({
+      where: { docType: policyDocType, isCurrent: true, retiredAt: null },
+    })
+    const promptPin = await app.prisma.medContentAiPromptRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+    const bpPin = await app.prisma.medContentBestPracticeRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+
+    // Phase M-C.2 — resolve section template. For the 2 single-body
+    // types (mi_letter, eu_ctr_pls) we seed a synthetic 'body' section
+    // so the editor + AI worker have a uniform target. For the others,
+    // the policy's template (if pinned) drives the section skeleton;
+    // falls back to a generic one-per-type skeleton otherwise.
+    const SINGLE_BODY_TYPES = new Set(['mi_letter', 'eu_ctr_pls'])
+    const FALLBACK_SECTIONS: Record<string, Array<{ id: string; number: string; title: string }>> = {
+      hcp_slide_deck:   [{ id: 'overview', number: '0', title: 'Overview' }],   // hcp_slide_deck uses MedSlide for authoring; this stays as a scaffold
+      pil:              [
+        { id: 'what_is_the_medicine', number: '1', title: 'What is the medicine?' },
+        { id: 'before_taking',        number: '2', title: 'Before you take it' },
+        { id: 'how_to_take',          number: '3', title: 'How to take it' },
+        { id: 'possible_side_effects', number: '4', title: 'Possible side effects' },
+        { id: 'storage',              number: '5', title: 'Storing the medicine' },
+      ],
+      cme_module:       [
+        { id: 'learning_objectives',  number: '1', title: 'Learning objectives' },
+        { id: 'background',           number: '2', title: 'Background' },
+        { id: 'content',              number: '3', title: 'Core content' },
+        { id: 'assessment',           number: '4', title: 'Assessment questions' },
+        { id: 'references',           number: '5', title: 'References' },
+      ],
+      disease_dossier:  [
+        { id: 'epidemiology',         number: '1', title: 'Epidemiology' },
+        { id: 'pathophysiology',      number: '2', title: 'Pathophysiology' },
+        { id: 'diagnosis',            number: '3', title: 'Diagnosis' },
+        { id: 'treatment_landscape',  number: '4', title: 'Treatment landscape' },
+        { id: 'unmet_needs',          number: '5', title: 'Unmet needs' },
+      ],
+      advisory_report:  [
+        { id: 'executive_summary',    number: '1', title: 'Executive summary' },
+        { id: 'session_overview',     number: '2', title: 'Session overview' },
+        { id: 'discussion_themes',    number: '3', title: 'Discussion themes' },
+        { id: 'recommendations',      number: '4', title: 'Recommendations' },
+      ],
+    }
+    let sectionPayload: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string }>
+    if (SINGLE_BODY_TYPES.has(dbType)) {
+      sectionPayload = [{ sectionId: 'body', sectionNumber: '1', sectionTitle: 'Body' }]
+    } else if (policy?.templateId) {
+      const tmpl = await app.prisma.medContentTemplate.findUnique({ where: { id: policy.templateId } })
+      const tmplSections = (tmpl?.sections as unknown as Array<{ id: string; number?: string; title: string }>) ?? []
+      sectionPayload = tmplSections.length > 0
+        ? tmplSections.map((s, i) => ({
+            sectionId:     String(s.id ?? `s${i + 1}`),
+            sectionNumber: String(s.number ?? i + 1),
+            sectionTitle:  String(s.title ?? `Section ${i + 1}`),
+          }))
+        : (FALLBACK_SECTIONS[dbType] ?? [{ id: 'body', number: '1', title: 'Body' }])
+          .map(s => ({ sectionId: s.id, sectionNumber: s.number, sectionTitle: s.title }))
+    } else {
+      sectionPayload = (FALLBACK_SECTIONS[dbType] ?? [{ id: 'body', number: '1', title: 'Body' }])
+        .map(s => ({ sectionId: s.id, sectionNumber: s.number, sectionTitle: s.title }))
+    }
+
+    const { initialiseMedContentVersion } = await import('./section-service.js')
+
+    const created = await app.prisma.$transaction(async (tx) => {
+      const item = await tx.medContentItem.create({
+        data: {
+          projectId,
+          sourceModuleAProjectId: srcProjectId,
+          sourceModuleBPubId: parsed.data.sourceModuleBPubId ?? null,
+          type: dbType,
+          title: parsed.data.title,
+          complianceTrack: dbTrack,
+          taTag,
+          channels: parsed.data.channels,
+          targetAudience: parsed.data.targetAudience,
+          ownerId: parsed.data.ownerId ?? request.user!.id,
+          createdBy: request.user!.id,
+          // Phase M-C.1 pins
+          medContentTypePolicyVersionAtCreate:    policy?.version ?? null,
+          medContentAiPromptRecordId:             promptPin?.id      ?? null,
+          medContentAiPromptVersionAtCreate:      promptPin?.version ?? null,
+          medContentBestPracticeRecordId:         bpPin?.id      ?? null,
+          medContentBestPracticeVersionAtCreate:  bpPin?.version ?? null,
+        },
+      })
+      // Phase M-C.2 — seed v0.1 + sections.
+      await initialiseMedContentVersion(tx, {
+        contentItemId: item.id,
+        actorId:       request.user!.id,
+        sections:      sectionPayload,
+      })
+      return item
     })
 
     await app.audit.append({
@@ -189,6 +282,10 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
         title: created.title,
         complianceTrack: created.complianceTrack,
         taTag: created.taTag,
+        policyVersion: policy?.version ?? null,
+        aiPromptVersion: promptPin?.version ?? null,
+        bpVersion:       bpPin?.version    ?? null,
+        sectionCount: sectionPayload.length,
       },
       ipAddress: request.ip ?? null,
     })
@@ -355,6 +452,82 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return medContentShape(updated)
+  })
+
+  // Phase M-C.3 — kick off the AI initial-draft worker. Mirror of
+  // publications /ai-initial-draft. Idempotent on jobId; 409 when a
+  // chain is already in flight. aiInstructions (if sent) persists on
+  // the content item.
+  const draftRequestSchema = z.object({
+    aiInstructions: z.string().max(2000).optional(),
+  })
+  app.post('/:contentId/ai-initial-draft', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const parsed = draftRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const item = await app.prisma.medContentItem.findUnique({
+      where: { id: contentId },
+      select: {
+        id: true, projectId: true, archivedAt: true,
+        aiDraftState: true, currentVersionId: true,
+      },
+    })
+    if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!item.currentVersionId) {
+      return reply.code(409).send({
+        error:   'no_current_version',
+        message: 'Content item has no current version. Create flow should have seeded v0.1.',
+      })
+    }
+    {
+      const { actorCanEditMedContent: canEdit, MED_CONTENT_EDIT_FORBIDDEN: forbidden } =
+        await import('../access/med-content-raci.js')
+      if (!(await canEdit(app.prisma, request.user!, contentId))) {
+        return reply.code(403).send(forbidden)
+      }
+    }
+    if (item.aiDraftState === 'drafting' || item.aiDraftState === 'validating') {
+      return reply.code(409).send({
+        error:   'already_running',
+        state:   item.aiDraftState,
+        message: `AI draft chain is already ${item.aiDraftState} for this content item.`,
+      })
+    }
+
+    if (parsed.data.aiInstructions !== undefined) {
+      await app.prisma.medContentItem.update({
+        where: { id: contentId },
+        data:  {
+          aiInstructions: parsed.data.aiInstructions.trim() || null,
+          aiDraftState:   'idle',
+        },
+      })
+    }
+
+    const jobId = `med-ai-initial-draft-${contentId}`
+    try {
+      await app.queue.enqueue('med_content.ai_initial_draft', {
+        contentItemId: contentId,
+        projectId:     item.projectId,
+        actorId:       request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      request.log.warn({ err, contentId }, 'med ai-initial-draft: enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue the draft job.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'med_content_ai_initial_draft_enqueued',
+      entityType: 'med_content_item',
+      entityId:   contentId,
+      details:    { jobId, hasAiInstructions: parsed.data.aiInstructions !== undefined },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({ jobId, contentItemId: contentId, state: 'enqueued' })
   })
 
   app.post('/:contentId/advance-stage', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {

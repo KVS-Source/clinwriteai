@@ -222,6 +222,184 @@ export const medContentApi = {
     api.patch<MedSlide>(`/med-slides/${slideId}`, body),
   deleteSlide: (slideId: string) =>
     api.delete<void>(`/med-slides/${slideId}`),
+
+  // --- Sections + versioning + locks (Phase M-C.2) -----------------------
+  getSections: (contentId: string) =>
+    api.get<{ contentItemId: string; sections: MedContentSectionRow[] }>(
+      `/med-content/${contentId}/sections`,
+    ),
+  saveSection: (contentId: string, sectionId: string, contentHtml: string) =>
+    api.patch<{ id: string; sectionId: string; contentHtml: string; wordCount: number; lastEditedAt: string | null }>(
+      `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}`,
+      { contentHtml },
+    ),
+  acquireSectionLock: (contentId: string, sectionId: string) =>
+    api.post<MedSectionLockResult>(
+      `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}/lock`, {},
+    ),
+  releaseSectionLock: (contentId: string, sectionId: string) =>
+    api.delete<{ released: boolean }>(
+      `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}/lock`,
+    ),
+  listSectionLocks: (contentId: string) =>
+    api.get<{ contentItemId: string; staleSeconds: number; locks: Array<{ sectionId: string; holder: MedSectionLockHolder }> }>(
+      `/med-content/${contentId}/locks`,
+    ),
+  listVersions: (contentId: string) =>
+    api.get<{
+      contentItemId:    string
+      currentVersionId: string | null
+      versions:         Array<{ id: string; versionNumber: string; label: string; isCurrent: boolean; createdBy: string; createdAt: string }>
+    }>(`/med-content/${contentId}/versions`),
+  bumpVersion: (contentId: string, body: { label: string; newVersionNumber: string; note?: string }) =>
+    api.post<{ id: string; versionNumber: string; label: string; createdAt: string }>(
+      `/med-content/${contentId}/versions/bump`, body,
+    ),
+
+  // --- AI initial draft (Phase M-C.3) ------------------------------------
+  startAiInitialDraft: (contentId: string, body: { aiInstructions?: string } = {}) =>
+    api.post<{ jobId: string; contentItemId: string; state: 'enqueued' }>(
+      `/med-content/${contentId}/ai-initial-draft`, body,
+    ),
+
+  // --- Section ai-suggest (Phase M-C.4) ----------------------------------
+  // Mirror of publications/clinical ai-suggest — intent-templated rewrite
+  // / explain / tighten / custom / edit, with auto-attached source PDFs +
+  // policy block + SECTION_GROUNDING_RULES composed server-side.
+  aiSuggestSection: (
+    contentId: string,
+    sectionId: string,
+    body: {
+      intent:        'draft_from_source' | 'tighten' | 'explain' | 'custom' | 'edit'
+      customPrompt?: string
+      currentContent?: string
+      selectionText?: string
+      scope?:        'section' | 'document' | 'source'
+      attachedSourceIds?: string[]
+      model?:        string
+    },
+  ) =>
+    api.post<{ responseText: string; model: string; recordId?: string; scope?: string }>(
+      `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
+      body,
+    ),
+
+  // --- Section comments (Phase M-C.5) ------------------------------------
+  listComments: (contentId: string, sectionId?: string) =>
+    api.get<{ contentItemId: string; comments: MedContentSectionCommentRow[] }>(
+      `/med-content/${contentId}/comments${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`,
+    ),
+  createComment: (
+    contentId: string,
+    sectionId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<MedContentSectionCommentRow>(
+      `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}/comments`,
+      body,
+    ),
+  resolveComment: (contentId: string, commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<MedContentSectionCommentRow>(
+      `/med-content/${contentId}/comments/${commentId}/resolve`,
+      body,
+    ),
+
+  // --- Slide comments (Phase M-C.5) --------------------------------------
+  listDeckComments: (deckJobId: string) =>
+    api.get<{ deckJobId: string; comments: MedSlideCommentRow[] }>(
+      `/med-slide-decks/${deckJobId}/comments`,
+    ),
+  listSlideComments: (slideId: string) =>
+    api.get<{ slideId: string; comments: MedSlideCommentRow[] }>(
+      `/med-slides/${slideId}/comments`,
+    ),
+  createSlideComment: (
+    slideId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<MedSlideCommentRow>(
+      `/med-slides/${slideId}/comments`,
+      body,
+    ),
+  resolveSlideComment: (commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<MedSlideCommentRow>(
+      `/med-slide-comments/${commentId}/resolve`,
+      body,
+    ),
+}
+
+// --- Comment shapes (Phase M-C.5) --------------------------------------
+
+export interface MedContentSectionCommentRow {
+  id:               string
+  contentItemId:    string
+  sectionId:        string
+  authorId:         string
+  authorName:       string
+  text:             string
+  severity:         'info' | 'warning' | 'blocking'
+  status:           'open' | 'resolved'
+  resolvedBy:       string | null
+  resolvedAt:       string | null
+  resolutionNote:   string | null
+  parentCommentId:  string | null
+  mentionedUserIds: string[]
+  createdAt:        string
+}
+
+export interface MedSlideCommentRow {
+  id:               string
+  slideId:          string
+  deckJobId:        string
+  authorId:         string
+  authorName:       string
+  text:             string
+  severity:         'info' | 'warning' | 'blocking'
+  status:           'open' | 'resolved'
+  resolvedBy:       string | null
+  resolvedAt:       string | null
+  resolutionNote:   string | null
+  parentCommentId:  string | null
+  mentionedUserIds: string[]
+  createdAt:        string
+}
+
+// --- Section + lock shapes (Phase M-C.2/4) -----------------------------
+
+export interface MedContentSectionRow {
+  id:            string
+  sectionId:     string
+  sectionNumber: string
+  sectionTitle:  string
+  contentHtml:   string
+  wordCount:     number
+  aiConfidence:  number | null
+  aiFlags:       string[]
+  lastEditedBy:  string | null
+  lastEditedAt:  string | null
+}
+
+export interface MedSectionLockHolder {
+  userId:           string
+  acquiredAt:       string
+  lastHeartbeatAt:  string
+  expiresInSeconds: number
+}
+
+export interface MedSectionLockResult {
+  outcome:      'acquired' | 'extended' | 'stolen' | 'conflict'
+  holder:       MedSectionLockHolder
+  staleSeconds: number
 }
 
 // --- Slide deck shape (API returns these verbatim) ---------------------

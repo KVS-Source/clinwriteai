@@ -312,6 +312,20 @@ async function buildServer() {
   await app.register(medContentAiPromptRoutes,      { prefix: '/med-content-ai-prompts' })
   await app.register(medContentBestPracticeRoutes,  { prefix: '/med-content-best-practice-records' })
 
+  // Regulatory-Writing Policy admin (Phase M-D.1, migration 84) — mirror
+  // of the medical-content policy stack scoped to regulatory doctypes
+  // (ctd_m2_3_qos, ctd_m2_4_nonclin_overview, ctd_m2_5_clinical_overview,
+  // ctd_m2_7_clinical_summary, cover_letter, ha_response_narrative, etc.).
+  // Writes PM-only + Module D gated.
+  const {
+    regulatoryTypePolicyRoutes,
+    regulatoryAiPromptRoutes,
+    regulatoryBestPracticeRoutes,
+  } = await import('./modules/regulatory-writing/policy/routes.js')
+  await app.register(regulatoryTypePolicyRoutes,    { prefix: '/regulatory-type-policies' })
+  await app.register(regulatoryAiPromptRoutes,      { prefix: '/regulatory-ai-prompts' })
+  await app.register(regulatoryBestPracticeRoutes,  { prefix: '/regulatory-best-practice-records' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')

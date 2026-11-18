@@ -350,3 +350,126 @@ model OddAssessment {
   @@index([submissionId])
   @@index([status])
 }
+
+// ===== Phase M-D.1 — policy stack =======================================
+// Mirror of Module C's MedContentTypePolicy / MedContentAiPromptRecord /
+// MedContentBestPracticeRecord trio. docType values target the long-form
+// narrative regulatory documents authored inside a submission:
+//   ctd_m2_3_qos, ctd_m2_4_nonclin_overview, ctd_m2_5_clinical_overview,
+//   ctd_m2_6_nonclin_summary, ctd_m2_7_clinical_summary, cover_letter,
+//   qos, ha_response_narrative, etc.
+
+model RegulatoryTypePolicy {
+  id                  String    @id @default(uuid())
+  docType             String
+  version             Int
+  isCurrent           Boolean   @default(true)
+  templateId          String?
+  checklistTemplateId String?
+  regulatoryTrack     String?                                         // 'ind' | 'nda' | 'maa' | 'bla' | 'variation' | null
+  reviewTierFormula   String?
+  smePrompt           String    @default("")
+  bestPracticeDigest  Json      @default("{\"principles\":[]}")
+  sectionRules        Json      @default("{}")
+  effectiveDate       DateTime  @default(now())
+  retiredAt           DateTime?
+  retiredBy           String?
+  retireReason        String?
+  supersededBy        String?
+  createdBy           String
+  updatedBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("regulatory_type_policies")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model RegulatoryAiPromptRecord {
+  id            String    @id @default(uuid())
+  docType       String
+  version       Int
+  status        String    @default("draft")                          // 'draft' | 'approved' | 'retired'
+  smePrompt     String
+  sectionRules  Json      @default("{}")
+  supersededBy  String?
+  effectiveDate DateTime?
+  retiredAt     DateTime?
+  retireReason  String?
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdBy     String
+  updatedBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("regulatory_ai_prompt_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model RegulatoryBestPracticeRecord {
+  id             String    @id @default(uuid())
+  docType        String
+  version        Int
+  status         String    @default("draft")
+  digest         Json      @default("{\"principles\":[]}")
+  sourcePdfId    String?
+  distilledAt    DateTime?
+  distilledModel String?
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("regulatory_best_practice_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model RegulatoryDocumentTemplate {
+  id          String    @id @default(uuid())
+  docType     String
+  version     Int       @default(1)
+  isCurrent   Boolean   @default(true)
+  label       String
+  description String    @default("")
+  sections    Json      @default("[]")
+  retiredAt   DateTime?
+  retiredBy   String?
+  createdBy   String
+  updatedBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("regulatory_document_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model RegulatoryDocumentChecklistTemplate {
+  id         String    @id @default(uuid())
+  docType    String
+  version    Int       @default(1)
+  isCurrent  Boolean   @default(true)
+  items      Json      @default("[]")
+  retiredAt  DateTime?
+  retiredBy  String?
+  createdBy  String
+  updatedBy  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("regulatory_document_checklist_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}

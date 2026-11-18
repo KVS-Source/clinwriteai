@@ -38,9 +38,10 @@ export type QueueJobName =
   | 'publications.ai_initial_draft'
   | 'publications.ai_validation_pass'
   | 'publications.distill_best_practice'
-  // Module C — medical-writing BP distiller (mirrors the publication
-  // + clinical BP workers).
+  // Module C — medical-writing BP distiller + initial-draft + 85% loop.
   | 'med_content.distill_best_practice'
+  | 'med_content.ai_initial_draft'
+  | 'med_content.ai_validation_pass'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

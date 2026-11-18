@@ -24,6 +24,8 @@ async function open(page: Page, me: typeof PM2, path = '/diff') {
       if (p.endsWith(`/documents/${doc}/raci`)) {
         return json([{ id: 'r-a', documentId: doc, userId: me.id, letter: 'A', sectionId: null, approvalOrder: 1, signatureRequired: true, signatureMeaning: null, submittedAt: null, reviewedAt: null, removedAt: null }])
       }
+      // No CRM meetings: an Approver-only person isn't invited to one, so has no CRM tab.
+      if (p.endsWith(`/documents/${doc}/crm`)) return json([])
       if (p.endsWith(`/documents/${doc}`)) return json({ id: doc, projectId: 'p-e2e', title: 'CSR Full', documentType: 'csr_full', status: 'in-review', version: '0.1', sections: [] })
       const res = await real(input, init)
       return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
@@ -34,9 +36,10 @@ async function open(page: Page, me: typeof PM2, path = '/diff') {
 
 const tab = (page: Page, label: string) => page.locator(`[data-subnav] [data-subnav-tab="${label}"]`)
 
-test('a PM assigned as Approver gets the Editor and CRM tabs (plus Approver View)', async ({ page }) => {
+test('a PM assigned as Approver gets the Editor and CRM tabs and Reviewer View, never Approver View', async ({ page }) => {
   await open(page, PM2)
-  await expect(tab(page, 'Approver View')).toBeVisible({ timeout: 60_000 })
+  await expect(tab(page, 'Reviewer View')).toBeVisible({ timeout: 60_000 })
+  await expect(tab(page, 'Approver View')).toHaveCount(0)
   await expect(tab(page, 'Editor')).toBeVisible()
   await expect(tab(page, 'CRM')).toBeVisible()
   await expect(tab(page, 'E-Signature')).toBeVisible()
@@ -51,11 +54,12 @@ test('a deep link to CRM is not sent away for a PM Approver', async ({ page }) =
 })
 
 // Contributor + Project Manager (e.g. Abhishek, Sheetal): the tabs follow the role chosen in the top bar.
-test('a Contributor + PM working as Project Manager gets the Editor and CRM tabs', async ({ page }) => {
+test('a Contributor + PM working as Project Manager gets the Editor and CRM tabs and Reviewer View, not Approver View', async ({ page }) => {
   const me = { ...PM2, id: 'u-dual', name: 'Dual Role', role: 'pm', roles: ['pm'], allRoles: ['contributor', 'pm'] }
   await page.addInitScript((id) => { localStorage.setItem('clinwrite.activeRole', JSON.stringify({ userId: id, role: 'pm' })) }, me.id)
   await open(page, me)
-  await expect(tab(page, 'Approver View')).toBeVisible({ timeout: 60_000 })
+  await expect(tab(page, 'Reviewer View')).toBeVisible({ timeout: 60_000 })
+  await expect(tab(page, 'Approver View')).toHaveCount(0)
   await expect(tab(page, 'Editor')).toBeVisible()
   await expect(tab(page, 'CRM')).toBeVisible()
 })

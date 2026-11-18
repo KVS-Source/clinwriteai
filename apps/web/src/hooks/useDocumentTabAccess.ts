@@ -13,8 +13,9 @@ import { holdsRole } from '../config/roles'
 //  - Reviewer View: everyone except a pure Author (R with no C/Q/A).
 //  - No letter at all (PM, auditor, admin, Informed): both tabs, read-only as the screens decide.
 //  - Working as Project Manager: always the Editor and CRM tabs, whatever letters they also hold (a PM added
-//    to the project, e.g. a second PM, may hold A or C there too). What they may change is still the server's
-//    decision.
+//    to the project, e.g. a second PM, may hold A or C there too), and never Approver View: their review tab is
+//    the read-only Reviewer View. Approving is done after switching to Contributor. What they may change is still
+//    the server's decision.
 //  - An Approver-only person who is not a PM gets the CRM tab while invited to a scheduled or running meeting.
 // undefined while the answer is loading; a failed lookup leaves both tabs open (the server
 // still decides what each screen may do).
@@ -60,8 +61,9 @@ export function tabAccessForLetters(letters: ReadonlySet<string>, opts: { pm?: b
     // PM assigned as A): they run the project and the Comments Resolution Meeting. What they may change in the
     // Editor is still decided by the server and their letters.
     editor: author || !reviewSide || !!opts.pm,
-    review: reviewSide || !author,
+    review: reviewSide || !author || !!opts.pm,
     crm: !approverOnly || !!opts.pm,
-    approverOnly,
+    // Not for a PM: no "Approver View" tab or approve panel while working as PM.
+    approverOnly: approverOnly && !opts.pm,
   }
 }

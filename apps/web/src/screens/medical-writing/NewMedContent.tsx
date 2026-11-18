@@ -12,12 +12,27 @@
 //     later.
 
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MedContentType } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { assignableUsersApi } from '../../api/raci'
+import { platformApi, type MedContentTypePolicy } from '../../platform/api/platformApi'
+
+// Phase M-C.6 — policy-aware wizard. Pulls the configured
+// MedContentTypePolicy rows (admin-curated in Master Library → Medical
+// Policies) and lists them as first-class choices with the pins each
+// policy carries (policy v, AI prompt pin, BP pin, template pin).
+// Picking a configured policy preselects the compliance track from
+// policy.complianceTrack if set, and the create route (apps/api
+// medContentProjectScopedRoutes) will pin
+// medContentTypePolicyVersionAtCreate + medContentAiPromptRecordId +
+// medContentBestPracticeRecordId on the new item.
+//
+// The legacy static MED_TYPE_OPTIONS stays as a fallback for the no-
+// policy path — admins who haven't configured anything yet still get
+// a working flow.
 
 const MED_TYPE_OPTIONS: { value: MedContentType; label: string; description: string }[] = [
   { value: 'hcp-slide-deck',   label: 'HCP Slide Deck',        description: 'Scientific/promotional deck for HCPs — MLR gated.' },
@@ -36,6 +51,21 @@ const TRACK_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'advisory',        label: 'Advisory Track',                description: 'KOL advisory boards — AI insights capture.' },
 ]
 
+// API docType uses underscores; UI MedContentType uses hyphens.
+function docTypeToUiType(docType: string): MedContentType | null {
+  const hyphenated = docType.replace(/_/g, '-') as MedContentType
+  const known: MedContentType[] = [
+    'hcp-slide-deck', 'mi-letter', 'pil', 'cme-module',
+    'disease-dossier', 'eu-ctr-pls', 'advisory-report',
+  ]
+  return (known as string[]).includes(hyphenated) ? hyphenated : null
+}
+
+function uiTypeLabel(value: MedContentType): string {
+  const meta = MED_TYPE_OPTIONS.find(t => t.value === value)
+  return meta?.label ?? value
+}
+
 interface Props {
   projectId:          string
   projectTA?:         string
@@ -52,6 +82,9 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
   const [complianceTrack, setComplianceTrack] = useState<string>('promotional')
   const [taTag,           setTaTag]           = useState(projectTA ?? '')
   const [ownerId,         setOwnerId]         = useState('')
+  // null means "no configured policy selected" (legacy path). A string
+  // is the docType of the configured policy card the author picked.
+  const [selectedPolicyDocType, setSelectedPolicyDocType] = useState<string | null>(null)
 
   useEffect(() => {
     if (projectTA && !taTag) setTaTag(projectTA)
@@ -63,6 +96,21 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
     queryFn:  () => assignableUsersApi.listForAssignee(projectId),
     retry: false,
   })
+
+  // Configured policies — admin curation in Master Library. Keeps the
+  // legacy static type list visible if the fetch fails or nothing is
+  // configured yet.
+  const { data: policyList } = useQuery({
+    queryKey: ['med-content-type-policies'],
+    queryFn:  () => platformApi.listMedContentTypePolicies(),
+    retry: false,
+  })
+  const configuredPolicies: MedContentTypePolicy[] = useMemo(() => {
+    const rows = policyList?.policies ?? []
+    return rows
+      .filter(p => p.isCurrent && !p.retiredAt && !!docTypeToUiType(p.docType))
+      .sort((a, b) => a.docType.localeCompare(b.docType))
+  }, [policyList])
 
   const { data: sourceContent } = useQuery({
     queryKey: ['medContent', duplicateSourceId],
@@ -76,6 +124,18 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
     setTaTag(sourceContent.taTag)
     setOwnerId(sourceContent.ownerId)
   }, [sourceContent])
+
+  // When a configured policy card is selected, snap the compliance
+  // track (if the policy pins one) + align the hyphenated type.
+  const applyPolicy = (policy: MedContentTypePolicy) => {
+    setSelectedPolicyDocType(policy.docType)
+    const uiType = docTypeToUiType(policy.docType)
+    if (uiType) setType(uiType)
+    if (policy.complianceTrack) setComplianceTrack(policy.complianceTrack)
+  }
+  const clearPolicySelection = () => {
+    setSelectedPolicyDocType(null)
+  }
 
   const create = useMutation({
     mutationFn: () => medContentApi.create(projectId, {
@@ -127,15 +187,85 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
         <p className="mt-0.5 text-[11px] text-slate-500">
           Determines the MLR track defaults + patient-facing checks (e.g. FK Grade ≤ 8 for PIL/PLS).
         </p>
-        <div className="mt-3 grid grid-cols-1 gap-2">
+
+        {configuredPolicies.length === 0 && (
+          <div
+            className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+            data-banner="no-policies"
+          >
+            No medical-content policies are configured yet. The create flow will fall back to the
+            default section skeleton. Admins — Master Library → Medical Policies → add a policy to
+            wire template + AI prompt + best-practice pins.
+          </div>
+        )}
+
+        {configuredPolicies.length > 0 && (
+          <div className="mt-3 flex flex-col gap-2" data-policies>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              Configured policies
+            </p>
+            {configuredPolicies.map(p => {
+              const uiType = docTypeToUiType(p.docType)
+              const isSelected = selectedPolicyDocType === p.docType
+              return (
+                <label key={p.id}
+                  className={`flex cursor-pointer flex-col gap-1 rounded-md border p-3 ${
+                    isSelected ? 'border-violet-500 bg-violet-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                  data-policy-card={p.docType}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <input type="radio" name="policy" value={p.docType} checked={isSelected}
+                        onChange={() => applyPolicy(p)} />
+                      <span className="text-[13px] font-semibold text-slate-900">
+                        {uiType ? uiTypeLabel(uiType) : p.docType.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] uppercase text-slate-700">
+                      policy v{p.version}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 pl-5">
+                    {p.templateId && (
+                      <span className="rounded bg-sky-100 px-1.5 py-0.5 font-mono text-[9px] uppercase text-sky-800">
+                        template pinned
+                      </span>
+                    )}
+                    {p.checklistTemplateId && (
+                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[9px] uppercase text-emerald-800">
+                        checklist pinned
+                      </span>
+                    )}
+                    {p.complianceTrack && (
+                      <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[9px] uppercase text-violet-800">
+                        track: {p.complianceTrack}
+                      </span>
+                    )}
+                    {p.smePrompt?.trim() && (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[9px] uppercase text-amber-800">
+                        SME prompt
+                      </span>
+                    )}
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-col gap-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            {configuredPolicies.length > 0 ? 'Or pick a legacy type (no policy)' : 'Available types'}
+          </p>
           {MED_TYPE_OPTIONS.map(t => (
             <label key={t.value}
               className={`flex cursor-pointer flex-col gap-0.5 rounded-md border p-3 ${
-                type === t.value ? 'border-violet-500 bg-violet-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                type === t.value && !selectedPolicyDocType ? 'border-violet-500 bg-violet-50' : 'border-slate-200 bg-white hover:border-slate-300'
               }`}>
               <div className="flex items-center gap-2">
-                <input type="radio" name="type" value={t.value} checked={type === t.value}
-                  onChange={() => setType(t.value)} />
+                <input type="radio" name="type" value={t.value} checked={type === t.value && !selectedPolicyDocType}
+                  onChange={() => { setType(t.value); clearPolicySelection() }} />
                 <span className="text-[13px] font-semibold text-slate-900">{t.label}</span>
               </div>
               <span className="pl-5 text-[11px] text-slate-500">{t.description}</span>

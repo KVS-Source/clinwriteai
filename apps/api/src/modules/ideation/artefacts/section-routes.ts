@@ -42,6 +42,27 @@ const bumpSchema = z.object({
 export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => {
   const sectionSvc = new IdeationArtefactSectionService(app.prisma)
 
+  // GET /ideation-artefacts/:id — header read for the Live editor.
+  app.get('/:id', { preHandler: gate }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const row = await app.prisma.ideationArtefact.findUnique({ where: { id } })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    return {
+      id:                   row.id,
+      ideationProjectId:    row.ideationProjectId,
+      title:                row.title,
+      version:              row.version,
+      docType:              row.docType,
+      aiDraftState:         row.aiDraftState,
+      aiInstructions:       row.aiInstructions,
+      currentVersionId:     row.currentVersionId,
+      ownerId:              row.ownerId,
+      sourceCurrencyStatus: row.sourceCurrencyStatus,
+      approvalStatusCheck:  row.approvalStatusCheck,
+      createdAt:            row.originalApprovalDate.toISOString(),
+    }
+  })
+
   function mapError(err: unknown): { code: number; body: Record<string, unknown> } | null {
     if (!(err instanceof IdeationArtefactSectionServiceError)) return null
     switch (err.code) {

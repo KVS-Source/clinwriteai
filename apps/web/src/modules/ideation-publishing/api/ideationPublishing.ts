@@ -178,4 +178,99 @@ export const ideationPublishingApi = {
     api.get<IdeationProject[]>(
       `/projects/${projectId}/ideation-portfolio${stage ? `?stage=${encodeURIComponent(stage)}` : ''}`,
     ),
+
+  // --- Artefact header for the Live editor (Phase M-E.2+) ---------------
+  getArtefactHeader: (id: string) =>
+    api.get<{
+      id: string; ideationProjectId: string; title: string; version: string
+      docType: string | null; aiDraftState: 'idle' | 'drafting' | 'validating' | 'complete' | 'failed'
+      aiInstructions: string | null; currentVersionId: string | null; ownerId: string | null
+      sourceCurrencyStatus: string; approvalStatusCheck: string; createdAt: string; updatedAt?: string
+    }>(`/ideation-artefacts/${id}`),
+
+  // --- Artefact sections + versioning + locks (Phase M-E.2+) --------------
+  getArtefactSections: (id: string) =>
+    api.get<{ ideationArtefactId: string; sections: IdeationArtefactSectionRow[] }>(
+      `/ideation-artefacts/${id}/sections`,
+    ),
+  saveArtefactSection: (id: string, sectionId: string, contentHtml: string) =>
+    api.patch<{ id: string; sectionId: string; contentHtml: string; wordCount: number; lastEditedAt: string | null }>(
+      `/ideation-artefacts/${id}/sections/${encodeURIComponent(sectionId)}`,
+      { contentHtml },
+    ),
+  acquireArtefactSectionLock: (id: string, sectionId: string) =>
+    api.post<IdeaArtefactSectionLockResult>(
+      `/ideation-artefacts/${id}/sections/${encodeURIComponent(sectionId)}/lock`, {},
+    ),
+  releaseArtefactSectionLock: (id: string, sectionId: string) =>
+    api.delete<{ released: boolean }>(
+      `/ideation-artefacts/${id}/sections/${encodeURIComponent(sectionId)}/lock`,
+    ),
+  listArtefactSectionLocks: (id: string) =>
+    api.get<{ ideationArtefactId: string; staleSeconds: number; locks: Array<{ sectionId: string; holder: IdeaArtefactSectionLockHolder }> }>(
+      `/ideation-artefacts/${id}/locks`,
+    ),
+  listArtefactVersions: (id: string) =>
+    api.get<{
+      ideationArtefactId: string
+      currentVersionId:   string | null
+      versions:           Array<{ id: string; versionNumber: string; label: string; isCurrent: boolean; createdBy: string; createdAt: string }>
+    }>(`/ideation-artefacts/${id}/versions`),
+  bumpArtefactVersion: (id: string, body: { label: string; newVersionNumber: string; note?: string }) =>
+    api.post<{ id: string; versionNumber: string; label: string; createdAt: string }>(
+      `/ideation-artefacts/${id}/versions/bump`, body,
+    ),
+
+  // --- Phase M-E.3 — AI initial draft ------------------------------------
+  startArtefactAiInitialDraft: (id: string, body: { aiInstructions?: string } = {}) =>
+    api.post<{ jobId: string; ideationArtefactId: string; state: 'enqueued' }>(
+      `/ideation-artefacts/${id}/ai-initial-draft`, body,
+    ),
+
+  // --- Phase M-E.4 — section ai-suggest ----------------------------------
+  aiSuggestArtefactSection: (
+    id: string,
+    sectionId: string,
+    body: {
+      intent:        'draft_from_source' | 'tighten' | 'explain' | 'custom' | 'edit'
+      customPrompt?: string
+      currentContent?: string
+      selectionText?: string
+      scope?:        'section' | 'document' | 'source'
+      attachedSourceIds?: string[]
+      model?:        string
+    },
+  ) =>
+    api.post<{ responseText: string; model: string; recordId?: string; scope?: string }>(
+      `/ideation-artefacts/${id}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
+      body,
+    ),
+}
+
+// --- Artefact section + lock shapes (Phase M-E.2/4) -----------------------
+
+export interface IdeationArtefactSectionRow {
+  id:            string
+  sectionId:     string
+  sectionNumber: string
+  sectionTitle:  string
+  contentHtml:   string
+  wordCount:     number
+  aiConfidence:  number | null
+  aiFlags:       string[]
+  lastEditedBy:  string | null
+  lastEditedAt:  string | null
+}
+
+export interface IdeaArtefactSectionLockHolder {
+  userId:           string
+  acquiredAt:       string
+  lastHeartbeatAt:  string
+  expiresInSeconds: number
+}
+
+export interface IdeaArtefactSectionLockResult {
+  outcome:      'acquired' | 'extended' | 'stolen' | 'conflict'
+  holder:       IdeaArtefactSectionLockHolder
+  staleSeconds: number
 }

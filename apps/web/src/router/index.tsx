@@ -73,6 +73,7 @@ import { ContentCalendar }              from '../screens/ideation-publishing/Con
 import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
 import { FinalOutputPublishingRecord }  from '../screens/ideation-publishing/FinalOutputPublishingRecord'
 import { StandardsMetadataDOI }         from '../screens/ideation-publishing/StandardsMetadataDOI'
+import { IdeationArtefactLiveEditor }   from '../screens/ideation-publishing/IdeationArtefactLiveEditor'
 import { AdminPanel }                   from '../platform/screens/AdminPanel'
 import { SuperAdminPanel }              from '../platform/screens/SuperAdminPanel'
 import { UserManagement }               from '../platform/screens/UserManagement'
@@ -336,6 +337,8 @@ export const router = createBrowserRouter([
                   { path: 'ma-approval',  element: <MedicalAffairsApproval /> },
                   { path: 'final',        element: <FinalOutputPublishingRecord /> },
                   { path: 'standards',    element: <StandardsMetadataDOI /> },
+                  // Phase M-E.2+ — long-form ideation artefact authoring.
+                  { path: 'artefacts/:ideationArtefactId/live-editor', element: <IdeationArtefactLiveEditor /> },
                 ],
               },
             ],

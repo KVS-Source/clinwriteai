@@ -580,6 +580,11 @@ async function buildServer() {
     await import('./modules/ideation/artefacts/section-routes.js')
   await app.register(ideationArtefactSectionRoutes, { prefix: '/ideation-artefacts' })
 
+  // Phase M-E.4 — section-scoped /ai-suggest.
+  const { ideationArtefactAiSuggestSectionRoutes } =
+    await import('./modules/ideation/artefacts/ai-suggest-section-routes.js')
+  await app.register(ideationArtefactAiSuggestSectionRoutes, { prefix: '/ideation-artefacts' })
+
   // Aliases + stubs — the web client speaks /ideation-projects/*,
   // /ideation-artefacts/*, /ideation-cards/*, /ideation-calendar/*,
   // /ideation-adaptations/*, /ideation-orcid/*, /ideation-social-alerts/*,

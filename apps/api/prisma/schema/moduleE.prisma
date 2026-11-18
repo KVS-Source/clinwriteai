@@ -138,6 +138,30 @@ model IdeationArtefactSectionLock {
   @@index([lastHeartbeatAt])
 }
 
+// --- Phase M-E.5 ----------------------------------------------------------
+
+model IdeationArtefactSectionComment {
+  id                   String    @id @default(uuid())
+  ideationArtefactId   String
+  sectionId            String
+  authorId             String
+  authorName           String
+  text                 String
+  severity             String    @default("info")                             // info | warning | blocking
+  status               String    @default("open")                             // open | resolved
+  resolvedBy           String?
+  resolvedAt           DateTime?
+  resolutionNote       String?
+  parentCommentId      String?
+  mentionedUserIds     String[]  @default([])
+  createdAt            DateTime  @default(now())
+
+  @@map("ideation_artefact_section_comments")
+  @@index([ideationArtefactId])
+  @@index([ideationArtefactId, sectionId])
+  @@index([parentCommentId])
+}
+
 // --------------------------------------------------------------------------
 // ideation_content_cards — overall_status is denormalised from
 // kol_status + ma_status (service-layer derivation on every write).

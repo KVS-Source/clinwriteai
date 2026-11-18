@@ -585,6 +585,11 @@ async function buildServer() {
     await import('./modules/ideation/artefacts/ai-suggest-section-routes.js')
   await app.register(ideationArtefactAiSuggestSectionRoutes, { prefix: '/ideation-artefacts' })
 
+  // Phase M-E.5 — section comments with RACI gating.
+  const { ideationArtefactCommentRoutes } =
+    await import('./modules/ideation/artefacts/comment-routes.js')
+  await app.register(ideationArtefactCommentRoutes, { prefix: '/ideation-artefacts' })
+
   // Aliases + stubs — the web client speaks /ideation-projects/*,
   // /ideation-artefacts/*, /ideation-cards/*, /ideation-calendar/*,
   // /ideation-adaptations/*, /ideation-orcid/*, /ideation-social-alerts/*,

@@ -245,6 +245,31 @@ export const ideationPublishingApi = {
       `/ideation-artefacts/${id}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
       body,
     ),
+
+  // --- Section comments (Phase M-E.5) ------------------------------------
+  listArtefactComments: (id: string, sectionId?: string) =>
+    api.get<{ ideationArtefactId: string; comments: IdeaArtefactCommentRow[] }>(
+      `/ideation-artefacts/${id}/comments${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`,
+    ),
+  createArtefactComment: (
+    id: string,
+    sectionId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<IdeaArtefactCommentRow>(
+      `/ideation-artefacts/${id}/sections/${encodeURIComponent(sectionId)}/comments`,
+      body,
+    ),
+  resolveArtefactComment: (id: string, commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<IdeaArtefactCommentRow>(
+      `/ideation-artefacts/${id}/comments/${commentId}/resolve`,
+      body,
+    ),
 }
 
 // --- Artefact section + lock shapes (Phase M-E.2/4) -----------------------
@@ -273,4 +298,21 @@ export interface IdeaArtefactSectionLockResult {
   outcome:      'acquired' | 'extended' | 'stolen' | 'conflict'
   holder:       IdeaArtefactSectionLockHolder
   staleSeconds: number
+}
+
+export interface IdeaArtefactCommentRow {
+  id:                 string
+  ideationArtefactId: string
+  sectionId:          string
+  authorId:           string
+  authorName:         string
+  text:               string
+  severity:           'info' | 'warning' | 'blocking'
+  status:             'open' | 'resolved'
+  resolvedBy:         string | null
+  resolvedAt:         string | null
+  resolutionNote:     string | null
+  parentCommentId:    string | null
+  mentionedUserIds:   string[]
+  createdAt:          string
 }

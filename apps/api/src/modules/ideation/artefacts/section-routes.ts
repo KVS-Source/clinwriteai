@@ -24,7 +24,10 @@ import {
   requireIdeationArtefactSectionLockHeldBy,
   IDEA_ART_LOCK_STALE_SECONDS,
 } from './section-lock-service.js'
-// RACI gates land in Phase M-E.5 alongside the comments surface.
+import {
+  actorCanEditIdeationArtefact,
+  IDEATION_ARTEFACT_EDIT_FORBIDDEN,
+} from '../access/ideation-artefact-raci.js'
 
 const gate      = requireAuth({ modules: ['E'] })
 const writeGate = requireAuth({ modules: ['E'] })
@@ -105,6 +108,10 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
+    if (!(await actorCanEditIdeationArtefact(app.prisma, request.user!, id))) {
+      return reply.code(403).send(IDEATION_ARTEFACT_EDIT_FORBIDDEN)
+    }
+
     const blocker = await requireIdeationArtefactSectionLockHeldBy(app.prisma, {
       ideationArtefactId: id, sectionId, userId: request.user!.id,
     })
@@ -146,6 +153,9 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
       where: { id }, select: { id: true },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditIdeationArtefact(app.prisma, request.user!, id))) {
+      return reply.code(403).send(IDEATION_ARTEFACT_EDIT_FORBIDDEN)
+    }
     const result = await acquireIdeationArtefactSectionLock(app.prisma, {
       ideationArtefactId: id, sectionId, userId: request.user!.id,
     })
@@ -224,6 +234,9 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
       where: { id }, select: { id: true },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditIdeationArtefact(app.prisma, request.user!, id))) {
+      return reply.code(403).send(IDEATION_ARTEFACT_EDIT_FORBIDDEN)
+    }
     try {
       const version = await sectionSvc.bumpVersion({
         ideationArtefactId: id, label: parsed.data.label,
@@ -272,6 +285,9 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
         error:   'no_current_version',
         message: 'Ideation artefact has no current version. Create flow should have seeded v0.1 when a docType was provided.',
       })
+    }
+    if (!(await actorCanEditIdeationArtefact(app.prisma, request.user!, ideationArtefactId))) {
+      return reply.code(403).send(IDEATION_ARTEFACT_EDIT_FORBIDDEN)
     }
     if (art.aiDraftState === 'drafting' || art.aiDraftState === 'validating') {
       return reply.code(409).send({

@@ -12,6 +12,10 @@ import {
   renderIdeaPolicyPromptBlock,
   SECTION_GROUNDING_RULES,
 } from '../policy/resolve.js'
+import {
+  actorCanEditIdeationArtefact,
+  IDEATION_ARTEFACT_EDIT_FORBIDDEN,
+} from '../access/ideation-artefact-raci.js'
 
 const writeGate = requireAuth({ modules: ['E'] })
 
@@ -53,6 +57,10 @@ export const ideationArtefactAiSuggestSectionRoutes: FastifyPluginAsync = async 
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
     if (!doc.currentVersionId) return reply.code(409).send({ error: 'no_current_version' })
+
+    if (!(await actorCanEditIdeationArtefact(app.prisma, request.user!, id))) {
+      return reply.code(403).send(IDEATION_ARTEFACT_EDIT_FORBIDDEN)
+    }
 
     const parent = await app.prisma.ideationProject.findUnique({
       where: { id: doc.ideationProjectId }, select: { projectId: true },

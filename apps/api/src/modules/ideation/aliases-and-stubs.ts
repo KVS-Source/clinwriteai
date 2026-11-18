@@ -546,14 +546,90 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
     })
     if (existing) return existing
 
-    const text = parsed.data.contentText
-      ?? `[Atomisation stub — ${channel}] ${(parsed.data.sourcePassage ?? card.sourcePassage).slice(0, 400)}`
+    // Phase M-E.7 — call app.aiGateway.chat() to actually rewrite the
+    // source passage for the target channel. If the caller sent
+    // contentText directly, respect it (manual override). Otherwise
+    // ask Claude; on any failure fall back to a deterministic stub so
+    // the UI still renders.
+    const basePassage = parsed.data.sourcePassage ?? card.sourcePassage
+    let text = parsed.data.contentText
+    let aiModel: string | null = null
+    let aiCallRecordId: string | null = null
+    let usedStub = false
+
+    if (!text) {
+      const project = card.ideationArtefactId
+        ? await app.prisma.ideationArtefact.findUnique({
+            where:  { id: card.ideationArtefactId },
+            select: { ideationProjectId: true },
+          })
+        : null
+      const parentProject = project
+        ? await app.prisma.ideationProject.findUnique({
+            where: { id: project.ideationProjectId }, select: { projectId: true },
+          }).catch(() => null)
+        : null
+      const channelGuidance = ({
+        linkedin:  'LinkedIn post: 1200-1800 characters, professional + plain English, max 3 hashtags, conversational hook in the first line.',
+        twitter:   'X/Twitter post: ≤ 280 characters total, a single clear claim + one hashtag if needed.',
+        email:     'Email: subject line (≤ 60 chars) then body (3-5 short paragraphs), plain text, personal tone.',
+        blog:      'Blog paragraph: 2-3 focused paragraphs that stand alone + reference the source study.',
+        default:   'Adapt the passage for the target channel while keeping every numeric value + citation.',
+      } as Record<string, string>)[channel.toLowerCase()] ?? 'Adapt the passage for the target channel while keeping every numeric value + citation.'
+
+      const prompt = [
+        'Rewrite the following passage for a specific publishing channel.',
+        `Target channel: ${channel}.`,
+        `Channel guidance: ${channelGuidance}`,
+        '',
+        'RULES',
+        '1. Preserve every numeric value, product name, trial id, and inline citation verbatim.',
+        '2. Do not invent data, claims, or references that are not in the passage.',
+        '3. Return ONLY the rewritten text — no quotes, no commentary, no code fences.',
+        '4. If the passage is too short to adapt meaningfully, return it unchanged.',
+        '',
+        'Source passage:',
+        basePassage,
+      ].join('\n')
+
+      try {
+        const result = await app.aiGateway.chat({
+          tenantId:  request.user!.tenantId ?? 'unknown',
+          projectId: parentProject?.projectId ?? 'unknown',
+          actorId:   request.user!.id,
+          module:    'E',
+          intent:    'ideation_atomise',
+          model:     'claude-sonnet-4-5',
+          prompt,
+          maxOutputTokens: 1000,
+        })
+        text = result.responseText.trim()
+        aiModel = result.model
+        aiCallRecordId = result.recordId
+      } catch (err) {
+        if (err instanceof Error && err.name === 'RateLimitedError') {
+          return reply.code(429).send({ error: 'quota_reached', message: err.message })
+        }
+        if (process.env.AI_ALLOW_STUB === '1') {
+          text = `[Atomisation stub — ${channel}] ${basePassage.slice(0, 400)}`
+          aiModel = 'stub'
+          usedStub = true
+        } else {
+          request.log.warn({ err, cardId }, 'ideation atomise: AI call failed and stub disabled')
+          return reply.code(503).send({
+            error:     'ai_not_configured',
+            message:   'AI is not set up — atomisation needs an AI engine. Ask an admin to configure one.',
+            setupPath: '/admin',
+          })
+        }
+      }
+    }
 
     const created = await app.prisma.atomisedContent.create({
       data: {
         ideationContentCardId: cardId,
         channel,
-        contentText:           text,
+        contentText:           text!,
         aiGenerated:           true,
         aiFootprintHash:       randomBytes(16).toString('hex'),
       },
@@ -565,7 +641,7 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
       action: 'atomised_content_created',
       entityType: 'ideation_card',
       entityId: cardId,
-      details: { atomisedId: created.id, channel, aliasPath: 'ideation-cards/atomise', stub: true },
+      details: { atomisedId: created.id, channel, aliasPath: 'ideation-cards/atomise', aiModel, aiCallRecordId, stub: usedStub },
       ipAddress: request.ip ?? null,
     })
     return reply.code(201).send(created)
@@ -601,17 +677,107 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
     return updated
   })
 
-  // Compliance screen stub on adaptation ----------------------------------
+  // Compliance screen — Phase M-E.7 upgrade: calls Claude to actually
+  // read the adaptation content + flag brand + compliance issues.
+  // Deterministic fall-back preserved when AI is not configured but
+  // AI_ALLOW_STUB=1 is set.
   app.post('/ideation-adaptations/:adaptationId/compliance-screen', { preHandler: eGate }, async (request, reply) => {
     const { adaptationId } = request.params as { adaptationId: string }
     const existing = await app.prisma.atomisedContent.findUnique({ where: { id: adaptationId } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
-    // Flip brandScreenPassed + complianceScreenPassed to pass. Real screen
-    // (brand voice + compliance claims) is externally blocked.
+    const card = await app.prisma.ideationContentCard.findUnique({
+      where:  { id: existing.ideationContentCardId },
+      select: { ideationArtefactId: true },
+    })
+    const artefact = card?.ideationArtefactId
+      ? await app.prisma.ideationArtefact.findUnique({
+          where:  { id: card.ideationArtefactId },
+          select: { ideationProjectId: true },
+        })
+      : null
+    const parentProject = artefact?.ideationProjectId
+      ? await app.prisma.ideationProject.findUnique({
+          where: { id: artefact.ideationProjectId }, select: { projectId: true },
+        }).catch(() => null)
+      : null
+
+    const prompt = [
+      'You are the pre-publication compliance reviewer for a medical-communications adaptation.',
+      '',
+      'Evaluate the adaptation against two checks:',
+      '  (a) BRAND VOICE — professional, patient-first, evidence-led tone. Flag marketing hyperbole, superlatives without evidence, or language that could be read as promotional outside promotional channels.',
+      '  (b) COMPLIANCE — flag anything that reads as (i) off-label claim, (ii) unqualified safety claim, (iii) unsupported superiority claim, (iv) missing safety balance where an efficacy claim is made.',
+      '',
+      'OUTPUT CONTRACT — return ONLY compact JSON:',
+      '  { "brandScreenPassed": boolean, "complianceScreenPassed": boolean, "fixes": [{ "issue": "<one sentence>", "fixApplied": false }] }',
+      'No prose before or after the JSON. No markdown fences.',
+      '',
+      `Channel: ${existing.channel}`,
+      '',
+      'Adaptation text:',
+      existing.contentText,
+    ].join('\n')
+
+    let brandScreenPassed = true
+    let complianceScreenPassed = true
+    let fixes: Array<{ issue: string; fixApplied: boolean }> = []
+    let aiModel: string | null = null
+    let aiCallRecordId: string | null = null
+    let usedStub = false
+
+    try {
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId ?? 'unknown',
+        projectId: parentProject?.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'E',
+        intent:    'ideation_compliance_screen',
+        model:     'claude-sonnet-4-5',
+        prompt,
+        maxOutputTokens: 800,
+      })
+      aiModel = result.model
+      aiCallRecordId = result.recordId
+
+      const trimmed = result.responseText.trim().replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '')
+      try {
+        const parsed = JSON.parse(trimmed) as {
+          brandScreenPassed?: boolean
+          complianceScreenPassed?: boolean
+          fixes?: Array<{ issue?: string; fixApplied?: boolean }>
+        }
+        if (typeof parsed.brandScreenPassed === 'boolean')      brandScreenPassed      = parsed.brandScreenPassed
+        if (typeof parsed.complianceScreenPassed === 'boolean') complianceScreenPassed = parsed.complianceScreenPassed
+        if (Array.isArray(parsed.fixes)) {
+          fixes = parsed.fixes
+            .filter(f => f && typeof f.issue === 'string' && f.issue.trim())
+            .map(f => ({ issue: f.issue!.trim(), fixApplied: !!f.fixApplied }))
+            .slice(0, 20)
+        }
+      } catch {
+        request.log.warn({ adaptationId }, 'ideation compliance: AI returned non-JSON — falling through to pass-stub')
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      if (process.env.AI_ALLOW_STUB === '1') {
+        usedStub = true
+        aiModel = 'stub'
+      } else {
+        request.log.warn({ err, adaptationId }, 'ideation compliance: AI call failed and stub disabled')
+        return reply.code(503).send({
+          error:     'ai_not_configured',
+          message:   'AI is not set up — compliance screen needs an AI engine. Ask an admin to configure one.',
+          setupPath: '/admin',
+        })
+      }
+    }
+
     const updated = await app.prisma.atomisedContent.update({
       where: { id: adaptationId },
-      data:  { brandScreenPassed: true, complianceScreenPassed: true },
+      data:  { brandScreenPassed, complianceScreenPassed },
     })
 
     await app.audit.append({
@@ -620,14 +786,22 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
       action: 'compliance_screen_run',
       entityType: 'ideation_card',
       entityId: existing.ideationContentCardId,
-      details: { adaptationId, stub: true },
+      details: {
+        adaptationId,
+        brandScreenPassed,
+        complianceScreenPassed,
+        findingCount: fixes.length,
+        aiModel,
+        aiCallRecordId,
+        stub: usedStub,
+      },
       ipAddress: request.ip ?? null,
     })
 
     return {
       brandScreenPassed:      updated.brandScreenPassed,
       complianceScreenPassed: updated.complianceScreenPassed,
-      fixes: [] as { issue: string; fixApplied: boolean }[],
+      fixes,
     }
   })
 

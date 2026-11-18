@@ -451,16 +451,120 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
   // Claim currency — alias POST and GET + per-flag acknowledge.
   // Canonical lives under /ideation/artefacts/:id/currency/*; client uses
   // /ideation-artefacts/:id/claim-currency.
+  //
+  // Phase M-E.7+ (Nov 2026): claim EXTRACTION is now real — Claude reads
+  // the artefact's section content and returns the list of discrete
+  // claims. supersededClaims + conflictingClaims stay empty because
+  // Master Library matching needs the claim corpus + pgvector install
+  // (externally blocked). When the AI call fails and AI_ALLOW_STUB=1 is
+  // set, the old empty-array stub keeps the UI wired.
   app.post('/ideation-artefacts/:ideationArtefactId/claim-currency', { preHandler: eGate }, async (request, reply) => {
     const { ideationArtefactId } = request.params as { ideationArtefactId: string }
-    const artefact = await app.prisma.ideationArtefact.findUnique({ where: { id: ideationArtefactId } })
+    const artefact = await app.prisma.ideationArtefact.findUnique({
+      where: { id: ideationArtefactId },
+      select: {
+        id: true, title: true, currentVersionId: true, ideationProjectId: true,
+      },
+    })
     if (!artefact) return reply.code(404).send({ error: 'not_found' })
+
+    // Read the current version's sections (if any) as the claim source.
+    // Falls back to the artefact title when no sections exist yet.
+    let claimSource = ''
+    if (artefact.currentVersionId) {
+      const sections = await app.prisma.ideationArtefactSection.findMany({
+        where: { ideationArtefactVersionId: artefact.currentVersionId },
+        orderBy: { sectionNumber: 'asc' },
+        select: { sectionNumber: true, sectionTitle: true, contentHtml: true },
+      })
+      claimSource = sections.map(s =>
+        `--- §${s.sectionNumber} ${s.sectionTitle} ---\n${(s.contentHtml ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`,
+      ).join('\n\n')
+    }
+    if (!claimSource.trim()) {
+      claimSource = `(No section content yet for artefact "${artefact.title}".)`
+    }
+
+    const parent = artefact.ideationProjectId
+      ? await app.prisma.ideationProject.findUnique({
+          where: { id: artefact.ideationProjectId }, select: { projectId: true },
+        }).catch(() => null)
+      : null
+
+    interface ExtractedClaim { text: string; sectionRef?: string }
+    let claimsExtracted: ExtractedClaim[] = []
+    let aiModel: string | null = null
+    let aiCallRecordId: string | null = null
+    let usedStub = false
+
+    const prompt = [
+      'You are extracting discrete clinical / scientific claims from an ideation artefact.',
+      '',
+      'RULES',
+      '1. A "claim" is a single declarative sentence that asserts an efficacy, safety, mechanism, epidemiology, economic, or guideline statement.',
+      '2. Preserve numeric values, product names, trial ids, and study references verbatim.',
+      '3. Do not fabricate claims — if the content is empty or purely structural, return an empty array.',
+      '4. One claim per entry. Deduplicate near-identical restatements.',
+      '',
+      'OUTPUT CONTRACT — return ONLY compact JSON matching:',
+      '  { "claims": [{ "text": "<the claim sentence>", "sectionRef": "<optional §x.y heading>" }] }',
+      'No prose before or after the JSON. No markdown fences. Max 40 claims.',
+      '',
+      'Artefact content:',
+      claimSource,
+    ].join('\n')
+
+    try {
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId ?? 'unknown',
+        projectId: parent?.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'E',
+        intent:    'ideation_claim_extract',
+        model:     'claude-sonnet-4-5',
+        prompt,
+        maxOutputTokens: 1500,
+      })
+      aiModel = result.model
+      aiCallRecordId = result.recordId
+
+      const trimmed = result.responseText.trim().replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '')
+      try {
+        const parsed = JSON.parse(trimmed) as { claims?: Array<{ text?: string; sectionRef?: string }> }
+        if (Array.isArray(parsed.claims)) {
+          claimsExtracted = parsed.claims
+            .filter(c => c && typeof c.text === 'string' && c.text.trim().length > 0)
+            .map(c => ({
+              text:       c.text!.trim(),
+              ...(c.sectionRef && typeof c.sectionRef === 'string' ? { sectionRef: c.sectionRef.trim() } : {}),
+            }))
+            .slice(0, 40)
+        }
+      } catch {
+        request.log.warn({ ideationArtefactId }, 'ideation claim-currency: AI returned non-JSON — logging empty claims')
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      if (process.env.AI_ALLOW_STUB === '1') {
+        usedStub = true
+        aiModel = 'stub'
+      } else {
+        request.log.warn({ err, ideationArtefactId }, 'ideation claim-currency: AI call failed and stub disabled')
+        return reply.code(503).send({
+          error:     'ai_not_configured',
+          message:   'AI is not set up — claim-currency extraction needs an AI engine. Ask an admin to configure one.',
+          setupPath: '/admin',
+        })
+      }
+    }
 
     const run = await app.prisma.claimCurrencyCheck.create({
       data: {
         ideationArtefactId,
-        claimsExtracted: [],
-        supersededClaims: [],
+        claimsExtracted:   claimsExtracted as unknown as import('@prisma/client').Prisma.InputJsonValue,
+        supersededClaims:  [],
         conflictingClaims: [],
       },
     })
@@ -471,7 +575,15 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
       action: 'claim_currency_check_run',
       entityType: 'ideation_artefact',
       entityId: ideationArtefactId,
-      details: { runId: run.id, aliasPath: 'claim-currency', stub: true },
+      details: {
+        runId:        run.id,
+        aliasPath:    'claim-currency',
+        claimCount:   claimsExtracted.length,
+        aiModel,
+        aiCallRecordId,
+        stub:         usedStub,
+        matchingDeferred: true,       // Master Library corpus + pgvector still pending
+      },
       ipAddress: request.ip ?? null,
     })
     return run

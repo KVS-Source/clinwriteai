@@ -74,6 +74,7 @@ import { PublishingMonitor }            from '../screens/ideation-publishing/Pub
 import { FinalOutputPublishingRecord }  from '../screens/ideation-publishing/FinalOutputPublishingRecord'
 import { StandardsMetadataDOI }         from '../screens/ideation-publishing/StandardsMetadataDOI'
 import { IdeationArtefactLiveEditor }   from '../screens/ideation-publishing/IdeationArtefactLiveEditor'
+import { NewIdeationArtefactsList }    from '../screens/ideation-publishing/NewIdeationArtefact'
 import { AdminPanel }                   from '../platform/screens/AdminPanel'
 import { SuperAdminPanel }              from '../platform/screens/SuperAdminPanel'
 import { UserManagement }               from '../platform/screens/UserManagement'
@@ -338,6 +339,7 @@ export const router = createBrowserRouter([
                   { path: 'final',        element: <FinalOutputPublishingRecord /> },
                   { path: 'standards',    element: <StandardsMetadataDOI /> },
                   // Phase M-E.2+ — long-form ideation artefact authoring.
+                  { path: 'artefacts',    element: <NewIdeationArtefactsList /> },
                   { path: 'artefacts/:ideationArtefactId/live-editor', element: <IdeationArtefactLiveEditor /> },
                 ],
               },

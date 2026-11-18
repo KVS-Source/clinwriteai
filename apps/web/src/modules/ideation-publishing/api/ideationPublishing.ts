@@ -29,6 +29,28 @@ export interface UploadArtefactBody {
   externalConfirmed?: boolean
 }
 
+export type IdeationArtefactDocType =
+  | 'kol_engagement_brief'
+  | 'patient_story'
+  | 'hcp_insight_report'
+  | 'medical_affairs_narrative'
+  | 'disease_awareness_brief'
+  | 'press_release'
+  | 'scientific_exchange_note'
+  | 'congress_summary'
+
+export interface CreateArtefactWithPolicyBody {
+  sourceModule?:         'A' | 'B' | 'C' | 'D' | 'external'
+  sourceDocId?:          string
+  filePath?:             string
+  title:                 string
+  originalApprovalDate:  string                           // ISO datetime
+  version:               string
+  masterLibraryPushDate?: string
+  docType?:              IdeationArtefactDocType
+  aiInstructions?:       string
+}
+
 export interface SourceGateResponse {
   ideationArtefactId: string
   approvalStatusCheck: 'passed' | 'blocked' | 'confirmed-external'
@@ -72,8 +94,16 @@ export const ideationPublishingApi = {
   // Artefacts + source gate + claim currency (Stage 1)
   getArtefact: (ideationArtefactId: string) =>
     api.get<IdeationArtefact>(`/ideation-artefacts/${ideationArtefactId}`),
+  listArtefacts: (ideationProjectId: string) =>
+    api.get<IdeationArtefact[]>(`/ideation/${ideationProjectId}/artefacts`),
   uploadArtefact: (body: UploadArtefactBody) =>
     api.post<IdeationArtefact>(`/ideation-artefacts`, body),
+  // Phase M-E.6 — canonical path that pins the IdeationTypePolicy +
+  // AI prompt + BP record and seeds v0.1 sections when a docType is
+  // provided. The legacy `/ideation-artefacts` stub stays wired for
+  // callers that don't need policy + sections yet.
+  createArtefactWithPolicy: (ideationProjectId: string, body: CreateArtefactWithPolicyBody) =>
+    api.post<IdeationArtefact>(`/ideation/${ideationProjectId}/artefacts`, body),
   runSourceGate: (ideationArtefactId: string) =>
     api.post<SourceGateResponse>(`/ideation-artefacts/${ideationArtefactId}/source-gate`, {}),
   runClaimCurrency: (ideationArtefactId: string) =>

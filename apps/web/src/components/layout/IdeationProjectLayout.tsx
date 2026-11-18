@@ -9,6 +9,7 @@ export function IdeationProjectLayout() {
 
   const tabs: SubNavTab[] = [
     { to: base,                    label: t('component.ideation_project_layout.tab_upload_source'), end: true },
+    { to: `${base}/artefacts`,     label: 'Artefacts' },
     { to: `${base}/tagging`,       label: t('component.ideation_project_layout.tab_content_cards') },
     { to: `${base}/compliance`,    label: t('component.ideation_project_layout.tab_pre_review_compliance') },
     { to: `${base}/ma-approval`,   label: t('component.ideation_project_layout.tab_ma_approval') },

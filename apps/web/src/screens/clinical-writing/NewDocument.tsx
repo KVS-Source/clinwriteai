@@ -135,11 +135,21 @@ export function NewDocumentForm({
   }, [dbTemplates])
 
   // Saved source documents in this project's library (evidence the document is written from).
+  // AI drafter only ingests PDFs today — the worker skips non-PDF uploads
+  // ([ai-initial-draft.ts:403](apps/worker/src/jobs/ai-initial-draft.ts)),
+  // so the picker filters at the UI layer to stop authors from anchoring
+  // a document against a Word / PPT source that will silently drop and
+  // leave every section as [TBD: ...].
   const { data: sourcePage } = useQuery({
     queryKey: ['source-documents', projectId, 'picker'],
     queryFn:  () => documentsApi.listSources(projectId, { state: 'saved', sort: 'title', dir: 'asc', pageSize: 100 }),
   })
-  const sources = sourcePage?.items ?? []
+  const allSources = sourcePage?.items ?? []
+  const sources = useMemo(
+    () => allSources.filter(s => (s.contentType ?? '').toLowerCase() === 'application/pdf'),
+    [allSources],
+  )
+  const hiddenNonPdfCount = allSources.length - sources.length
 
   const toggleSource = (id: string) =>
     setSourceIds(cur => (cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]))
@@ -483,6 +493,17 @@ export function NewDocumentForm({
                 </label>
               )}
             </div>
+
+            {hiddenNonPdfCount > 0 && (
+              <div
+                className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+                data-banner="non-pdf-hidden"
+              >
+                {hiddenNonPdfCount} source{hiddenNonPdfCount === 1 ? '' : 's'} hidden because the AI
+                drafter only reads PDFs today. Re-upload Word / PowerPoint sources as PDF to use
+                them.
+              </div>
+            )}
 
             {filteredSources.length === 0 ? (
               <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-5 text-center">

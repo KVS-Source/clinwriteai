@@ -69,6 +69,13 @@ model MedContentItem {
   medContentBestPracticeRecordId      String?   @map("med_content_best_practice_record_id")
   medContentBestPracticeVersionAtCreate Int?    @map("med_content_best_practice_version_at_create")
 
+  // ---- AI drafter state (migration 81, Phase M-C.3) ----
+  // Mirror of Document.aiDraftState + Publication.aiDraftState.
+  // Lifecycle: idle → drafting → validating → complete. Worker reads
+  // aiInstructions on every section call (same shape as A/B).
+  aiDraftState         String    @default("idle")  @map("ai_draft_state_c")
+  aiInstructions       String?   @map("ai_instructions_c")
+
   // ---- Versioning pin (migration 80, Phase M-C.2) ----
   // Points to the MedContentVersion that is 'isCurrent=true'. Null
   // during the brief window between MedContentItem.create and the

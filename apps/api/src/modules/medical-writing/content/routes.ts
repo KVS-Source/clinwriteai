@@ -454,6 +454,75 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     return medContentShape(updated)
   })
 
+  // Phase M-C.3 — kick off the AI initial-draft worker. Mirror of
+  // publications /ai-initial-draft. Idempotent on jobId; 409 when a
+  // chain is already in flight. aiInstructions (if sent) persists on
+  // the content item.
+  const draftRequestSchema = z.object({
+    aiInstructions: z.string().max(2000).optional(),
+  })
+  app.post('/:contentId/ai-initial-draft', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const parsed = draftRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const item = await app.prisma.medContentItem.findUnique({
+      where: { id: contentId },
+      select: {
+        id: true, projectId: true, archivedAt: true,
+        aiDraftState: true, currentVersionId: true,
+      },
+    })
+    if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!item.currentVersionId) {
+      return reply.code(409).send({
+        error:   'no_current_version',
+        message: 'Content item has no current version. Create flow should have seeded v0.1.',
+      })
+    }
+    if (item.aiDraftState === 'drafting' || item.aiDraftState === 'validating') {
+      return reply.code(409).send({
+        error:   'already_running',
+        state:   item.aiDraftState,
+        message: `AI draft chain is already ${item.aiDraftState} for this content item.`,
+      })
+    }
+
+    if (parsed.data.aiInstructions !== undefined) {
+      await app.prisma.medContentItem.update({
+        where: { id: contentId },
+        data:  {
+          aiInstructions: parsed.data.aiInstructions.trim() || null,
+          aiDraftState:   'idle',
+        },
+      })
+    }
+
+    const jobId = `med-ai-initial-draft-${contentId}`
+    try {
+      await app.queue.enqueue('med_content.ai_initial_draft', {
+        contentItemId: contentId,
+        projectId:     item.projectId,
+        actorId:       request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      request.log.warn({ err, contentId }, 'med ai-initial-draft: enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue the draft job.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'med_content_ai_initial_draft_enqueued',
+      entityType: 'med_content_item',
+      entityId:   contentId,
+      details:    { jobId, hasAiInstructions: parsed.data.aiInstructions !== undefined },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({ jobId, contentItemId: contentId, state: 'enqueued' })
+  })
+
   app.post('/:contentId/advance-stage', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })

@@ -4,9 +4,12 @@
 //   Schedule  → POST /documents/:id/crm          (document in review)
 //   Start     → POST /crm/:id/start              (document → CRM in progress)
 //   Resolve   → POST /crm/:id/resolve            (per open comment, note required)
-//   End       → POST /crm/:id/complete           (document → Pending signature;
-//                refused while real comments are unresolved — reviewer
-//                "approve" verdicts don't need resolving)
+//   End       → POST /crm/:id/complete           (document back to In review; refused
+//                while real comments are unresolved — reviewer "approve" verdicts
+//                don't need resolving). A document can have several meetings, one at
+//                a time: "Schedule another meeting" starts the next.
+//   Finish    → POST /documents/:id/crm/finish   ("Finish CRM and send for approval":
+//                document → Pending signature, signing starts. Author, PM or a chair.)
 // The document comes from ?doc=<id> (Reviewer View links here) with a picker —
 // or, on a document's own CRM tab (/documents/:documentId/crm), is fixed to
 // that document and the picker is hidden.
@@ -479,9 +482,17 @@ export function CRMModule() {
     queryFn:  () => crmApi.getMeetings(activeDocId!),
     enabled:  !!activeDocId,
   })
-  // The live meeting: in progress, else scheduled, else the newest one.
+  // A document can have several meetings over its life, one open at a time. Shown: the one picked from the
+  // history list, else the open one (in progress, else scheduled), else the newest that was held, else the newest.
+  const [viewMeetingId, setViewMeetingId] = useState<string | null>(null)
+  const [scheduling, setScheduling] = useState(false)
+  const openMeeting = meetings.find(m => m.status === 'in_progress') ?? meetings.find(m => m.status === 'scheduled')
+  const heldMeetings = meetings.filter(m => m.status === 'complete')
   const meeting: CRMMeeting | undefined =
-    meetings.find(m => m.status === 'in_progress') ?? meetings.find(m => m.status === 'scheduled') ?? meetings[meetings.length - 1]
+    meetings.find(m => m.id === viewMeetingId)
+    ?? openMeeting
+    ?? [...meetings].reverse().find(m => m.status !== 'cancelled')
+    ?? meetings[meetings.length - 1]
 
   useEffect(() => { if (meeting) setMeetingInStore(meeting) }, [meeting, setMeetingInStore])
 
@@ -621,6 +632,15 @@ export function CRMModule() {
 
   const startMut = useMutation({ mutationFn: () => crmApi.startMeeting(meeting!.id), onSuccess: refresh })
   const endMut   = useMutation({ mutationFn: () => crmApi.completeMeeting(meeting!.id), onSuccess: refresh })
+  // Finish CRM and send for approval: the document moves to Pending signature and signing starts.
+  const finishMut = useMutation({
+    mutationFn: () => crmApi.finishCrm(activeDocId!),
+    onSuccess: () => {
+      refresh()
+      qc.invalidateQueries({ queryKey: ['signature-chains', activeDocId] })
+      qc.invalidateQueries({ queryKey: ['document-raci', activeDocId] })
+    },
+  })
 
   const resolvedCount = resolvedIds.length
   const totalCount    = queueIds.length
@@ -644,7 +664,7 @@ export function CRMModule() {
       {t('page.crm_module.document')}
       <select
         value={activeDocId ?? ''}
-        onChange={e => { setSearchParams({ doc: e.currentTarget.value }); setActiveCommentId(null) }}
+        onChange={e => { setSearchParams({ doc: e.currentTarget.value }); setActiveCommentId(null); setViewMeetingId(null); setScheduling(false) }}
         className="h-8 max-w-[360px] rounded-md border border-slate-300 bg-white px-2 text-[12px] text-slate-800"
         data-crm-doc-picker
       >
@@ -657,19 +677,25 @@ export function CRMModule() {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{projectDocs.length === 0 && !meetingsLoading ? t('page.crm_module.no_documents') : t('page.crm_module.loading_meeting')}</p></div>
   }
 
-  // A completed meeting from an earlier round: the document went back (returned to authoring, or its
-  // signature chain cancelled) and is in review or authoring again, so this round needs its own meeting.
-  // A meeting held during authoring is meant to leave the document in authoring, so it still shows.
-  const previousRound = meeting?.status === 'complete' && (
-    activeDoc?.status === 'in-review' || (activeDoc?.status === 'in-authoring' && !meeting.heldDuringAuthoring)
-  )
+  // Another meeting may be scheduled while none is open and the document is still in review or authoring.
+  const canScheduleAnother = !openMeeting && (activeDoc?.status === 'in-review' || activeDoc?.status === 'in-authoring')
+    && crmAccess?.canSchedule !== false
+  // Finish CRM and send for approval: in review, nothing open, and a meeting held. The server also checks
+  // this review round, the Reviewers' "review done" marks and unresolved comments, and says which is missing.
+  const canFinish = !openMeeting && activeDoc?.status === 'in-review' && crmAccess?.canFinish === true
+    && heldMeetings.some(m => !m.heldDuringAuthoring)
 
-  // No live meeting (none yet, the last one was cancelled, or it belongs to an earlier round) → schedule.
-  if (!meeting || meeting.status === 'cancelled' || previousRound) {
+  // No meeting to show (none yet, or the only one was cancelled), or the user asked to schedule another → schedule.
+  if (!meeting || meeting.status === 'cancelled' || (scheduling && canScheduleAnother)) {
     const canSchedule = SCHEDULABLE.has(String(activeDoc?.status))
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-10 text-center" data-screen="crm-module">
         {docPicker}
+        {meeting && (
+          <button type="button" onClick={() => setScheduling(false)} className="text-xs font-semibold text-blue-700 hover:underline" data-crm-schedule-back>
+            {t('page.crm_module.back_to_meeting', { ref: meeting.meetingRef })}
+          </button>
+        )}
         {canSchedule && crmAccess?.canSchedule === false ? (
           <div className="flex flex-col items-center gap-2" data-crm-schedule-not-allowed>
             <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
@@ -678,7 +704,7 @@ export function CRMModule() {
             </p>
           </div>
         ) : canSchedule ? (
-          <ScheduleMeetingForm documentId={activeDocId} onScheduled={refresh} />
+          <ScheduleMeetingForm documentId={activeDocId} onScheduled={() => { setScheduling(false); setViewMeetingId(null); refresh() }} />
         ) : (
           <div className="flex flex-col items-center gap-2">
             <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
@@ -711,6 +737,23 @@ export function CRMModule() {
             row with now sits on its own, right-aligned, so the layout grid
             doesn't change height. */}
         <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
+          {meetings.length > 1 && (
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+              {t('page.crm_module.meetings_label')}
+              <select
+                value={meeting.id}
+                onChange={e => setViewMeetingId(e.currentTarget.value)}
+                className="h-8 max-w-[320px] rounded-md border border-slate-300 bg-white px-2 text-[12px] text-slate-800"
+                data-crm-meeting-picker
+              >
+                {[...meetings].reverse().map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.meetingRef} · {new Date(m.date).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short' })} · {t(`page.crm_module.status_${m.status ?? 'scheduled'}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {docPicker}
         </div>
         <div className="flex flex-wrap items-center gap-4">
@@ -745,7 +788,24 @@ export function CRMModule() {
               data-crm-end
             >{endMut.isPending ? t('page.crm_module.ending') : t('page.crm_module.end_meeting')}</button>
           )}
-          {isComplete && (
+          {canScheduleAnother && (
+            <button
+              type="button"
+              onClick={() => setScheduling(true)}
+              className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
+              data-crm-schedule-another
+            >{t('page.crm_module.schedule_another')}</button>
+          )}
+          {canFinish && (
+            <button
+              type="button"
+              onClick={() => { if (window.confirm(t('page.crm_module.finish_confirm'))) finishMut.mutate() }}
+              disabled={finishMut.isPending}
+              className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              data-crm-finish
+            >{finishMut.isPending ? t('page.crm_module.finishing') : t('page.crm_module.finish_crm')}</button>
+          )}
+          {(activeDoc?.status === 'pending-signature' || activeDoc?.status === 'signed') && (
             <button
               type="button"
               onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${activeDocId}/sign`)}
@@ -754,9 +814,10 @@ export function CRMModule() {
             >{t('page.crm_module.go_to_signature')}</button>
           )}
         </div>
-        {(startMut.isError || endMut.isError) && (
+        {(startMut.isError || endMut.isError || finishMut.isError) && (
           <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-crm-error>
-            {startMut.isError ? apiMessage(startMut.error, t('page.crm_module.start_failed')) : apiMessage(endMut.error, t('page.crm_module.end_failed'))}
+            {finishMut.isError ? apiMessage(finishMut.error, t('page.crm_module.finish_failed'))
+              : startMut.isError ? apiMessage(startMut.error, t('page.crm_module.start_failed')) : apiMessage(endMut.error, t('page.crm_module.end_failed'))}
           </p>
         )}
         {isComplete && (activeDoc?.status === 'crm-in-progress' ? (
@@ -765,7 +826,9 @@ export function CRMModule() {
           </p>
         ) : (
           <p className="rounded-md bg-green-50 p-2 text-[12px] text-green-800" data-crm-complete>
-            {activeDoc?.status === 'in-authoring' ? t('page.crm_module.complete_done_authoring') : t('page.crm_module.complete_done')}
+            {activeDoc?.status === 'in-authoring' ? t('page.crm_module.complete_done_authoring')
+              : activeDoc?.status === 'in-review' ? t('page.crm_module.complete_done_review')
+              : t('page.crm_module.complete_done')}
           </p>
         ))}
       </div>

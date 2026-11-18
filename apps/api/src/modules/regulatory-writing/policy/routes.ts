@@ -6,11 +6,9 @@
 // retire / distill): PM-only. AI readiness gated on prompt + distill.
 
 import type { FastifyPluginAsync } from 'fastify'
-import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
-import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { RegulatoryAiPromptService, RegulatoryAiPromptServiceError } from './ai-prompt-service.js'
 import { RegulatoryBestPracticeService, RegulatoryBpServiceError } from './best-practice-service.js'
 import { RegulatoryTypePolicyService, RegulatoryTypePolicyServiceError } from './type-policy-service.js'
@@ -23,8 +21,6 @@ const AI_NOT_CONFIGURED = {
   message:   'Set up an AI engine (API key) before editing regulatory prompts.',
   setupPath: '/admin',
 } as const
-
-const MAX_BP_PDF_BYTES = 50 * 1024 * 1024
 
 const sectionRuleSchema = z.object({
   severity: z.enum(['must', 'should', 'nice']),
@@ -154,11 +150,6 @@ function shapeBp(row: BpRow) {
 export const regulatoryTypePolicyRoutes: FastifyPluginAsync = async (app) => {
   const svc = new RegulatoryTypePolicyService(app.prisma)
 
-  async function assertAiReady(): Promise<boolean> {
-    const engine = await resolveAiEngineSettings(app.prisma)
-    return app.aiGateway.isConfigured(engine.default)
-  }
-
   const trackEnum = z.enum(['ind', 'nda', 'maa', 'bla', 'variation', 'other']).nullable().optional()
 
   const createSchema = z.object({
@@ -270,93 +261,13 @@ export const regulatoryTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  // BP distill upload — mirror of med-content-type-policies' distill-file.
-  app.post('/:docType/distill-best-practice-file', { preHandler: writeGate }, async (request, reply) => {
-    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
-    const { docType: rawDocType } = request.params as { docType: string }
-    const docType = rawDocType.replace(/-/g, '_')
-
-    const policy = await svc.getCurrent(docType)
-    if (!policy) return reply.code(404).send({ error: 'no_current_policy' })
-
-    const file: MultipartFile | undefined = await request.file().catch(() => undefined)
-    if (!file) return reply.code(400).send({ error: 'no_file', message: 'multipart file part is required' })
-
-    const buf = await file.toBuffer()
-    if (buf.length > MAX_BP_PDF_BYTES) {
-      return reply.code(413).send({ error: 'too_large', message: `File > ${MAX_BP_PDF_BYTES / 1024 / 1024}MB` })
-    }
-    if ((file.mimetype ?? '').toLowerCase() !== 'application/pdf') {
-      return reply.code(400).send({ error: 'not_pdf', mimetype: file.mimetype, message: 'Best-Practice uploads must be application/pdf.' })
-    }
-
-    const blobKey = generateBlobKey(`platform/regulatory-best-practices/${policy.id}`, 'pdf')
-    try {
-      await app.blob.put({
-        bucket: 'documents',
-        key:    blobKey,
-        body:   buf,
-        contentType: file.mimetype,
-        metadata: {
-          originalFilename:     file.filename,
-          regulatoryPolicyId:   policy.id,
-          docType,
-          uploadedBy:           request.user!.id,
-          kind:                 'regulatory-best-practice',
-        },
-      })
-    } catch (err) {
-      app.log.warn({ err, policyId: policy.id }, 'regulatory bp pdf blob put failed')
-      return reply.code(503).send({ error: 'storage_failed', message: 'Could not store the PDF. Try again.' })
-    }
-
-    const upload = await app.prisma.documentUpload.create({
-      data: {
-        projectId:       null,
-        uploadedBy:      request.user!.id,
-        blobKey,
-        fileName:        file.filename,
-        fileSizeBytes:   buf.length,
-        contentType:     file.mimetype,
-        virusScanStatus: 'passed',
-        sourceCategory:  'best_practice',
-        status:          'confirmed',
-        title:           file.filename,
-      },
-    })
-
-    const jobId = `regulatory-bp-distill-${docType}-${upload.id}`
-    try {
-      await app.queue.enqueue('regulatory.distill_best_practice', {
-        docType,
-        uploadId: upload.id,
-        actorId:  request.user!.id,
-      }, { jobId })
-    } catch (err) {
-      app.log.warn({ err, policyId: policy.id, uploadId: upload.id }, 'regulatory bp distill enqueue failed')
-      return reply.code(503).send({ error: 'enqueue_failed', message: 'PDF stored but could not enqueue distillation.' })
-    }
-
-    await app.audit.append({
-      timestamp:  new Date().toISOString(),
-      actorId:    request.user!.id,
-      action:     'regulatory_type_policy.bp_distill_enqueued',
-      entityType: 'regulatory_type_policy',
-      entityId:   policy.id,
-      details:    { docType, version: policy.version, uploadId: upload.id, jobId, fileName: file.filename, fileSizeBytes: buf.length },
-      ipAddress:  request.ip ?? null,
-    })
-
-    return reply.code(202).send({
-      jobId,
-      uploadId:  upload.id,
-      policyId:  policy.id,
-      docType,
-      version:   policy.version,
-      fileName:  file.filename,
-      sizeBytes: buf.length,
-    })
-  })
+  // BP distill upload — RETIRED (M-F.1).
+  app.post('/:docType/distill-best-practice-file', { preHandler: writeGate }, async (_request, reply) =>
+    reply.code(410).send({
+      error:   'bp_distill_retired',
+      message: 'Regulatory BP distillation is retired. BP is now author guidance only; use Section Templates for AI-visible formatting rules.',
+    }),
+  )
 }
 
 // -------- AI Prompt routes -----------------------------------------------

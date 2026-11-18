@@ -34,8 +34,13 @@ async function build(opts: {
   policyPinned?:  PolicyRow | null       // returned by findUnique (pinned version)
   policyCurrent?: PolicyRow | null       // returned by findFirst  (current fallback)
   policyVersionAtCreate?: number | null
-  sectionRows?: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string }>
+  sectionRows?: Array<{
+    sectionId: string; sectionNumber: string; sectionTitle: string
+    sectionTemplateRecordId?: string | null
+    templateFormatJson?:      unknown
+  }>
   aiInstructions?: string | null
+  sectionTemplateApproved?: { formatJson: unknown } | null
 }) {
   const sections = opts.sectionRows ?? [
     { sectionId: 's6_2', sectionNumber: '6.2', sectionTitle: 'Inclusion Criteria' },
@@ -79,6 +84,13 @@ async function build(opts: {
     bestPracticeRecord: {
       findUnique: vi.fn(async () => null),
       findFirst:  vi.fn(async () => null),
+    },
+    // Migration 90: section-context endpoint falls back to the
+    // latest-approved SectionTemplate when the section has no
+    // snapshot pinned. Tests pass `sectionTemplateApproved: null`
+    // (default) to exercise the "no template" path.
+    sectionTemplate: {
+      findFirst: vi.fn(async () => opts.sectionTemplateApproved ?? null),
     },
   } as never)
   app.decorate('audit', { append: vi.fn() } as never)
@@ -165,5 +177,61 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
   it('404s when the section key does not match any section on the current version', async () => {
     const { app } = await build({ sectionRows: [] })
     expect((await get(app, 's99')).statusCode).toBe(404)
+  })
+
+  it('injects SECTION TEMPLATE block when the section has a snapshotted template', async () => {
+    const policy: PolicyRow = {
+      id: 'pol-1', docType: 'protocol', version: 3,
+      smePrompt: 'You are a Clinical Protocol subject-matter expert.',
+      bestPracticeDigest: SAMPLE_DIGEST,
+      sectionRules:       SAMPLE_RULES,
+    }
+    const { app } = await build({
+      policyPinned: policy, policyVersionAtCreate: 3,
+      sectionRows: [{
+        sectionId: 's6_2', sectionNumber: '6.2', sectionTitle: 'Inclusion Criteria',
+        sectionTemplateRecordId: 'tpl-1',
+        templateFormatJson: {
+          font: { family: 'Times New Roman', size: 11 },
+          paragraph: { lineHeight: 1.15 },
+          list: { type: 'numbered', marker: '1.' },
+        },
+      }],
+    })
+    const body = (await get(app, 's6_2')).json()
+    expect(body.renderedPromptBlock).toContain('SECTION TEMPLATE (s6_2)')
+    expect(body.renderedPromptBlock).toContain('Times New Roman')
+    expect(body.renderedPromptBlock).toContain('11pt')
+    expect(body.renderedPromptBlock).toContain('1.15 line-height')
+    expect(body.renderedPromptBlock).toContain('numbered list')
+  })
+
+  it('falls back to the latest-approved SectionTemplate when the section has no snapshot', async () => {
+    const policy: PolicyRow = {
+      id: 'pol-1', docType: 'protocol', version: 3,
+      smePrompt: 'You are a Clinical Protocol subject-matter expert.',
+      bestPracticeDigest: SAMPLE_DIGEST,
+      sectionRules:       SAMPLE_RULES,
+    }
+    const { app } = await build({
+      policyPinned: policy, policyVersionAtCreate: 3,
+      sectionTemplateApproved: { formatJson: { font: { family: 'Arial', size: 10 } } },
+    })
+    const body = (await get(app, 's6_2')).json()
+    expect(body.renderedPromptBlock).toContain('SECTION TEMPLATE (s6_2)')
+    expect(body.renderedPromptBlock).toContain('Arial')
+    expect(body.renderedPromptBlock).toContain('10pt')
+  })
+
+  it('omits SECTION TEMPLATE block when neither snapshot nor approved template exists', async () => {
+    const policy: PolicyRow = {
+      id: 'pol-1', docType: 'protocol', version: 3,
+      smePrompt: 'You are a Clinical Protocol subject-matter expert.',
+      bestPracticeDigest: SAMPLE_DIGEST,
+      sectionRules:       SAMPLE_RULES,
+    }
+    const { app } = await build({ policyPinned: policy, policyVersionAtCreate: 3 })
+    const body = (await get(app, 's6_2')).json()
+    expect(body.renderedPromptBlock).not.toContain('SECTION TEMPLATE')
   })
 })

@@ -286,6 +286,14 @@ async function buildServer() {
   const { bestPracticeRoutes } = await import('./modules/platform/best-practice/routes.js')
   await app.register(bestPracticeRoutes, { prefix: '/best-practice-records' })
 
+  // Section Template — per-section formatting JSON (migration 90). Admin
+  // authors font/paragraph/list/table rules per (docType, sectionKey);
+  // document creation snapshots the approved row onto each section so
+  // AI rewrites preserve the styling. Replaces BP's role as the vehicle
+  // for AI-steering formatting hints (BP is now author-guidance only).
+  const { sectionTemplateRoutes } = await import('./modules/platform/section-template/routes.js')
+  await app.register(sectionTemplateRoutes, { prefix: '/section-templates' })
+
   // Scientific-Writing Policy admin (Phase M-B.1, migration 75) — mirror
   // of the clinical-writing policy stack scoped to publication doctypes
   // (manuscript_full_research, review_systematic, abstract, poster,

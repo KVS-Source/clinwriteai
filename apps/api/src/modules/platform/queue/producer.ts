@@ -30,26 +30,24 @@ export type QueueJobName =
   | 'compliance.access_review'
   | 'dpdpa.erasure'
   | 'dpdpa.breach_notification'
-  | 'platform.distill_best_practice'
   | 'platform.distill_template'
   | 'med_content.ai_slide_draft'
-  // Module B — manuscript initial-draft + validation-pass + BP distill.
+  // Module B — manuscript initial-draft + validation-pass.
   // Mirror of the clinical chain scoped to publications.
   | 'publications.ai_initial_draft'
   | 'publications.ai_validation_pass'
-  | 'publications.distill_best_practice'
-  // Module C — medical-writing BP distiller + initial-draft + 85% loop.
-  | 'med_content.distill_best_practice'
+  // Module C — medical-writing initial-draft + 85% loop.
   | 'med_content.ai_initial_draft'
   | 'med_content.ai_validation_pass'
-  // Module D — regulatory-writing BP distiller (M-D.1) + initial-draft + 85% loop (M-D.3).
-  | 'regulatory.distill_best_practice'
+  // Module D — regulatory-writing initial-draft + 85% loop (M-D.3).
   | 'regulatory.ai_initial_draft'
   | 'regulatory.ai_validation_pass'
-  // Module E — ideation-publishing BP distiller (M-E.1) + initial draft + 85% loop (M-E.3).
-  | 'ideation.distill_best_practice'
+  // Module E — ideation-publishing initial draft + 85% loop (M-E.3).
   | 'ideation.ai_initial_draft'
   | 'ideation.ai_validation_pass'
+  // BP distill queues retired — BP is author guidance now, not AI steering.
+  // SectionTemplate (migration 90) carries the formatting rules the model
+  // used to pick up from BP.
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

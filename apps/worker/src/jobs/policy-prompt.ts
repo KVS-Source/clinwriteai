@@ -146,22 +146,192 @@ export function renderSectionRules(
 
 /** Mirror of apps/api renderPolicyPromptBlock. */
 export function renderPolicyPromptBlock(
-  policy:     PolicyRowForAi | null,
-  sectionKey: string | null = null,
+  policy:                PolicyRowForAi | null,
+  sectionKey:            string | null = null,
+  sectionTemplateFormat: SectionTemplateFormat | null = null,
 ): string {
-  if (!policy) return ''
+  if (!policy && !sectionTemplateFormat) return ''
   const parts: string[] = []
-  if (policy.smePrompt.trim().length > 0) {
+  if (policy && policy.smePrompt.trim().length > 0) {
     parts.push(`SME PROMPT (policy v${policy.version})`, policy.smePrompt.trim())
   }
   // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
   const whole = "" // was: renderWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
-  if (sectionKey) {
+  if (policy && sectionKey) {
     const sec = renderSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
+  if (sectionKey && sectionTemplateFormat) {
+    const tpl = renderSectionTemplateNL(sectionTemplateFormat, sectionKey)
+    if (tpl) parts.push('', tpl)
+  }
   return parts.join('\n')
+}
+
+// --- SectionTemplate renderer (migration 90) ----------------------------
+//
+// Worker-side mirror of apps/api/src/modules/platform/document-type-policy/
+// resolve.ts renderSectionTemplateNL. Types are duplicated (worker is a
+// separate package) — the parity test asserts identical output.
+
+export interface SectionTemplateFormat {
+  page?: {
+    size?:        'A4' | 'Letter' | 'Legal'
+    orientation?: 'portrait' | 'landscape'
+    margins?:     { top?: number; right?: number; bottom?: number; left?: number }
+    columns?:     number
+    header?:      { enabled?: boolean; text?: string; font?: string; size?: number; pageNumber?: boolean }
+    footer?:      { enabled?: boolean; text?: string; font?: string; size?: number; pageNumber?: boolean }
+  }
+  font?: {
+    family?:    string
+    size?:      number
+    color?:     string
+    weight?:    'normal' | 'bold' | number
+    style?:     'normal' | 'italic'
+    underline?: 'none' | 'single' | 'double'
+  }
+  paragraph?: {
+    alignment?:    'left' | 'center' | 'right' | 'justify'
+    lineHeight?:   number
+    spaceBefore?:  number
+    spaceAfter?:   number
+    indent?:       { firstLine?: number; left?: number; right?: number }
+    keepTogether?: boolean
+    keepWithNext?: boolean
+  }
+  heading?: {
+    level?:       number
+    font?:        { family?: string; size?: number; color?: string; weight?: 'normal' | 'bold' | number }
+    spaceBefore?: number
+    spaceAfter?:  number
+    numbering?:   { format?: string; startAt?: number }
+  }
+  list?: {
+    type?:   'bullet' | 'numbered' | 'none'
+    marker?: string
+    levels?: Array<{ marker: string; indent: number }>
+  }
+  table?: {
+    borderStyle?: 'solid' | 'dashed' | 'dotted' | 'double' | 'none'
+    borderWidth?: number
+    borderColor?: string
+    headerRow?:   { fill?: string; fontWeight?: 'normal' | 'bold'; fontColor?: string }
+    cellPadding?: number
+    rowBanding?:  { enabled: boolean; altFill?: string }
+    columnWidths?: number[]
+  }
+  references?: { style?: 'superscript' | 'bracket' | 'parenthesis'; separator?: string }
+  numbering?:  { sections?: boolean; format?: string; startAt?: number }
+  notes?:      string
+}
+
+export function renderSectionTemplateNL(
+  fmt:        SectionTemplateFormat,
+  sectionKey: string,
+): string {
+  const lines: string[] = [`SECTION TEMPLATE (${sectionKey}) — follow these formatting rules`]
+  const { page, font, paragraph, heading, list, table, references, numbering, notes } = fmt
+
+  if (page) {
+    const bits: string[] = []
+    if (page.size)        bits.push(`${page.size}`)
+    if (page.orientation) bits.push(page.orientation)
+    if (page.columns && page.columns > 1) bits.push(`${page.columns} columns`)
+    const m = page.margins
+    if (m && (m.top || m.right || m.bottom || m.left)) {
+      bits.push(`margins top/right/bottom/left ${m.top ?? '-'}/${m.right ?? '-'}/${m.bottom ?? '-'}/${m.left ?? '-'}pt`)
+    }
+    if (bits.length) lines.push(`Page: ${bits.join(', ')}.`)
+    if (page.header?.enabled) {
+      const t = page.header.text ? ` text "${page.header.text}"` : ''
+      lines.push(`Header: enabled${t}.`)
+    }
+    if (page.footer?.enabled) {
+      const pn = page.footer.pageNumber ? ', include page number' : ''
+      const t  = page.footer.text ? ` text "${page.footer.text}"` : ''
+      lines.push(`Footer: enabled${t}${pn}.`)
+    }
+  }
+
+  if (font) {
+    const bits: string[] = []
+    if (font.family) bits.push(font.family)
+    if (font.size)   bits.push(`${font.size}pt`)
+    if (font.weight && font.weight !== 'normal') bits.push(typeof font.weight === 'number' ? `weight ${font.weight}` : font.weight)
+    if (font.style  && font.style  !== 'normal') bits.push(font.style)
+    if (font.underline && font.underline !== 'none') bits.push(`${font.underline} underline`)
+    if (font.color)  bits.push(font.color)
+    if (bits.length) lines.push(`Font: ${bits.join(', ')}.`)
+  }
+
+  if (paragraph) {
+    const bits: string[] = []
+    if (paragraph.alignment)           bits.push(paragraph.alignment)
+    if (paragraph.lineHeight)          bits.push(`${paragraph.lineHeight} line-height`)
+    if (paragraph.spaceBefore)         bits.push(`${paragraph.spaceBefore}pt before`)
+    if (paragraph.spaceAfter)          bits.push(`${paragraph.spaceAfter}pt after`)
+    const ind = paragraph.indent
+    if (ind && (ind.firstLine || ind.left || ind.right)) {
+      bits.push(`indent first-line/left/right ${ind.firstLine ?? 0}/${ind.left ?? 0}/${ind.right ?? 0}pt`)
+    }
+    if (paragraph.keepTogether) bits.push('keep paragraph together')
+    if (paragraph.keepWithNext) bits.push('keep with next')
+    if (bits.length) lines.push(`Paragraphs: ${bits.join(', ')}.`)
+  }
+
+  if (heading) {
+    const bits: string[] = []
+    if (heading.level)       bits.push(`H${heading.level}`)
+    if (heading.font?.size)  bits.push(`${heading.font.size}pt`)
+    if (heading.font?.weight && heading.font.weight !== 'normal') bits.push(typeof heading.font.weight === 'number' ? `weight ${heading.font.weight}` : `${heading.font.weight}`)
+    if (heading.font?.color) bits.push(heading.font.color)
+    if (heading.spaceBefore) bits.push(`${heading.spaceBefore}pt before`)
+    if (heading.spaceAfter)  bits.push(`${heading.spaceAfter}pt after`)
+    if (heading.numbering?.format) bits.push(`numbering "${heading.numbering.format}"`)
+    if (bits.length) lines.push(`Headings: ${bits.join(', ')}.`)
+  }
+
+  if (list) {
+    const bits: string[] = []
+    if (list.type && list.type !== 'none') bits.push(`${list.type} list`)
+    if (list.marker) bits.push(`marker "${list.marker}"`)
+    if (list.levels?.length) {
+      bits.push(`${list.levels.length}-level nesting`)
+    }
+    if (bits.length) lines.push(`Lists: ${bits.join(', ')}.`)
+  }
+
+  if (table) {
+    const bits: string[] = []
+    if (table.borderStyle && table.borderStyle !== 'none') {
+      bits.push(`${table.borderStyle} ${table.borderWidth ?? 0.5}pt ${table.borderColor ?? '#000000'} borders`)
+    }
+    if (table.headerRow?.fill) {
+      bits.push(`header row fill ${table.headerRow.fill}` + (table.headerRow.fontWeight === 'bold' ? ' bold' : ''))
+    }
+    if (table.cellPadding) bits.push(`${table.cellPadding}pt cell padding`)
+    if (table.rowBanding?.enabled) {
+      bits.push(`row banding${table.rowBanding.altFill ? ` alt-fill ${table.rowBanding.altFill}` : ''}`)
+    }
+    if (bits.length) lines.push(`Tables: ${bits.join(', ')}.`)
+  }
+
+  if (references?.style) {
+    const sep = references.separator ? ` separator "${references.separator}"` : ''
+    lines.push(`References: ${references.style} style${sep}.`)
+  }
+
+  if (numbering?.sections) {
+    const fmtStr = numbering.format ? `, format "${numbering.format}"` : ''
+    const start  = numbering.startAt ? `, starts at ${numbering.startAt}` : ''
+    lines.push(`Section numbering: auto${fmtStr}${start}.`)
+  }
+
+  if (notes) lines.push('', 'ADDITIONAL FORMATTING NOTES', notes.trim())
+
+  return lines.length > 1 ? lines.join('\n') : ''
 }
 
 /** Fixed product-level grounding rules for every single-section AI call.

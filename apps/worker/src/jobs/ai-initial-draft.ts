@@ -32,7 +32,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
-import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
+import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi, type SectionTemplateFormat } from './policy-prompt.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -140,6 +140,7 @@ async function draftSection(args: {
   model:     string
   aiInstructions: string | null
   policy:    PolicyRowForAi | null
+  sectionTemplateFormat: SectionTemplateFormat | null
 }): Promise<{ contentHtml: string; engine: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) {
@@ -178,6 +179,7 @@ async function draftWithClaude(args: {
   model:      string
   aiInstructions: string | null
   policy:     PolicyRowForAi | null
+  sectionTemplateFormat: SectionTemplateFormat | null
 }): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
@@ -202,7 +204,7 @@ async function draftWithClaude(args: {
   // attached to the doc type (then AI falls back to the built-in rules
   // above). Policy is pinned at document create time so later version
   // bumps don't rewrite drafts of already-authored documents.
-  const policyBlock = renderPolicyPromptBlock(args.policy, args.section.id)
+  const policyBlock = renderPolicyPromptBlock(args.policy, args.section.id, args.sectionTemplateFormat)
   const policySection = policyBlock ? `\n\n${policyBlock}\n` : ''
 
   const system = [
@@ -416,9 +418,13 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   }
 
   // --- Load the SectionContent rows the API seeded for this version ------
+  // templateFormatJson is the per-section formatting snapshot pinned
+  // at document-create time (migration 90). When non-null the drafter
+  // injects it as "SECTION TEMPLATE" NL rules so Claude preserves the
+  // authored styling on every pass.
   const existing = await prisma.sectionContent.findMany({
     where: { documentVersionId: versionId },
-    select: { id: true, sectionId: true, contentHtml: true },
+    select: { id: true, sectionId: true, contentHtml: true, templateFormatJson: true },
   })
   const existingBySection = new Map(existing.map(e => [e.sectionId, e]))
 
@@ -440,8 +446,10 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       continue
     }
     try {
+      const sectionTemplateFormat = (row.templateFormatJson as unknown as SectionTemplateFormat | null) ?? null
       const { contentHtml, engine } = await draftSection({
         section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
+        sectionTemplateFormat,
       })
 
       await prisma.$transaction(async (tx) => {

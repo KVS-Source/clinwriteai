@@ -9,10 +9,7 @@
 // re-parse.
 
 import type { FastifyPluginAsync } from 'fastify'
-import type { MultipartFile } from '@fastify/multipart'
-import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { generateBlobKey } from '../blob/local-storage.js'
 import { resolveAiEngineSettings } from '../config/ai-engine-settings.js'
 import {
   bumpVersionSchema,
@@ -28,8 +25,6 @@ import {
 } from './service.js'
 import { resolvePolicyAssets } from './resolve-assets.js'
 import { extractSectionRulesWithClaude, buildStubSectionRules } from './ai-extract-section-rules.js'
-
-const MAX_BP_PDF_BYTES = 50 * 1024 * 1024    // 50 MB — same ceiling as source uploads
 
 // Admin writes to policy rows (create / update / bump / BP distill) are
 // pointless when the platform has no AI configured — the prompts never
@@ -230,167 +225,25 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  // POST /document-type-policies/:docType/distill-best-practice —
-  // enqueue the Best-Practice distillation worker for this doc type's
-  // current policy. Body: { uploadId: string } — the DocumentUpload id
-  // of the BP PDF. Returns 202 Accepted + jobId. Admins poll the audit
-  // chain for document_type_policy.bp_distilled / bp_distilled_failed
-  // to see the outcome.
-  //
-  // Preconditions:
-  //   - current policy exists for docType (404 otherwise)
-  //   - uploadId references an application/pdf DocumentUpload (400 on
-  //     missing / wrong type)
-  //
-  // Job dedup: jobId = bp-distill-<policyId>-<uploadId>; a retry of the
-  // same (policy, upload) pair reuses the job slot.
-  const distillSchema = z.object({ uploadId: z.string().min(1) })
-
-  app.post('/:docType/distill-best-practice', { preHandler: writeGate }, async (request, reply) => {
-    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
-    const { docType } = request.params as { docType: string }
-    const parsed = distillSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
-
-    const policy = await svc.getCurrent(docType)
-    if (!policy) return reply.code(404).send({ error: 'no_current_policy' })
-
-    const upload = await app.prisma.documentUpload.findUnique({ where: { id: parsed.data.uploadId } })
-    if (!upload) return reply.code(400).send({ error: 'upload_not_found', message: `DocumentUpload ${parsed.data.uploadId} not found` })
-    if ((upload.contentType ?? '').toLowerCase() !== 'application/pdf') {
-      return reply.code(400).send({ error: 'not_pdf', message: `Best-Practice upload must be application/pdf (got ${upload.contentType ?? 'unknown'})` })
-    }
-
-    const jobId = `bp-distill-${policy.id}-${upload.id}`
-    try {
-      await app.queue.enqueue('platform.distill_best_practice', {
-        policyId: policy.id,
-        uploadId: upload.id,
-        actorId:  request.user!.id,
-      }, { jobId })
-    } catch (err) {
-      app.log.warn({ err, policyId: policy.id, uploadId: upload.id }, 'bp distill enqueue failed')
-      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue distillation job. Try again.' })
-    }
-
-    await app.audit.append({
-      timestamp:  new Date().toISOString(),
-      actorId:    request.user!.id,
-      action:     'document_type_policy.bp_distill_enqueued',
-      entityType: 'document_type_policy',
-      entityId:   policy.id,
-      details:    { docType, version: policy.version, uploadId: upload.id, jobId },
-      ipAddress:  request.ip ?? null,
-    })
-
-    return reply.code(202).send({ jobId, policyId: policy.id, docType, version: policy.version })
-  })
+  // POST /document-type-policies/:docType/distill-best-practice — RETIRED.
+  // BP is author guidance now, not AI steering (M-F.1). SectionTemplate
+  // (migration 90) carries the per-section formatting rules the model
+  // used to pick up from BP's structured principles.
+  app.post('/:docType/distill-best-practice', { preHandler: writeGate }, async (_request, reply) =>
+    reply.code(410).send({
+      error:   'bp_distill_retired',
+      message: 'Best-Practice distillation is retired. BP is now author guidance only — use the Best Practices tab to curate user-facing content. Formatting hints that used to flow through BP are now modelled as Section Templates (admin panel → Section Templates).',
+    }),
+  )
 
   // POST /document-type-policies/:docType/distill-best-practice-file —
-  // one-shot admin upload: accepts a multipart PDF, stores it as a
-  // platform-scoped DocumentUpload (projectId=null,
-  // sourceCategory='best_practice'), then enqueues the distillation
-  // worker in the same request. Lets the Doc Type Policies admin
-  // screen replace the "paste an uploadId" box with a native file
-  // picker — no separate project-scoped upload flow required.
-  //
-  // Returns 202 Accepted with the uploadId + jobId so the UI can
-  // either poll the policy row or watch the audit chain for the
-  // distilled digest. Dedup jobId matches the paste-uploadId route
-  // (bp-distill-<policyId>-<uploadId>).
-  app.post('/:docType/distill-best-practice-file', { preHandler: writeGate }, async (request, reply) => {
-    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
-    const { docType } = request.params as { docType: string }
-
-    const policy = await svc.getCurrent(docType)
-    if (!policy) return reply.code(404).send({ error: 'no_current_policy' })
-
-    const file: MultipartFile | undefined = await request.file().catch(() => undefined)
-    if (!file) return reply.code(400).send({ error: 'no_file', message: 'multipart file part is required' })
-
-    const buf = await file.toBuffer()
-    if (buf.length > MAX_BP_PDF_BYTES) {
-      return reply.code(413).send({ error: 'too_large', message: `File > ${MAX_BP_PDF_BYTES / 1024 / 1024}MB` })
-    }
-    if ((file.mimetype ?? '').toLowerCase() !== 'application/pdf') {
-      return reply.code(400).send({
-        error:    'not_pdf',
-        mimetype: file.mimetype,
-        message:  'Best-Practice uploads must be application/pdf.',
-      })
-    }
-
-    // Blob first — on failure we don't leave a dangling DocumentUpload row.
-    const blobKey = generateBlobKey(`platform/best-practices/${policy.id}`, 'pdf')
-    try {
-      await app.blob.put({
-        bucket: 'documents',
-        key:    blobKey,
-        body:   buf,
-        contentType: file.mimetype,
-        metadata: {
-          originalFilename: file.filename,
-          policyId:         policy.id,
-          docType,
-          uploadedBy:       request.user!.id,
-          kind:             'best-practice',
-        },
-      })
-    } catch (err) {
-      app.log.warn({ err, policyId: policy.id }, 'bp pdf blob put failed')
-      return reply.code(503).send({ error: 'storage_failed', message: 'Could not store the PDF. Try again.' })
-    }
-
-    const upload = await app.prisma.documentUpload.create({
-      data: {
-        projectId:       null,                                      // platform asset — migration 66
-        uploadedBy:      request.user!.id,
-        blobKey,
-        fileName:        file.filename,
-        fileSizeBytes:   buf.length,
-        contentType:     file.mimetype,
-        virusScanStatus: 'passed',                                  // matches the existing source-upload stance
-        sourceCategory:  'best_practice',
-        status:          'confirmed',
-        title:           file.filename,
-      },
-    })
-
-    const jobId = `bp-distill-${policy.id}-${upload.id}`
-    try {
-      await app.queue.enqueue('platform.distill_best_practice', {
-        policyId: policy.id,
-        uploadId: upload.id,
-        actorId:  request.user!.id,
-      }, { jobId })
-    } catch (err) {
-      app.log.warn({ err, policyId: policy.id, uploadId: upload.id }, 'bp distill enqueue (from file) failed')
-      return reply.code(503).send({ error: 'enqueue_failed', message: 'PDF stored but could not enqueue distillation. Try again.' })
-    }
-
-    await app.audit.append({
-      timestamp:  new Date().toISOString(),
-      actorId:    request.user!.id,
-      action:     'document_type_policy.bp_distill_enqueued',
-      entityType: 'document_type_policy',
-      entityId:   policy.id,
-      details:    {
-        docType, version: policy.version, uploadId: upload.id, jobId,
-        fileName: file.filename, fileSizeBytes: buf.length, viaFileUpload: true,
-      },
-      ipAddress:  request.ip ?? null,
-    })
-
-    return reply.code(202).send({
-      jobId,
-      uploadId:  upload.id,
-      policyId:  policy.id,
-      docType,
-      version:   policy.version,
-      fileName:  file.filename,
-      sizeBytes: buf.length,
-    })
-  })
+  // RETIRED. See /distill-best-practice tombstone above for rationale.
+  app.post('/:docType/distill-best-practice-file', { preHandler: writeGate }, async (_request, reply) =>
+    reply.code(410).send({
+      error:   'bp_distill_retired',
+      message: 'Best-Practice distillation is retired. BP is now author guidance only. Formatting hints that used to flow through BP are now modelled as Section Templates.',
+    }),
+  )
 
   // POST /document-type-policies/:docType/extract-section-rules —
   // run the SME prompt through Claude and get back a sectionRules JSON

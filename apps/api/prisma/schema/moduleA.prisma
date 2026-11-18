@@ -231,6 +231,14 @@ model SectionContent {
   // Each code is weighted in the rubric. Empty = clean section.
   aiFlags            String[]   @default([]) @map("ai_flags")
 
+  // ---- Section template pin (migration 90) ----
+  // Pointer + snapshot of the SectionTemplate row that applied when this
+  // section was first created. Snapshot is what the resolver injects into
+  // the AI prompt on every rewrite; pointer is retained for audit + the
+  // debug panel's "which template version?" preview.
+  sectionTemplateRecordId String?    @map("section_template_record_id")
+  templateFormatJson      Json?      @map("template_format_json")
+
   version            DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
 
   @@map("section_contents")

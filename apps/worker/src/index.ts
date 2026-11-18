@@ -21,17 +21,15 @@ import { handleAiInitialDraft } from './jobs/ai-initial-draft.js'
 import { handleAiValidationPass } from './jobs/ai-validation-pass.js'
 import { handleAiInitialDraftPublication } from './jobs/pub-ai-initial-draft.js'
 import { handleAiValidationPassPublication } from './jobs/pub-ai-validation-pass.js'
-import { handleDistillPublicationBestPractice } from './jobs/pub-distill-best-practice.js'
-import { handleDistillMedContentBestPractice } from './jobs/med-content-distill-best-practice.js'
+// BP distillation retired (migration 90 era) — BP is author guidance now,
+// not AI steering. Policy-wizard "Distil BP" is gone. SectionTemplate
+// provides the formatting hints the model used to pick up from BP.
 import { handleAiInitialDraftMedContent }      from './jobs/med-content-ai-initial-draft.js'
 import { handleAiValidationPassMedContent }    from './jobs/med-content-ai-validation-pass.js'
-import { handleDistillRegulatoryBestPractice }      from './jobs/regulatory-distill-best-practice.js'
 import { handleAiInitialDraftRegulatoryDocument }   from './jobs/regulatory-ai-initial-draft.js'
 import { handleAiValidationPassRegulatoryDocument } from './jobs/regulatory-ai-validation-pass.js'
-import { handleDistillIdeationBestPractice }        from './jobs/ideation-distill-best-practice.js'
 import { handleAiInitialDraftIdeationArtefact }     from './jobs/ideation-ai-initial-draft.js'
 import { handleAiValidationPassIdeationArtefact }   from './jobs/ideation-ai-validation-pass.js'
-import { handleDistillBestPractice } from './jobs/distill-best-practice.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
@@ -124,30 +122,17 @@ const handlers = {
   // apps/worker/src/jobs/pub-ai-initial-draft.ts + pub-ai-validation-pass.ts.
   'publications.ai_initial_draft':   handleAiInitialDraftPublication,
   'publications.ai_validation_pass': handleAiValidationPassPublication,
-  // Module B BP distiller — mirror of platform.distill_best_practice
-  // scoped to publication doctypes. Writes a draft
-  // PublicationBestPracticeRecord for admin approval.
-  'publications.distill_best_practice': handleDistillPublicationBestPractice,
-  // Module C — same BP distiller scoped to medical content doctypes.
-  'med_content.distill_best_practice':  handleDistillMedContentBestPractice,
   // Module C — initial draft + 85% validation loop (Phase M-C.3).
   'med_content.ai_initial_draft':       handleAiInitialDraftMedContent,
   'med_content.ai_validation_pass':     handleAiValidationPassMedContent,
-  // Module D — same BP distiller scoped to regulatory doctypes.
-  'regulatory.distill_best_practice':   handleDistillRegulatoryBestPractice,
   // Module D — initial draft + 85% validation loop (Phase M-D.3).
   'regulatory.ai_initial_draft':        handleAiInitialDraftRegulatoryDocument,
   'regulatory.ai_validation_pass':      handleAiValidationPassRegulatoryDocument,
-  // Module E — same BP distiller scoped to ideation doctypes (Phase M-E.1).
-  'ideation.distill_best_practice':     handleDistillIdeationBestPractice,
   // Module E — initial draft + 85% validation loop (Phase M-E.3).
   'ideation.ai_initial_draft':          handleAiInitialDraftIdeationArtefact,
   'ideation.ai_validation_pass':        handleAiValidationPassIdeationArtefact,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
-  // Platform — one-off Best-Practice PDF → structured digest. Enqueued
-  // from the admin "Distil BP" button on the DocumentTypePolicy screen.
-  'platform.distill_best_practice': handleDistillBestPractice,
   // Platform — one-off Template PDF → structured sections[]. Enqueued
   // from the admin "Upload + parse" button on the Template Library screen.
   'platform.distill_template': handleDistillTemplate,
@@ -187,21 +172,16 @@ const concurrency: Record<JobName, number> = {
   // parallel with the LLM call so validation can stay at 1.
   'publications.ai_initial_draft':   2,
   'publications.ai_validation_pass': 1,
-  'publications.distill_best_practice': 1,
-  'med_content.distill_best_practice':  1,
   'med_content.ai_initial_draft':       2,
   'med_content.ai_validation_pass':     1,
-  'regulatory.distill_best_practice':   1,
   'regulatory.ai_initial_draft':        2,
   'regulatory.ai_validation_pass':      1,
-  'ideation.distill_best_practice':     1,
   'ideation.ai_initial_draft':          2,
   'ideation.ai_validation_pass':        1,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
-  // One AI call per distillation; serial to keep provider pressure predictable.
-  'platform.distill_best_practice': 1,
-  // Template parsing: same shape as BP distill, serial for the same reason.
+  // Template parsing: one AI call per distillation; serial to keep
+  // provider pressure predictable.
   'platform.distill_template': 1,
   // Slide generation: serial to keep provider pressure predictable — users
   // click "+ New slide with AI" one slide at a time anyway. Bump when

@@ -532,6 +532,11 @@ async function buildServer() {
     await import('./modules/regulatory-writing/documents/ai-suggest-section-routes.js')
   await app.register(regulatoryDocumentAiSuggestSectionRoutes, { prefix: '/regulatory-documents' })
 
+  // Phase M-D.5 — section comments with RACI gating.
+  const { regulatoryDocumentCommentRoutes } =
+    await import('./modules/regulatory-writing/documents/comment-routes.js')
+  await app.register(regulatoryDocumentCommentRoutes, { prefix: '/regulatory-documents' })
+
   // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
   // etc.) and externally-blocked endpoints (gateway, super-reviewers,
   // library-cards) with deterministic placeholder shapes so the UI's

@@ -578,3 +578,29 @@ model RegulatoryDocumentSectionLock {
   @@index([userId])
   @@index([lastHeartbeatAt])
 }
+
+// --- Phase M-D.5 ----------------------------------------------------------
+// Threaded comments on regulatory document sections. Mirror of
+// MedContentSectionComment / PublicationSectionComment.
+
+model RegulatoryDocumentSectionComment {
+  id                     String    @id @default(uuid())
+  regulatoryDocumentId   String
+  sectionId              String
+  authorId               String
+  authorName             String
+  text                   String
+  severity               String    @default("info")                             // info | warning | blocking
+  status                 String    @default("open")                             // open | resolved
+  resolvedBy             String?
+  resolvedAt             DateTime?
+  resolutionNote         String?
+  parentCommentId        String?
+  mentionedUserIds       String[]  @default([])
+  createdAt              DateTime  @default(now())
+
+  @@map("regulatory_document_section_comments")
+  @@index([regulatoryDocumentId])
+  @@index([regulatoryDocumentId, sectionId])
+  @@index([parentCommentId])
+}

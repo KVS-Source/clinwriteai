@@ -24,6 +24,10 @@ import {
   requireRegulatoryDocumentSectionLockHeldBy,
   REG_DOC_LOCK_STALE_SECONDS,
 } from './section-lock-service.js'
+import {
+  actorCanEditRegulatoryDocument,
+  REG_DOC_EDIT_FORBIDDEN,
+} from '../access/regulatory-document-raci.js'
 
 const gate      = requireAuth({ modules: ['D'] })
 const writeGate = requireAuth({ modules: ['D'] })
@@ -83,6 +87,10 @@ export const regulatoryDocumentSectionRoutes: FastifyPluginAsync = async (app) =
     })
     if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
 
+    if (!(await actorCanEditRegulatoryDocument(app.prisma, request.user!, id))) {
+      return reply.code(403).send(REG_DOC_EDIT_FORBIDDEN)
+    }
+
     const blocker = await requireRegulatoryDocumentSectionLockHeldBy(app.prisma, {
       regulatoryDocumentId: id, sectionId, userId: request.user!.id,
     })
@@ -124,6 +132,9 @@ export const regulatoryDocumentSectionRoutes: FastifyPluginAsync = async (app) =
       where: { id }, select: { id: true, archivedAt: true },
     })
     if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditRegulatoryDocument(app.prisma, request.user!, id))) {
+      return reply.code(403).send(REG_DOC_EDIT_FORBIDDEN)
+    }
     const result = await acquireRegularoryDocumentSectionLock(app.prisma, {
       regulatoryDocumentId: id, sectionId, userId: request.user!.id,
     })
@@ -202,6 +213,9 @@ export const regulatoryDocumentSectionRoutes: FastifyPluginAsync = async (app) =
       where: { id }, select: { id: true, archivedAt: true },
     })
     if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditRegulatoryDocument(app.prisma, request.user!, id))) {
+      return reply.code(403).send(REG_DOC_EDIT_FORBIDDEN)
+    }
     try {
       const version = await sectionSvc.bumpVersion({
         regulatoryDocumentId: id, label: parsed.data.label,

@@ -280,6 +280,31 @@ export const regulatoryWritingApi = {
       `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
       body,
     ),
+
+  // --- Section comments (Phase M-D.5) ------------------------------------
+  listDocumentComments: (id: string, sectionId?: string) =>
+    api.get<{ regulatoryDocumentId: string; comments: RegDocCommentRow[] }>(
+      `/regulatory-documents/${id}/comments${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`,
+    ),
+  createDocumentComment: (
+    id: string,
+    sectionId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<RegDocCommentRow>(
+      `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}/comments`,
+      body,
+    ),
+  resolveDocumentComment: (id: string, commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<RegDocCommentRow>(
+      `/regulatory-documents/${id}/comments/${commentId}/resolve`,
+      body,
+    ),
 }
 
 // --- Regulatory document shapes (Phase M-D.2/3/4) -----------------------
@@ -344,4 +369,21 @@ export interface RegDocSectionLockResult {
   outcome:      'acquired' | 'extended' | 'stolen' | 'conflict'
   holder:       RegDocSectionLockHolder
   staleSeconds: number
+}
+
+export interface RegDocCommentRow {
+  id:                   string
+  regulatoryDocumentId: string
+  sectionId:            string
+  authorId:             string
+  authorName:           string
+  text:                 string
+  severity:             'info' | 'warning' | 'blocking'
+  status:               'open' | 'resolved'
+  resolvedBy:           string | null
+  resolvedAt:           string | null
+  resolutionNote:       string | null
+  parentCommentId:      string | null
+  mentionedUserIds:     string[]
+  createdAt:            string
 }

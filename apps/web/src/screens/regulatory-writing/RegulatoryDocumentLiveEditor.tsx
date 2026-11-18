@@ -14,6 +14,7 @@ import {
   regulatoryWritingApi,
   type RegulatoryDocumentSectionRow,
   type RegDocSectionLockHolder,
+  type RegDocCommentRow,
 } from '../../modules/regulatory-writing/api/regulatoryWriting'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
@@ -428,7 +429,139 @@ function SectionEditor({
           : 'Never edited'}
       </p>
 
-      {/* Comments panel lands in Phase M-D.5. */}
+      <SectionCommentsPanel regulatoryDocumentId={regulatoryDocumentId} sectionId={section.sectionId} />
     </section>
+  )
+}
+
+// ---- comments panel --------------------------------------------------------
+
+function SectionCommentsPanel({
+  regulatoryDocumentId, sectionId,
+}: {
+  regulatoryDocumentId: string
+  sectionId: string
+}) {
+  const qc = useQueryClient()
+  const commentsQ = useQuery({
+    queryKey: ['regulatory-document-comments', regulatoryDocumentId, sectionId],
+    queryFn:  () => regulatoryWritingApi.listDocumentComments(regulatoryDocumentId, sectionId),
+  })
+  const [draft, setDraft] = useState('')
+  const [severity, setSeverity] = useState<'info' | 'warning' | 'blocking'>('info')
+  const [error, setError] = useState<string | null>(null)
+
+  const create = useMutation({
+    mutationFn: () => regulatoryWritingApi.createDocumentComment(regulatoryDocumentId, sectionId, {
+      text: draft.trim(),
+      severity,
+    }),
+    onSuccess: () => {
+      setDraft(''); setError(null)
+      qc.invalidateQueries({ queryKey: ['regulatory-document-comments', regulatoryDocumentId, sectionId] })
+    },
+    onError: (err: unknown) => setError(errMessage(err, 'Comment failed')),
+  })
+  const resolve = useMutation({
+    mutationFn: (commentId: string) => regulatoryWritingApi.resolveDocumentComment(regulatoryDocumentId, commentId),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['regulatory-document-comments', regulatoryDocumentId, sectionId] }),
+  })
+
+  const comments = commentsQ.data?.comments ?? []
+  const openCount = comments.filter(c => c.status === 'open').length
+
+  if (commentsQ.isLoading) return <p className="mt-2 text-[11px] text-slate-500">Loading comments…</p>
+
+  return (
+    <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2" data-comments-panel>
+      <summary className="cursor-pointer text-[11px] font-semibold text-slate-700">
+        Comments {comments.length === 0 ? '(none)' : `· ${comments.length} total · ${openCount} open`}
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {comments.map(c => <CommentRow key={c.id} comment={c} onResolve={() => resolve.mutate(c.id)} canResolve={!resolve.isPending} />)}
+        {comments.length === 0 && <p className="text-[11px] italic text-slate-500">No comments yet. Owner, project reviewers, scoped PM + admin may comment.</p>}
+
+        <form
+          className="mt-2 flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-2"
+          onSubmit={e => { e.preventDefault(); if (draft.trim()) create.mutate() }}
+          data-new-comment
+        >
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.currentTarget.value)}
+            rows={2}
+            placeholder="Add a comment on this section…"
+            className="w-full resize-y rounded-md border border-slate-300 px-2 py-1 font-mono text-[11px]"
+            data-field="comment-text"
+          />
+          <div className="flex items-center justify-between">
+            <select
+              value={severity}
+              onChange={e => setSeverity(e.currentTarget.value as 'info' | 'warning' | 'blocking')}
+              className="h-7 rounded-md border border-slate-300 bg-white px-2 text-[11px]"
+              data-field="comment-severity"
+            >
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="blocking">Blocking</option>
+            </select>
+            <button
+              type="submit"
+              disabled={create.isPending || !draft.trim()}
+              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              data-action="add-comment"
+            >{create.isPending ? 'Posting…' : 'Add comment'}</button>
+          </div>
+          {error && <p className="text-[10px] text-rose-700">{error}</p>}
+        </form>
+      </div>
+    </details>
+  )
+}
+
+function CommentRow({
+  comment, onResolve, canResolve,
+}: {
+  comment:    RegDocCommentRow
+  onResolve:  () => void
+  canResolve: boolean
+}) {
+  const palette: Record<string, string> = {
+    info:     'border-slate-200',
+    warning:  'border-amber-300 bg-amber-50/50',
+    blocking: 'border-rose-300 bg-rose-50/50',
+  }
+  return (
+    <div className={`rounded-md border ${palette[comment.severity] ?? 'border-slate-200'} bg-white p-2`} data-comment={comment.id}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-[11px] text-slate-800">{comment.authorName}</span>
+          <span className="font-mono text-[10px] text-slate-500">{new Date(comment.createdAt).toLocaleString()}</span>
+          <span className={`rounded px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+            comment.severity === 'blocking' ? 'bg-rose-100 text-rose-800' :
+            comment.severity === 'warning'  ? 'bg-amber-100 text-amber-800' :
+                                              'bg-slate-100 text-slate-700'
+          }`}>{comment.severity}</span>
+          {comment.status === 'resolved' && (
+            <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[9px] uppercase text-emerald-800">resolved</span>
+          )}
+        </div>
+        {comment.status === 'open' && (
+          <button
+            type="button"
+            onClick={onResolve}
+            disabled={!canResolve}
+            className="rounded-md border border-emerald-600 bg-white px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+            data-action="resolve-comment"
+          >Resolve</button>
+        )}
+      </div>
+      <p className="mt-1 whitespace-pre-wrap text-[12px] text-slate-800">{comment.text}</p>
+      {comment.resolutionNote && (
+        <p className="mt-1 rounded bg-emerald-50 border border-emerald-200 px-2 py-1 text-[11px] text-emerald-900">
+          <span className="font-mono text-[10px] font-semibold uppercase">Resolution:</span> {comment.resolutionNote}
+        </p>
+      )}
+    </div>
   )
 }

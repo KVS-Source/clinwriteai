@@ -12,6 +12,10 @@ import {
   renderRegPolicyPromptBlock,
   SECTION_GROUNDING_RULES,
 } from '../policy/resolve.js'
+import {
+  actorCanEditRegulatoryDocument,
+  REG_DOC_EDIT_FORBIDDEN,
+} from '../access/regulatory-document-raci.js'
 
 const writeGate = requireAuth({ modules: ['D'] })
 
@@ -53,6 +57,10 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
     })
     if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
     if (!doc.currentVersionId) return reply.code(409).send({ error: 'no_current_version' })
+
+    if (!(await actorCanEditRegulatoryDocument(app.prisma, request.user!, id))) {
+      return reply.code(403).send(REG_DOC_EDIT_FORBIDDEN)
+    }
 
     const section = await app.prisma.regulatoryDocumentSection.findFirst({
       where:  { regulatoryDocumentVersionId: doc.currentVersionId, sectionId },

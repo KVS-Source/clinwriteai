@@ -273,6 +273,13 @@ export const regulatoryDocumentRoutes: FastifyPluginAsync = async (app) => {
         message: 'Regulatory document has no current version. Create flow should have seeded v0.1.',
       })
     }
+    {
+      const { actorCanEditRegulatoryDocument: canEdit, REG_DOC_EDIT_FORBIDDEN: forbidden } =
+        await import('../access/regulatory-document-raci.js')
+      if (!(await canEdit(app.prisma, request.user!, regulatoryDocumentId))) {
+        return reply.code(403).send(forbidden)
+      }
+    }
     if (doc.aiDraftState === 'drafting' || doc.aiDraftState === 'validating') {
       return reply.code(409).send({
         error:   'already_running',

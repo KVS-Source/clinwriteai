@@ -16,7 +16,7 @@
 //   - LibraryAdoptionRecord captures every consumer action. On POST
 //     /:id/adopt, usage_count on the section is bumped in the same tx.
 
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
 import { textExcerpt, wordStartPattern } from './search.js'
@@ -110,12 +110,28 @@ const DAY_ONLY = /^\d{4}-\d{2}-\d{2}$/
 const rangeEdge = (v: string, edge: 'start' | 'end') =>
   new Date(DAY_ONLY.test(v) ? `${v}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}Z` : v)
 
-const SORTS = ['recent', 'oldest', 'name-asc', 'name-desc'] as const
+const SORTS = ['recent', 'oldest', 'name-asc', 'name-desc', 'type-asc', 'type-desc', 'ta-asc', 'ta-desc'] as const
 const LIST_MAX = 200
 const LIST_COLUMNS = {
   id: true, tenantId: true, title: true, taTag: true, framework: true, category: true, version: true, isCurrent: true,
   usageCount: true, approvedBy: true, approvedAt: true, supersededBy: true, retiredAt: true, tags: true, createdAt: true, updatedAt: true,
 } as const
+
+/** One page of the matching rows ordered by document type (the first doctype: tag; none last), newest first within a type. */
+async function pageByDocType(app: FastifyInstance, where: Prisma.LibrarySectionWhereInput, dir: 'asc' | 'desc', skip: number, take: number) {
+  const keys = await app.prisma.librarySection.findMany({ where, select: { id: true, tags: true, approvedAt: true } })
+  const typeOf = (tags: string[]) => (tags.find(t => t.startsWith('doctype:'))?.slice('doctype:'.length) ?? '').toLowerCase()
+  const sign = dir === 'asc' ? 1 : -1
+  keys.sort((a, b) => {
+    const x = typeOf(a.tags), y = typeOf(b.tags)
+    if (x !== y) return !x ? 1 : !y ? -1 : x < y ? -sign : sign   // no type always last
+    return b.approvedAt.getTime() - a.approvedAt.getTime() || (a.id < b.id ? -1 : 1)
+  })
+  const ids = keys.slice(skip, skip + take).map(k => k.id)
+  const rows = await app.prisma.librarySection.findMany({ where: { id: { in: ids } }, select: LIST_COLUMNS })
+  const at = new Map(ids.map((id, i) => [id, i]))
+  return rows.sort((a, b) => at.get(a.id)! - at.get(b.id)!)
+}
 
 const uiListQuery = z.object({
   q:          z.string().trim().max(200).optional(),
@@ -289,7 +305,15 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       q.sort === 'oldest'    ? [{ approvedAt: 'asc' },  { id: 'asc' }]
       : q.sort === 'name-asc'  ? [{ title: 'asc' },       { id: 'asc' }]
       : q.sort === 'name-desc' ? [{ title: 'desc' },      { id: 'asc' }]
+      : q.sort === 'ta-asc'    ? [{ taTag: 'asc' },       { approvedAt: 'desc' }, { id: 'asc' }]
+      : q.sort === 'ta-desc'   ? [{ taTag: 'desc' },      { approvedAt: 'desc' }, { id: 'asc' }]
       : [{ approvedAt: 'desc' }, { id: 'asc' }]
+    // The document type is a tag (doctype:X), not a column, so the database can't order by it: that sort orders the
+    // matching rows' tags here and then reads just the page.
+    const byType = q.sort === 'type-asc' || q.sort === 'type-desc' ? (q.sort === 'type-asc' ? 'asc' as const : 'desc' as const) : null
+    const page = async (w: Prisma.LibrarySectionWhereInput, skip: number, take: number) => byType
+      ? pageByDocType(app, w, byType, skip, take)
+      : app.prisma.librarySection.findMany({ where: w, orderBy, skip, take, select: LIST_COLUMNS })
 
     const skip = Number(q.cursor ?? 0)
     let total: number
@@ -301,7 +325,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       [total, rows] = await Promise.all([
         app.prisma.librarySection.count({ where }),
         // Everything but `body`: the list never shows the text, so the database doesn't read it or send it to the API.
-        app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit, select: LIST_COLUMNS }),
+        page(where, skip, q.limit),
       ])
     } else {
       // A search lists the items whose title matches first, then those found only in their text; each group in the
@@ -314,11 +338,11 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       ])
       total = nameTotal + textTotal
       const named = skip < nameTotal
-        ? await app.prisma.librarySection.findMany({ where: byName, orderBy, skip, take: q.limit, select: LIST_COLUMNS })
+        ? await page(byName, skip, q.limit)
         : []
       const room = q.limit - named.length
       const inText = room > 0 && textTotal > 0
-        ? await app.prisma.librarySection.findMany({ where: byText, orderBy, skip: Math.max(0, skip - nameTotal), take: room, select: LIST_COLUMNS })
+        ? await page(byText, Math.max(0, skip - nameTotal), room)
         : []
       rows = [...named, ...inText]
       for (const r of inText) inTextIds.add(r.id)

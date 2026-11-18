@@ -312,6 +312,20 @@ async function buildServer() {
   await app.register(medContentAiPromptRoutes,      { prefix: '/med-content-ai-prompts' })
   await app.register(medContentBestPracticeRoutes,  { prefix: '/med-content-best-practice-records' })
 
+  // Regulatory-Writing Policy admin (Phase M-D.1, migration 84) — mirror
+  // of the medical-content policy stack scoped to regulatory doctypes
+  // (ctd_m2_3_qos, ctd_m2_4_nonclin_overview, ctd_m2_5_clinical_overview,
+  // ctd_m2_7_clinical_summary, cover_letter, ha_response_narrative, etc.).
+  // Writes PM-only + Module D gated.
+  const {
+    regulatoryTypePolicyRoutes,
+    regulatoryAiPromptRoutes,
+    regulatoryBestPracticeRoutes,
+  } = await import('./modules/regulatory-writing/policy/routes.js')
+  await app.register(regulatoryTypePolicyRoutes,    { prefix: '/regulatory-type-policies' })
+  await app.register(regulatoryAiPromptRoutes,      { prefix: '/regulatory-ai-prompts' })
+  await app.register(regulatoryBestPracticeRoutes,  { prefix: '/regulatory-best-practice-records' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')
@@ -500,6 +514,28 @@ async function buildServer() {
 
   const { oddRoutes } = await import('./modules/regulatory-writing/odd/routes.js')
   await app.register(oddRoutes)
+
+  // Phase M-D.2 — primary writable regulatory-document entity + versioning
+  // + sections + section locks. Lives under /regulatory-documents (not
+  // /reg-submissions/:id/documents on the list route is already scoped).
+  const { regulatorySubmissionDocumentRoutes, regulatoryDocumentRoutes } =
+    await import('./modules/regulatory-writing/documents/routes.js')
+  await app.register(regulatorySubmissionDocumentRoutes, { prefix: '/reg-submissions' })
+  await app.register(regulatoryDocumentRoutes, { prefix: '/regulatory-documents' })
+
+  const { regulatoryDocumentSectionRoutes } =
+    await import('./modules/regulatory-writing/documents/section-routes.js')
+  await app.register(regulatoryDocumentSectionRoutes, { prefix: '/regulatory-documents' })
+
+  // Phase M-D.4 — section-scoped /ai-suggest.
+  const { regulatoryDocumentAiSuggestSectionRoutes } =
+    await import('./modules/regulatory-writing/documents/ai-suggest-section-routes.js')
+  await app.register(regulatoryDocumentAiSuggestSectionRoutes, { prefix: '/regulatory-documents' })
+
+  // Phase M-D.5 — section comments with RACI gating.
+  const { regulatoryDocumentCommentRoutes } =
+    await import('./modules/regulatory-writing/documents/comment-routes.js')
+  await app.register(regulatoryDocumentCommentRoutes, { prefix: '/regulatory-documents' })
 
   // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
   // etc.) and externally-blocked endpoints (gateway, super-reviewers,

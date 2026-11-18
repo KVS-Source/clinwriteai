@@ -3,10 +3,10 @@ import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { MultiSelect } from '../components/MultiSelect'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
-import type { MasterLibraryAuditEntry, MasterLibraryItem, MasterLibraryShareRecord, ModuleKey } from '@platform/types'
+import type { MasterLibraryAuditEntry, MasterLibraryItem, ModuleKey } from '@platform/types'
 import type { LibraryListParams } from '../api/platformApi'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -33,7 +33,7 @@ const PAGE_SIZES = [10, 20, 50]
 const LIST_ITEM_TYPES = MASTER_DOCUMENT_ITEM_TYPES
 const SEARCH_DEBOUNCE_MS = 300
 
-type SortKey = 'recent' | 'oldest' | 'name-asc' | 'name-desc'
+type SortKey = 'recent' | 'oldest' | 'name-asc' | 'name-desc' | 'type-asc' | 'type-desc' | 'ta-asc' | 'ta-desc'
 
 function formatDay(iso: string): string {
   const d = new Date(iso)
@@ -47,7 +47,7 @@ function formatDateTime(iso: string): string {
 }
 
 // India Standard Time is always UTC+05:30 (no daylight saving), so shift the instant and reuse the UTC formatter's
-// fields. Used for the Share history "When" column.
+// fields. Used for every date-and-time in the panels: Provenance chain, Share history, Audit trail.
 const IST_OFFSET_MS = (5 * 60 + 30) * 60_000
 function formatDateTimeIst(iso: string): string {
   const shifted = new Date(new Date(iso).getTime() + IST_OFFSET_MS).toISOString()
@@ -197,12 +197,10 @@ export function MasterLibrary() {
     staleTime: 5 * 60_000,
     retry: false,
   })
-  // Share history: every share of this document by anyone, newest first (from the audit trail, so it's permanent).
-  const shareHistory = useQuery({
-    queryKey: ['library-shares', active?.id],
-    queryFn: () => platformApi.listLibraryItemShares(active!.id),
-    enabled: !!active,
-  })
+  // Share history and Audit trail each have their own side panel, opened from the table's two "View" links (not
+  // from the details panel). Opening one closes the details; clicking a row opens the details as before.
+  const [sideView, setSideView] = useState<{ kind: 'shares' | 'audit'; item: MasterLibraryItem } | null>(null)
+  useEffect(() => { if (selected) setSideView(null) }, [selected])
 
   // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
   function changeTz(next: TimeZoneMode) {
@@ -220,7 +218,7 @@ export function MasterLibrary() {
       </button>
     </th>
   )
-  const PlainHead = ({ label }: { label: string }) => <th className="px-4 py-3 text-left uppercase tracking-widest">{label}</th>
+  const PlainHead = ({ label, center = false }: { label: string; center?: boolean }) => <th className={`px-4 py-3 uppercase tracking-widest ${center ? 'text-center' : 'text-left'}`}>{label}</th>
 
   const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800'
 
@@ -312,18 +310,19 @@ export function MasterLibrary() {
             <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
               <tr>
                 <SortHead label={t('page.master_library.col_title')} asc="name-asc" desc="name-desc" />
-                <PlainHead label={t('page.master_library.filter_doc_type')} />
-                <PlainHead label={THERAPEUTIC_AREA_LABEL} />
+                <SortHead label={t('page.master_library.filter_doc_type')} asc="type-asc" desc="type-desc" />
+                <SortHead label={THERAPEUTIC_AREA_LABEL} asc="ta-asc" desc="ta-desc" />
                 <PlainHead label={t('page.master_library.col_version')} />
                 <SortHead label={t('page.master_library.col_pushed_on')} asc="oldest" desc="recent" />
+                <PlainHead label={t('page.master_library.col_actions')} center />
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
               )}
               {!isLoading && !error && items.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
                   {!filtersDirty ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
                   {filtersDirty && (
                     <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
@@ -355,6 +354,20 @@ export function MasterLibrary() {
                     <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
+                    {/* The two buttons open their own side panel and must not also open the details (row click). */}
+                    <td className="whitespace-nowrap px-4 py-3" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() }}>
+                      <div className="flex items-center justify-center gap-2">
+                        {(['shares', 'audit'] as const).map(kind => (
+                          <button key={kind} type="button" onClick={() => { setSelected(null); setSideView({ kind, item: it }) }}
+                            className="h-7 rounded-md border px-2.5 text-[12px] font-semibold hover:bg-slate-50"
+                            style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
+                            aria-label={`${t(kind === 'shares' ? 'page.master_library.share_history' : 'page.master_library.audit_trail')}: ${it.name}`}
+                            data-action={kind === 'shares' ? 'open-share-history' : 'open-audit-trail'}>
+                            {t(kind === 'shares' ? 'page.master_library.share_history' : 'page.master_library.audit_trail')}
+                          </button>
+                        ))}
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
@@ -382,7 +395,7 @@ export function MasterLibrary() {
       </div>
 
       {/* Details side panel — opens on a row click */}
-      <SlidePanel open={!!active} onClose={() => setSelected(null)} title={active?.name ?? ''}
+      <SlidePanel open={!!active} onClose={() => setSelected(null)} title={active?.name ?? ''} wrapTitle eyebrow={t('page.master_library.details_title')}
         subtitle={active && (
           <>
             <span className="mt-1 flex flex-wrap items-center gap-2" data-active-badges>
@@ -414,14 +427,14 @@ export function MasterLibrary() {
                 })}
                 {/* The library entry: who pushed it and when. */}
                 <Field label={t(active.uploaded ? 'page.master_library.meta_uploaded_by' : 'page.master_library.meta_pushed_by')} valueProps={{ 'data-meta-pushed-by': true }}>{active.editedByName ?? active.pushedByName}</Field>
-                <Field label={t(active.uploaded ? 'page.master_library.meta_uploaded_at' : 'page.master_library.meta_pushed_at')}>{formatDateTime(active.pushedAt)}</Field>
+                <Field label={t(active.uploaded ? 'page.master_library.meta_uploaded_at' : 'page.master_library.meta_pushed_at')}>{formatDateTimeIst(active.pushedAt)}</Field>
                 {(active.createdByName ?? active.pushedByName) !== (active.editedByName ?? active.pushedByName) && (
                   <Field label={t('page.master_library.meta_first_pushed_by')}>{active.createdByName}</Field>
                 )}
                 {active.createdAt && active.createdAt !== active.pushedAt && (
-                  <Field label={t('page.master_library.meta_first_pushed_at')}>{formatDateTime(active.createdAt)}</Field>
+                  <Field label={t('page.master_library.meta_first_pushed_at')}>{formatDateTimeIst(active.createdAt)}</Field>
                 )}
-                <Field label={t('page.master_library.meta_updated')}>{formatDateTime(active.updatedAt ?? active.pushedAt)}</Field>
+                <Field label={t('page.master_library.meta_updated')}>{formatDateTimeIst(active.updatedAt ?? active.pushedAt)}</Field>
               </FieldGrid>
             </PanelSection>
 
@@ -440,10 +453,6 @@ export function MasterLibrary() {
                 ))}
               </FieldGrid>
             </PanelSection>
-
-            <ShareHistorySection query={shareHistory} />
-
-            <LibraryAuditTrail itemId={active.id} uploaded={!!active.uploaded} />
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
               {canShare && !active.isArchived && (
@@ -468,10 +477,21 @@ export function MasterLibrary() {
         )}
       </SlidePanel>
 
+      {/* Share history / Audit trail — one document's own list, opened from the table */}
+      <SlidePanel open={!!sideView} onClose={() => setSideView(null)} storageKey="library-side-view" defaultWidth={460} belowTopBar closeOnOutsideClick
+        eyebrow={sideView ? t(sideView.kind === 'shares' ? 'page.master_library.share_history' : 'page.master_library.audit_trail') : undefined}
+        title={sideView?.item.name ?? ''} wrapTitle>
+        {sideView && (
+          <div className="min-w-0 px-5 pb-20 pt-4" data-side-view={sideView.kind}>
+            {sideView.kind === 'shares' ? <ShareHistoryList itemId={sideView.item.id} /> : <AuditTrailList itemId={sideView.item.id} />}
+          </div>
+        )}
+      </SlidePanel>
+
       {/* Document viewer — its own side panel, opened over the details panel by View. */}
       {active && (
         <SharePanel open={overlay === 'share'} item={active} onClose={() => setOverlay(null)}
-          onDone={(msg) => { setOverlay(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library-shares', active.id] }) }} />
+          onDone={(msg) => { setOverlay(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library-shares', active.id] }); void queryClient.invalidateQueries({ queryKey: ['library-audit', active.id] }) }} />
       )}
 
       <SlidePanel open={viewing && !!active} onClose={() => setOverlay(null)} title={active?.name ?? ''}
@@ -736,35 +756,11 @@ function MatchedWords({ text, term }: { text: string; term: string }) {
 
 type DataAttrs = { [key: `data-${string}`]: unknown }
 
-function PanelSection({ title, count, collapsible = false, children, ...data }: {
-  title: string; count?: number; collapsible?: boolean; children: ReactNode
-} & DataAttrs) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(true)
-  const head = (
-    <>
-      <span className={labelClass}>{title}</span>
-      {count !== undefined && (
-        <span className="rounded-full bg-slate-100 px-1.5 py-px font-mono text-[10px] font-semibold text-slate-600" data-section-count>{count}</span>
-      )}
-    </>
-  )
+function PanelSection({ title, children, ...data }: { title: string; children: ReactNode } & DataAttrs) {
   return (
     <section className="min-w-0 rounded-lg border border-slate-200 bg-white" {...data}>
-      {collapsible ? (
-        <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
-          title={t(open ? 'page.master_library.section_collapse' : 'page.master_library.section_expand')}
-          className={`flex w-full items-center gap-2 px-3.5 py-2.5 text-left hover:bg-slate-50 ${open ? 'rounded-t-lg' : 'rounded-lg'}`}
-          data-action="section-toggle">
-          {head}
-          <svg className={`ml-auto flex-none text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 4.5 6 7.5 9 4.5" />
-          </svg>
-        </button>
-      ) : (
-        <div className="flex items-center gap-2 px-3.5 py-2.5">{head}</div>
-      )}
-      {open && <div className="border-t border-slate-100 px-3.5 py-3">{children}</div>}
+      <div className="px-3.5 py-2.5"><span className={labelClass}>{title}</span></div>
+      <div className="border-t border-slate-100 px-3.5 py-3">{children}</div>
     </section>
   )
 }
@@ -784,168 +780,67 @@ function Field({ label, children, current = false, valueProps, ...data }: {
   )
 }
 
-function ShowAllToggle({ total, limit, all, onToggle, action }: { total: number; limit: number; all: boolean; onToggle: () => void; action: string }) {
-  const { t } = useTranslation()
-  if (total <= limit) return null
-  return (
-    <button type="button" onClick={onToggle} aria-expanded={all}
-      className="mt-2 text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }}
-      data-action={action}>
-      {all ? t('page.master_library.show_less') : t('page.master_library.show_all', { count: total })}
-    </button>
-  )
-}
-
 // Share history: one compact row per share — who it went to and when, with who shared it underneath in small
-// text. The latest SHARES_SHOWN, then "Show all (n)".
-const SHARES_SHOWN = 3
-function ShareHistorySection({ query }: { query: UseQueryResult<MasterLibraryShareRecord[]> }) {
+// text. Newest first, every share (from the permanent audit trail).
+function ShareHistoryList({ itemId }: { itemId: string }) {
   const { t } = useTranslation()
-  const [all, setAll] = useState(false)
+  const query = useQuery({ queryKey: ['library-shares', itemId], queryFn: () => platformApi.listLibraryItemShares(itemId) })
   const rows = query.data ?? []
-  const shown = all ? rows : rows.slice(0, SHARES_SHOWN)
+  if (query.isLoading) return <p className="text-[12px] text-slate-500" data-share-history-state="loading">{t('page.master_library.share_history_loading')}</p>
+  if (query.error) return <p className="text-[12px] text-red-700" data-share-history-state="error">{t('page.master_library.share_history_failed')}</p>
+  if (!rows.length) return <p className="text-[12px] text-slate-500" data-share-history-state="empty">{t('page.master_library.share_history_empty')}</p>
   return (
-    <PanelSection title={t('page.master_library.share_history')} count={query.data?.length} data-share-history>
-      {query.isLoading ? (
-        <p className="text-[12px] text-slate-500" data-share-history-state="loading">{t('page.master_library.share_history_loading')}</p>
-      ) : query.error ? (
-        <p className="text-[12px] text-red-700" data-share-history-state="error">{t('page.master_library.share_history_failed')}</p>
-      ) : !rows.length ? (
-        <p className="text-[12px] text-slate-500" data-share-history-state="empty">{t('page.master_library.share_history_empty')}</p>
-      ) : (
-        <>
-          <ul className="-my-1.5 divide-y divide-slate-100">
-            {shown.map((s, i) => {
-              const by = s.sharedBy ?? t('page.master_library.shared_by_unknown')
-              return (
-                <li key={i} className="flex min-w-0 items-start gap-3 py-1.5" data-share-history-row>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] text-slate-800" title={`${t('page.master_library.shared_with')}: ${s.sharedWith}`} data-shared-with>{s.sharedWith}</p>
-                    <p className="truncate text-[11px] text-slate-500" title={`${t('page.master_library.shared_by')}: ${by}`} data-shared-by>{t('page.master_library.shared_by_line', { name: by })}</p>
-                  </div>
-                  <span className="flex-none whitespace-nowrap pt-0.5 font-mono text-[10px] text-slate-500" title={t('page.master_library.shared_at')} data-shared-at>{formatDateTimeIst(s.sharedAt)}</span>
-                </li>
-              )
-            })}
-          </ul>
-          <ShowAllToggle total={rows.length} limit={SHARES_SHOWN} all={all} onToggle={() => setAll(v => !v)} action="share-history-all" />
-        </>
-      )}
-    </PanelSection>
+    <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white px-3.5" data-share-history>
+      {rows.map((s, i) => {
+        const by = s.sharedBy ?? t('page.master_library.shared_by_unknown')
+        return (
+          // The date sits right-aligned on the email's line; on a narrow panel it drops under the email instead of squeezing it.
+          <li key={i} className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1 py-2.5" data-share-history-row>
+            <div className="min-w-0 flex-1 basis-[11rem]">
+              <p className="break-words text-[12px] text-slate-800 [overflow-wrap:anywhere]" title={`${t('page.master_library.shared_with')}: ${s.sharedWith}`} data-shared-with>{s.sharedWith}</p>
+              <p className="break-words text-[11px] text-slate-500 [overflow-wrap:anywhere]" title={`${t('page.master_library.shared_by')}: ${by}`} data-shared-by>{t('page.master_library.shared_by_line', { name: by })}</p>
+            </div>
+            <span className="flex-none whitespace-nowrap pt-0.5 font-mono text-[10px] text-slate-500" title={t('page.master_library.shared_at')} data-shared-at>{formatDateTimeIst(s.sharedAt)}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
-// The details panel's Audit trail (collapsible), in three parts:
-//   - Master Library activity: this version's own record — pushed / uploaded, new version, withdrawn, opened in the
-//     Master Library, shared, invitation opened, locked out.
-//   - How it got here: the key Clinical Writing milestones up to this version's push (not shown for an upload).
-//   - Full Clinical Writing trail: on request, and offered only to people who may read that trail in Clinical
-//     Writing (RACI on the document, its PM, an auditor) — the API refuses everyone else.
-// Each part shows its latest AUDIT_SHOWN entries as compact timeline rows, then "Show all (n)"; "Show older entries"
-// pages further back. Read-only, and deliberately no export / download / print. Badges and phrases are the Clinical
-// Writing Audit Trail panel's own.
+// Audit trail: this document's Master Library activity only — uploaded, pushed / auto-pushed, viewed, shared,
+// invitation opened, locked out. Newest first, a page at a time. Read-only, and deliberately no export / download /
+// print. Badges and phrases are the Clinical Writing Audit Trail panel's own.
 const AUDIT_PAGE_SIZE = 50
-const AUDIT_SHOWN = 5
-function LibraryAuditTrail({ itemId, uploaded }: { itemId: string; uploaded: boolean }) {
+function AuditTrailList({ itemId }: { itemId: string }) {
   const { t } = useTranslation()
-  const [showFull, setShowFull] = useState(false)
-  useEffect(() => { setShowFull(false) }, [itemId])
   const trail = useInfiniteQuery({
     queryKey: ['library-audit', itemId],
     queryFn: ({ pageParam }) => platformApi.listLibraryItemAudit(itemId, pageParam, AUDIT_PAGE_SIZE),
     initialPageParam: 0,
-    getNextPageParam: (last) => nextOffset(last.library),
+    getNextPageParam: (last) => {
+      const next = last.offset + last.entries.length
+      return last.entries.length && next < last.total ? next : undefined
+    },
   })
-  const full = useInfiniteQuery({
-    queryKey: ['library-audit-full', itemId],
-    queryFn: ({ pageParam }) => platformApi.listLibraryItemFullAudit(itemId, pageParam, AUDIT_PAGE_SIZE),
-    initialPageParam: 0,
-    getNextPageParam: nextOffset,
-    enabled: showFull,
-  })
-  const first = trail.data?.pages[0]
-  const library = trail.data?.pages.flatMap(p => p.library.entries) ?? []
-  const milestones = first?.milestones ?? []
-  const fullEntries = full.data?.pages.flatMap(p => p.entries) ?? []
-  const muted = 'text-[12px] text-slate-500'
-
+  const entries = trail.data?.pages.flatMap(p => p.entries) ?? []
+  const total = trail.data?.pages[0]?.total ?? 0
+  if (trail.isLoading) return <p className="text-[12px] text-slate-500" data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
+  if (trail.error) return <p className="text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
+  if (!entries.length) return <p className="text-[12px] text-slate-500" data-library-audit-state="empty">{t('page.master_library.audit_library_empty')}</p>
   return (
-    <PanelSection title={t('page.master_library.audit_trail')} count={first?.library.total} collapsible data-library-audit>
-      {trail.isLoading ? (
-        <p className={muted} data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
-      ) : trail.error || !first ? (
-        <p className="text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <AuditGroup title={t('page.master_library.audit_library_activity')} group="library" entries={library} total={first.library.total}
-            hasMore={!!trail.hasNextPage} loading={trail.isFetchingNextPage} onMore={() => void trail.fetchNextPage()} moreAction="library-audit-more"
-            empty={<p className={muted} data-library-audit-state="empty">{t('page.master_library.audit_library_empty')}</p>} />
-
-          <AuditGroup title={t('page.master_library.audit_milestones')} group="milestones" entries={milestones} total={milestones.length}
-            empty={<p className={muted} data-library-audit-state="no-milestones">{t(uploaded ? 'page.master_library.audit_milestones_uploaded' : 'page.master_library.audit_milestones_empty')}</p>} />
-
-          {first.fullTrailAvailable && (
-            <div className="min-w-0" data-library-audit-group="full">
-              <button type="button" onClick={() => setShowFull(v => !v)} aria-expanded={showFull}
-                className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }}
-                data-action="library-audit-full">
-                {t(showFull ? 'page.master_library.audit_full_hide' : 'page.master_library.audit_full_show')}
-              </button>
-              {showFull && (full.isLoading ? (
-                <p className={`mt-1 ${muted}`}>{t('page.master_library.audit_trail_loading')}</p>
-              ) : full.error ? (
-                <p className="mt-1 text-[12px] text-red-700">{t('page.master_library.audit_trail_failed')}</p>
-              ) : (
-                <div className="mt-1">
-                  <p className="text-[11px] text-slate-500">{t('page.master_library.audit_full_note')}</p>
-                  <AuditGroup group="full-entries" entries={fullEntries} total={full.data?.pages[0]?.total ?? 0}
-                    hasMore={!!full.hasNextPage} loading={full.isFetchingNextPage} onMore={() => void full.fetchNextPage()} moreAction="library-audit-full-more"
-                    empty={<p className={muted}>{t('page.master_library.audit_library_empty')}</p>} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </PanelSection>
-  )
-}
-
-function nextOffset(page: { offset: number; total: number; entries: unknown[] }): number | undefined {
-  const next = page.offset + page.entries.length
-  return page.entries.length && next < page.total ? next : undefined
-}
-
-function AuditGroup({ title, group, entries, total, hasMore = false, loading = false, onMore, moreAction, empty }: {
-  title?: string; group: string; entries: MasterLibraryAuditEntry[]; total: number
-  hasMore?: boolean; loading?: boolean; onMore?: () => void; moreAction?: string; empty: ReactNode
-}) {
-  const { t } = useTranslation()
-  const [all, setAll] = useState(false)
-  const shown = all ? entries : entries.slice(0, AUDIT_SHOWN)
-  return (
-    <div className="min-w-0" data-library-audit-group={group === 'full-entries' ? undefined : group}>
-      {title && <p className="mb-1.5 text-[11px] font-semibold text-slate-700">{title}</p>}
-      {!entries.length ? empty : (
-        <>
-          <AuditRows entries={shown} />
-          <div className="flex flex-wrap items-center justify-between gap-x-3">
-            <ShowAllToggle total={total} limit={AUDIT_SHOWN} all={all} onToggle={() => setAll(v => !v)} action={`${moreAction ?? group}-all`} />
-            {all && (
-              <span className="mt-2 flex items-center gap-3">
-                <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
-                {hasMore && onMore && (
-                  <button type="button" onClick={onMore} disabled={loading}
-                    className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
-                    data-action={moreAction}>
-                    {loading ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
-                  </button>
-                )}
-              </span>
-            )}
-          </div>
-        </>
-      )}
+    <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-3" data-library-audit>
+      <AuditRows entries={entries} />
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
+        {trail.hasNextPage && (
+          <button type="button" onClick={() => void trail.fetchNextPage()} disabled={trail.isFetchingNextPage}
+            className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
+            data-action="library-audit-more">
+            {trail.isFetchingNextPage ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

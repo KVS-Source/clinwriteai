@@ -24,6 +24,11 @@ interface SlidePanelProps {
   onClose:      () => void
   title:        string
   subtitle?:    ReactNode
+  // Small muted label above the title (e.g. what kind of panel this is).
+  eyebrow?:     string
+  // Let a long title wrap onto as many lines as it needs (long names without spaces break too) instead of
+  // being cut off with "…".
+  wrapTitle?:   boolean
   children:     ReactNode
   // Width persisted under this key in localStorage. Omit to keep width
   // ephemeral.
@@ -48,6 +53,8 @@ export function SlidePanel({
   onClose,
   title,
   subtitle,
+  eyebrow,
+  wrapTitle = false,
   children,
   storageKey,
   defaultWidth = 480,
@@ -138,7 +145,7 @@ export function SlidePanel({
       ref={panelRef}
       role="dialog"
       aria-modal="false"
-      aria-label={title}
+      aria-label={eyebrow ? `${eyebrow}: ${title}` : title}
       data-slide-panel
       className={`fixed right-0 z-30 flex flex-col bg-white shadow-xl ${belowTopBar ? 'bottom-0 top-14' : 'top-0 h-full'}`}
       style={{
@@ -165,7 +172,9 @@ export function SlidePanel({
       {/* Header */}
       <div className="flex flex-none items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[16px] font-bold text-slate-900" title={title}>{title}</h2>
+          {eyebrow && <p className="mb-0.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500" data-panel-eyebrow>{eyebrow}</p>}
+          <h2 className={wrapTitle ? 'break-words text-[16px] font-bold leading-snug text-slate-900 [overflow-wrap:anywhere]' : 'truncate text-[16px] font-bold text-slate-900'}
+            title={title} data-panel-title>{title}</h2>
           {subtitle && (typeof subtitle === 'string'
             ? <p className="mt-0.5 truncate text-[12px] text-slate-500">{subtitle}</p>
             : <div className="mt-0.5 text-[12px] text-slate-500">{subtitle}</div>)}

@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { publicationsApi, type PublicationSectionRow, type SectionLockHolder, type PublicationSectionCommentRow } from '../../api/publications'
+import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -368,6 +369,43 @@ function AiDraftStateBadge({ state }: { state: string }) {
   )
 }
 
+// ---- rich-text body --------------------------------------------------------
+// The section's HTML in a TipTap editor (the same one Module A uses), so a template's starter text — sub-headings,
+// [placeholders], table shells — shows formatted instead of as raw tags. The editor keeps the callbacks it was
+// created with, so they go through refs to always run the latest handlers.
+function SectionRichText({ sectionId, html, placeholder, onChange, onFocus, onBlur }: {
+  sectionId:   string
+  html:        string
+  placeholder: string
+  onChange:    (html: string) => void
+  onFocus:     () => void
+  onBlur:      (html: string) => void
+}) {
+  const handlers = useRef({ onChange, onFocus, onBlur })
+  handlers.current = { onChange, onFocus, onBlur }
+  const editor = useRichTextEditor({
+    content:  html,
+    editable: true,
+    placeholder,
+    onChange: h => handlers.current.onChange(h),
+    onBlur:   h => handlers.current.onBlur(h),
+  })
+  useEffect(() => {
+    if (!editor) return
+    const focus = () => handlers.current.onFocus()
+    editor.on('focus', focus)
+    return () => { editor.off('focus', focus) }
+  }, [editor])
+  return (
+    <div
+      className="rounded-md border border-slate-300 bg-white px-4 py-2 focus-within:border-slate-500 [&_.tiptap-editor]:min-h-[140px] [&_.tiptap-editor_h3]:mb-1 [&_.tiptap-editor_h3]:mt-4 [&_.tiptap-editor_h3]:font-sans [&_.tiptap-editor_h3]:text-[14px] [&_.tiptap-editor_h3]:font-bold [&_.tiptap-editor_h3]:text-slate-900 [&_.tiptap-editor_h3:first-child]:mt-1 [&_.tiptap-editor_p]:my-1 [&_.tiptap-editor_table]:my-2 [&_.tiptap-editor_table]:w-full [&_.tiptap-editor_td]:border [&_.tiptap-editor_td]:border-slate-300 [&_.tiptap-editor_td]:px-2 [&_.tiptap-editor_th]:border [&_.tiptap-editor_th]:border-slate-300 [&_.tiptap-editor_th]:bg-slate-50 [&_.tiptap-editor_th]:px-2"
+      data-field={`content-${sectionId}`}
+    >
+      <EditorContent editor={editor} />
+    </div>
+  )
+}
+
 // ---- per-section editor ----------------------------------------------------
 
 function SectionEditor({
@@ -417,11 +455,12 @@ function SectionEditor({
     },
   })
 
+  // Saves the given HTML (the editor's exact content on blur), else the current draft.
   const save = useMutation({
-    mutationFn: () => publicationsApi.saveSection(publicationId, section.sectionId, draft),
-    onSuccess: () => {
+    mutationFn: (html?: string) => publicationsApi.saveSection(publicationId, section.sectionId, html ?? draft),
+    onSuccess: (_res, html) => {
       setDirty(false)
-      lastServerHtmlRef.current = draft
+      lastServerHtmlRef.current = html ?? draft
       setActionInfo('Saved.')
       setActionError(null)
       qc.invalidateQueries({ queryKey: ['publication-sections', publicationId] })
@@ -474,12 +513,12 @@ function SectionEditor({
       }, 60_000) as unknown as number
     }
   }
-  const onBlur = () => {
+  const onBlur = (html?: string) => {
     if (heartbeatRef.current !== null) {
       window.clearInterval(heartbeatRef.current)
       heartbeatRef.current = null
     }
-    if (dirty) save.mutate()
+    if (dirty) save.mutate(html)
     else       releaseLock.mutate()
   }
   useEffect(() => () => {
@@ -563,15 +602,20 @@ function SectionEditor({
         </p>
       )}
 
-      <textarea
-        value={draft}
-        onChange={e => { setDraft(e.currentTarget.value); setDirty(true); setActionInfo(null) }}
+      {section.guidance && (
+        <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" data-section-guidance>
+          <span className="mr-1 font-mono text-[10px] font-semibold uppercase tracking-widest">Drafting guidance</span>
+          {section.guidance}
+        </p>
+      )}
+
+      <SectionRichText
+        sectionId={section.sectionId}
+        html={draft}
+        placeholder={`Write §${section.sectionNumber} ${section.sectionTitle}…`}
+        onChange={html => { setDraft(html); setDirty(true); setActionInfo(null) }}
         onFocus={onFocus}
         onBlur={onBlur}
-        rows={10}
-        className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[12px] leading-relaxed"
-        data-field={`content-${section.sectionId}`}
-        placeholder={`Section ${section.sectionNumber} content — HTML allowed.`}
       />
 
       {actionInfo  && <p className="mt-1 text-[11px] text-emerald-700">{actionInfo}</p>}

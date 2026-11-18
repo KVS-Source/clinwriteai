@@ -69,6 +69,14 @@ model MedContentItem {
   medContentBestPracticeRecordId      String?   @map("med_content_best_practice_record_id")
   medContentBestPracticeVersionAtCreate Int?    @map("med_content_best_practice_version_at_create")
 
+  // ---- Versioning pin (migration 80, Phase M-C.2) ----
+  // Points to the MedContentVersion that is 'isCurrent=true'. Null
+  // during the brief window between MedContentItem.create and the
+  // v0.1 insert in the same transaction.
+  currentVersionId                      String?  @unique @map("current_version_id")
+  currentVersion                        MedContentVersion? @relation("MedContentItemCurrentVersion", fields: [currentVersionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions                              MedContentVersion[] @relation("MedContentItemVersions")
+
   claims                    ClaimsMatrixItem[]
   reviewTiers               ReviewTierRecord[]
   fkScores                  FkScoreRecord[]
@@ -540,4 +548,94 @@ model MedContentChecklistTemplate {
   @@map("med_content_checklist_templates")
   @@unique([docType, version])
   @@index([docType, isCurrent])
+}
+
+// --------------------------------------------------------------------------
+// Med content versioning — Phase M-C.2 (migration 80).
+//
+// Mirror of PublicationVersion + PublicationSectionContent +
+// PublicationSectionLock. For single-body types (mi_letter,
+// eu_ctr_pls) the create flow seeds one synthetic 'body' section so
+// every content type has at least one MedContentSection row the
+// editor + AI worker can target.
+//
+// hcp_slide_deck keeps its own MedSlide + MedSlideDeckJob authoring
+// surface (existing from pre-M-C.2). Slide-level locks land in
+// MedSlideLock below so slide-deck editors get the same multi-user
+// coordination as the other content types.
+// --------------------------------------------------------------------------
+
+model MedContentVersion {
+  id              String   @id @default(uuid())
+  contentItemId   String
+  versionNumber   String                                                   // "v0.1", "v0.2", …
+  label           String                                                   // "Draft" | "For MLR" | "Approved"
+  contentHash     String                                                   // sha256 of all sections
+  isCurrent       Boolean  @default(true)
+  createdBy       String
+  createdAt       DateTime @default(now())
+  restoreSource   Json?
+
+  contentItem     MedContentItem              @relation("MedContentItemVersions", fields: [contentItemId], references: [id], onDelete: Cascade)
+  sections        MedContentSection[]
+  currentOf       MedContentItem?             @relation("MedContentItemCurrentVersion")
+
+  @@map("med_content_versions")
+  @@unique([contentItemId, versionNumber])
+  @@index([contentItemId])
+}
+
+model MedContentSection {
+  id                     String   @id @default(uuid())
+  medContentVersionId    String
+  sectionId              String                                            // 'body' for single-body types; 'intro', 'efficacy', 'safety', etc. for structured
+  sectionNumber          String
+  sectionTitle           String
+  contentHtml            String   @default("")
+  wordCount              Int      @default(0)
+  aiSpanCount            Int      @default(0)
+  humanSpanCount         Int      @default(0)
+  lastEditedBy           String?
+  lastEditedAt           DateTime?
+
+  // AI confidence (0-100) from the validation pass. Null until first evaluation.
+  aiConfidence           Int?       @map("ai_confidence")
+  aiFlags                String[]   @default([]) @map("ai_flags")
+
+  version                MedContentVersion @relation(fields: [medContentVersionId], references: [id], onDelete: Cascade)
+
+  @@map("med_content_sections")
+  @@unique([medContentVersionId, sectionId])
+  @@index([medContentVersionId])
+}
+
+model MedContentSectionLock {
+  id                String   @id @default(uuid())
+  contentItemId     String
+  sectionId         String
+  userId            String
+  acquiredAt        DateTime @default(now())
+  lastHeartbeatAt   DateTime @default(now())
+
+  @@map("med_content_section_locks")
+  @@unique([contentItemId, sectionId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
+}
+
+// Slide-level locks for hcp_slide_deck (works alongside existing
+// MedSlide / MedSlideDeckJob authoring surface). Separate table from
+// MedContentSectionLock because slides are scoped to a deck job (not
+// a content version).
+model MedSlideLock {
+  id                String   @id @default(uuid())
+  slideId           String
+  userId            String
+  acquiredAt        DateTime @default(now())
+  lastHeartbeatAt   DateTime @default(now())
+
+  @@map("med_slide_locks")
+  @@unique([slideId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
 }

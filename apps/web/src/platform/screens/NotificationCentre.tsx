@@ -33,6 +33,7 @@ type FilterKey = 'all' | 'unread'
 const KIND_KEYS: Record<string, string> = {
   'comment.mention':               'page.notification_centre.kind_mention',
   'document.returned_to_authoring': 'page.notification_centre.kind_returned_to_authoring',
+  'document.raci_assigned':        'page.notification_centre.kind_raci_assigned',
   'crm.meeting_invited':           'page.notification_centre.kind_crm_meeting_invited',
   'user.invitation':               'page.notification_centre.kind_user_invitation',
   'signature_requested':           'page.notification_centre.kind_signature_requested',

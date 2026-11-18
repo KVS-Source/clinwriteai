@@ -8,7 +8,7 @@
 //   Project manager — being added as a project's PM, project calendar overdue alerts, a newer
 //                     checklist template affecting a project document.
 //   Contributor     — document work on a RACI letter: signature requests, @mentions, a document sent
-//                     back to its author, nudges, adopting a newer checklist template. A PM alone can't
+//                     back to its author, nudges, being assigned to a document, adopting a newer checklist template. A PM alone can't
 //                     do that work (signatures/access.ts).
 //   Anything else (invitations, AI quota…) belongs to no particular role.
 //
@@ -25,7 +25,8 @@ export const CONTRIBUTOR_NOTIFICATION_KINDS: ReadonlySet<string> = new Set([
   'comment.mention',
   'document.returned_to_authoring',
   'document_nudge',
-  'checklist_template_update',           // the Author may adopt a newer checklist template
+  'document.raci_assigned',              // put on a document as Author, Reviewer, Approver, QC or Informed
+  'checklist_template_update',         // the Author may adopt a newer checklist template
 ])
 
 export function notificationRole(kind: string, heldRoles: readonly string[]): string | null {

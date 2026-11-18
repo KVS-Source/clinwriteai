@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { notifyRaciAssigned } from '../../platform/document-raci/notify-assigned.js'
 import { lettersForTransition, transitionForbidden } from './transition-roles.js'
 import { actorCanEditDocumentContent, actorHoldsLetter, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
@@ -521,6 +522,11 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
             signatureRequired: false,
             assignedBy:        request.user!.id,
           },
+        })
+        // A PM creating the document for someone else: tell that person they are its Author.
+        await notifyRaciAssigned(app, {
+          recipientId: parsed.data.assigneeId, actorId: request.user!.id, documentId: document.id, letter: 'R',
+          newDocument: true, doc: { title: document.title, projectId, status: document.status },
         })
       }
     }

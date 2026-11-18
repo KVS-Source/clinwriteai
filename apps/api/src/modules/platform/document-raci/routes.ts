@@ -14,6 +14,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
+import { notifyRaciAssigned } from './notify-assigned.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
@@ -296,6 +297,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       entityId: created.id,
       details: { ...after, raciId: created.id },
       ipAddress: request.ip ?? null,
+    })
+
+    // Tell the person they were put on the document (not when assigning yourself).
+    await notifyRaciAssigned(app, {
+      recipientId: parsed.data.userId, actorId: actor.id, documentId, letter: parsed.data.letter, sectionId,
     })
 
     if (isAdminSelfGrant) {

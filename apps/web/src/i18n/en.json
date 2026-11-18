@@ -3563,6 +3563,7 @@
       "kind_inactivity_suspended": "Account suspended",
       "kind_mention": "Mention",
       "kind_returned_to_authoring": "Returned to authoring",
+      "kind_raci_assigned": "Assigned to a document",
       "kind_crm_meeting_invited": "CRM meeting invite",
       "kind_other": "Notification",
       "severity_warning": "Warning",

@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { raciApi, type DocumentRaciRow, type RaciLetter } from '../../api/raci'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
+import { holdsRole } from '../../config/roles'
 
 const ROLE_KEY: Record<RaciLetter, { key: string; bg: string; fg: string }> = {
   R: { key: 'role_r', bg: '#DBEAFE', fg: '#1D4ED8' },
@@ -31,9 +32,12 @@ export function MyRaciRole({ documentId, userId: userIdProp }: { documentId: str
     staleTime: 30_000,
   })
 
+  // Working as PM, the user doesn't act as Approver (no Approver View — useDocumentTabAccess), so no A chip either.
+  const workingAsPm = !!me && holdsRole(me, 'pm')
+
   // One chip per letter; a letter held only on some sections says so in its tooltip.
   const mine = useMemo(() => {
-    const active = rows.filter(r => r.userId === userId && !r.removedAt)
+    const active = rows.filter(r => r.userId === userId && !r.removedAt && !(workingAsPm && r.letter === 'A'))
     return ORDER
       .map(letter => {
         const held = active.filter(r => r.letter === letter)
@@ -42,7 +46,7 @@ export function MyRaciRole({ documentId, userId: userIdProp }: { documentId: str
         return { letter, wholeDoc, sections: held.length }
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
-  }, [rows, userId])
+  }, [rows, userId, workingAsPm])
 
   if (!userId || mine.length === 0) return null
 

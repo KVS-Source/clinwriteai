@@ -62,6 +62,8 @@ test('a Contributor + PM working as Project Manager gets the Editor and CRM tabs
   await expect(tab(page, 'Approver View')).toHaveCount(0)
   await expect(tab(page, 'Editor')).toBeVisible()
   await expect(tab(page, 'CRM')).toBeVisible()
+  // No "Accountable (Approver)" chip in the header while working as PM.
+  await expect(page.locator('[data-my-raci-role]')).toHaveCount(0)
 })
 
 test('the same user still working as Contributor does not (switching to Project Manager gives them)', async ({ page }) => {
@@ -71,6 +73,7 @@ test('the same user still working as Contributor does not (switching to Project 
   await expect(tab(page, 'Approver View')).toBeVisible({ timeout: 60_000 })
   await expect(tab(page, 'Editor')).toHaveCount(0)
   await expect(tab(page, 'CRM')).toHaveCount(0)
+  await expect(page.locator('[data-my-raci-role]')).toContainText('Accountable (Approver)')
 })
 
 test('an Approver who is not a PM still has no Editor or CRM tab', async ({ page }) => {

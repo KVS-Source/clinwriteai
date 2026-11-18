@@ -646,3 +646,51 @@ model MedSlideLock {
   @@index([userId])
   @@index([lastHeartbeatAt])
 }
+
+// --- Phase M-C.5 ----------------------------------------------------------
+// Threaded comments on med content sections + slides. Mirrors
+// PublicationSectionComment.
+
+model MedContentSectionComment {
+  id               String    @id @default(uuid())
+  contentItemId    String
+  sectionId        String
+  authorId         String
+  authorName       String
+  text             String
+  severity         String    @default("info")                             // info | warning | blocking
+  status           String    @default("open")                             // open | resolved
+  resolvedBy       String?
+  resolvedAt       DateTime?
+  resolutionNote   String?
+  parentCommentId  String?
+  mentionedUserIds String[]  @default([])
+  createdAt        DateTime  @default(now())
+
+  @@map("med_content_section_comments")
+  @@index([contentItemId])
+  @@index([contentItemId, sectionId])
+  @@index([parentCommentId])
+}
+
+model MedSlideComment {
+  id               String    @id @default(uuid())
+  slideId          String
+  deckJobId        String
+  authorId         String
+  authorName       String
+  text             String
+  severity         String    @default("info")
+  status           String    @default("open")
+  resolvedBy       String?
+  resolvedAt       DateTime?
+  resolutionNote   String?
+  parentCommentId  String?
+  mentionedUserIds String[]  @default([])
+  createdAt        DateTime  @default(now())
+
+  @@map("med_slide_comments")
+  @@index([slideId])
+  @@index([deckJobId])
+  @@index([parentCommentId])
+}

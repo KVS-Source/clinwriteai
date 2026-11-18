@@ -34,6 +34,11 @@ import {
   requireMedContentSectionLockHeldBy,
   MED_CONTENT_LOCK_STALE_SECONDS,
 } from './section-lock-service.js'
+import {
+  actorCanEditMedContent,
+  actorCanEditMedSlide,
+  MED_CONTENT_EDIT_FORBIDDEN,
+} from '../access/med-content-raci.js'
 
 const gate      = requireAuth({ modules: ['C'] })
 const writeGate = requireAuth({ modules: ['C'] })
@@ -93,6 +98,10 @@ export const medContentSectionRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
 
+    if (!(await actorCanEditMedContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(MED_CONTENT_EDIT_FORBIDDEN)
+    }
+
     const blocker = await requireMedContentSectionLockHeldBy(app.prisma, {
       contentItemId: id, sectionId, userId: request.user!.id,
     })
@@ -134,6 +143,9 @@ export const medContentSectionRoutes: FastifyPluginAsync = async (app) => {
       where: { id }, select: { id: true, archivedAt: true },
     })
     if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditMedContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(MED_CONTENT_EDIT_FORBIDDEN)
+    }
     const result = await acquireMedContentSectionLock(app.prisma, {
       contentItemId: id, sectionId, userId: request.user!.id,
     })
@@ -212,6 +224,9 @@ export const medContentSectionRoutes: FastifyPluginAsync = async (app) => {
       where: { id }, select: { id: true, archivedAt: true },
     })
     if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditMedContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(MED_CONTENT_EDIT_FORBIDDEN)
+    }
     try {
       const version = await sectionSvc.bumpVersion({
         contentItemId: id, label: parsed.data.label,
@@ -248,6 +263,8 @@ export const medSlideLockRoutes: FastifyPluginAsync = async (app) => {
       where: { id: slideId }, select: { id: true, deckJobId: true },
     })
     if (!slide) return reply.code(404).send({ error: 'not_found' })
+    const slideGate = await actorCanEditMedSlide(app.prisma, request.user!, slideId)
+    if (!slideGate.allowed) return reply.code(403).send(MED_CONTENT_EDIT_FORBIDDEN)
     const result = await acquireMedSlideLock(app.prisma, {
       slideId, userId: request.user!.id,
     })

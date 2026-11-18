@@ -15,6 +15,10 @@ import {
   renderMedPolicyPromptBlock,
   SECTION_GROUNDING_RULES,
 } from '../policy/resolve.js'
+import {
+  actorCanEditMedContent,
+  MED_CONTENT_EDIT_FORBIDDEN,
+} from '../access/med-content-raci.js'
 
 const writeGate = requireAuth({ modules: ['C'] })
 
@@ -58,6 +62,10 @@ export const medContentAiSuggestSectionRoutes: FastifyPluginAsync = async (app) 
     })
     if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
     if (!item.currentVersionId) return reply.code(409).send({ error: 'no_current_version' })
+
+    if (!(await actorCanEditMedContent(app.prisma, request.user!, id))) {
+      return reply.code(403).send(MED_CONTENT_EDIT_FORBIDDEN)
+    }
 
     const section = await app.prisma.medContentSection.findFirst({
       where:  { medContentVersionId: item.currentVersionId, sectionId },

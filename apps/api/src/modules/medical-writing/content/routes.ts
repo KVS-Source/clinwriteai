@@ -480,6 +480,13 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
         message: 'Content item has no current version. Create flow should have seeded v0.1.',
       })
     }
+    {
+      const { actorCanEditMedContent: canEdit, MED_CONTENT_EDIT_FORBIDDEN: forbidden } =
+        await import('../access/med-content-raci.js')
+      if (!(await canEdit(app.prisma, request.user!, contentId))) {
+        return reply.code(403).send(forbidden)
+      }
+    }
     if (item.aiDraftState === 'drafting' || item.aiDraftState === 'validating') {
       return reply.code(409).send({
         error:   'already_running',

@@ -283,6 +283,95 @@ export const medContentApi = {
       `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
       body,
     ),
+
+  // --- Section comments (Phase M-C.5) ------------------------------------
+  listComments: (contentId: string, sectionId?: string) =>
+    api.get<{ contentItemId: string; comments: MedContentSectionCommentRow[] }>(
+      `/med-content/${contentId}/comments${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`,
+    ),
+  createComment: (
+    contentId: string,
+    sectionId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<MedContentSectionCommentRow>(
+      `/med-content/${contentId}/sections/${encodeURIComponent(sectionId)}/comments`,
+      body,
+    ),
+  resolveComment: (contentId: string, commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<MedContentSectionCommentRow>(
+      `/med-content/${contentId}/comments/${commentId}/resolve`,
+      body,
+    ),
+
+  // --- Slide comments (Phase M-C.5) --------------------------------------
+  listDeckComments: (deckJobId: string) =>
+    api.get<{ deckJobId: string; comments: MedSlideCommentRow[] }>(
+      `/med-slide-decks/${deckJobId}/comments`,
+    ),
+  listSlideComments: (slideId: string) =>
+    api.get<{ slideId: string; comments: MedSlideCommentRow[] }>(
+      `/med-slides/${slideId}/comments`,
+    ),
+  createSlideComment: (
+    slideId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<MedSlideCommentRow>(
+      `/med-slides/${slideId}/comments`,
+      body,
+    ),
+  resolveSlideComment: (commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<MedSlideCommentRow>(
+      `/med-slide-comments/${commentId}/resolve`,
+      body,
+    ),
+}
+
+// --- Comment shapes (Phase M-C.5) --------------------------------------
+
+export interface MedContentSectionCommentRow {
+  id:               string
+  contentItemId:    string
+  sectionId:        string
+  authorId:         string
+  authorName:       string
+  text:             string
+  severity:         'info' | 'warning' | 'blocking'
+  status:           'open' | 'resolved'
+  resolvedBy:       string | null
+  resolvedAt:       string | null
+  resolutionNote:   string | null
+  parentCommentId:  string | null
+  mentionedUserIds: string[]
+  createdAt:        string
+}
+
+export interface MedSlideCommentRow {
+  id:               string
+  slideId:          string
+  deckJobId:        string
+  authorId:         string
+  authorName:       string
+  text:             string
+  severity:         'info' | 'warning' | 'blocking'
+  status:           'open' | 'resolved'
+  resolvedBy:       string | null
+  resolvedAt:       string | null
+  resolutionNote:   string | null
+  parentCommentId:  string | null
+  mentionedUserIds: string[]
+  createdAt:        string
 }
 
 // --- Section + lock shapes (Phase M-C.2/4) -----------------------------

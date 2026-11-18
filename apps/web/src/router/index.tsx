@@ -98,6 +98,7 @@ import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePo
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { PublicationPolicies }          from '../platform/screens/PublicationPolicies'
 import { MedContentPolicies }           from '../platform/screens/MedContentPolicies'
+import { RegulatoryPolicies }           from '../platform/screens/RegulatoryPolicies'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
 import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
 import { AdminGuard, NonAdminGuard, PmGuard, SuperAdminGuard }  from '../platform/components/guards'
@@ -184,6 +185,7 @@ export const router = createBrowserRouter([
           { path: 'policies',            element: <DocumentTypePolicies /> },
           { path: 'publication-policies', element: <PublicationPolicies /> },
           { path: 'med-content-policies', element: <MedContentPolicies /> },
+          { path: 'regulatory-policies',  element: <RegulatoryPolicies /> },
         ],
       },
       // Legacy admin URLs → Master Library equivalents. Keep around

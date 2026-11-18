@@ -1,0 +1,601 @@
+// /regulatory-type-policies + /regulatory-ai-prompts +
+// /regulatory-best-practice-records admin routes — Phase M-D.1.
+// Mirror of Module C's medical-writing policy routes.
+//
+// Reads: any authenticated Module-D user. Writes (patch / approve /
+// retire / distill): PM-only. AI readiness gated on prompt + distill.
+
+import type { FastifyPluginAsync } from 'fastify'
+import type { MultipartFile } from '@fastify/multipart'
+import { z } from 'zod'
+import { requireAuth } from '../../../auth/rbac.js'
+import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
+import { generateBlobKey } from '../../platform/blob/local-storage.js'
+import { RegulatoryAiPromptService, RegulatoryAiPromptServiceError } from './ai-prompt-service.js'
+import { RegulatoryBestPracticeService, RegulatoryBpServiceError } from './best-practice-service.js'
+import { RegulatoryTypePolicyService, RegulatoryTypePolicyServiceError } from './type-policy-service.js'
+
+const readGate  = requireAuth({ modules: ['D'] })
+const writeGate = requireAuth({ modules: ['D'], roles: ['pm'] })
+
+const AI_NOT_CONFIGURED = {
+  error:     'ai_not_configured',
+  message:   'Set up an AI engine (API key) before editing regulatory prompts.',
+  setupPath: '/admin',
+} as const
+
+const MAX_BP_PDF_BYTES = 50 * 1024 * 1024
+
+const sectionRuleSchema = z.object({
+  severity: z.enum(['must', 'should', 'nice']),
+  text:     z.string().min(1).max(2_000),
+})
+const sectionRulesSchema = z.record(
+  z.string().regex(/^[a-zA-Z0-9_.\-§]+$/),
+  z.array(sectionRuleSchema),
+)
+
+const principleSchema = z.object({
+  scope:    z.string().min(1).max(200),
+  severity: z.enum(['must', 'should', 'nice']),
+  text:     z.string().min(1).max(2_000),
+})
+const digestSchema = z.object({
+  principles:     z.array(principleSchema).max(200),
+  sourcePdfId:    z.string().optional(),
+  distilledAt:    z.string().optional(),
+  distilledModel: z.string().optional(),
+})
+
+const retireSchema = z.object({ reason: z.string().min(1).max(500) })
+
+interface PolicyRow {
+  id: string; docType: string; version: number; isCurrent: boolean
+  templateId: string | null; checklistTemplateId: string | null
+  regulatoryTrack: string | null; reviewTierFormula: string | null
+  smePrompt: string; bestPracticeDigest: unknown; sectionRules: unknown
+  effectiveDate: Date; retiredAt: Date | null; retiredBy: string | null
+  retireReason: string | null; supersededBy: string | null
+  createdBy: string; updatedBy: string
+  createdAt: Date; updatedAt: Date
+}
+
+function shapePolicy(row: PolicyRow) {
+  return {
+    id:                  row.id,
+    docType:             row.docType,
+    version:             row.version,
+    isCurrent:           row.isCurrent,
+    templateId:          row.templateId,
+    checklistTemplateId: row.checklistTemplateId,
+    regulatoryTrack:     row.regulatoryTrack,
+    reviewTierFormula:   row.reviewTierFormula,
+    smePrompt:           row.smePrompt,
+    bestPracticeDigest:  row.bestPracticeDigest,
+    sectionRules:        row.sectionRules,
+    effectiveDate:       row.effectiveDate.toISOString(),
+    retiredAt:           row.retiredAt?.toISOString() ?? null,
+    retiredBy:           row.retiredBy,
+    retireReason:        row.retireReason,
+    supersededBy:        row.supersededBy,
+    createdBy:           row.createdBy,
+    updatedBy:           row.updatedBy,
+    createdAt:           row.createdAt.toISOString(),
+    updatedAt:           row.updatedAt.toISOString(),
+  }
+}
+
+interface AiPromptRow {
+  id: string; docType: string; version: number; status: string
+  smePrompt: string; sectionRules: unknown
+  supersededBy: string | null; effectiveDate: Date | null
+  retiredAt: Date | null; retireReason: string | null
+  approvedBy: string | null; approvedAt: Date | null
+  createdBy: string; updatedBy: string
+  createdAt: Date; updatedAt: Date
+}
+
+function shapeAiPrompt(row: AiPromptRow) {
+  return {
+    id:            row.id,
+    docType:       row.docType,
+    version:       row.version,
+    status:        row.status,
+    smePrompt:     row.smePrompt,
+    sectionRules:  row.sectionRules,
+    supersededBy:  row.supersededBy,
+    effectiveDate: row.effectiveDate?.toISOString() ?? null,
+    retiredAt:     row.retiredAt?.toISOString() ?? null,
+    retireReason:  row.retireReason,
+    approvedBy:    row.approvedBy,
+    approvedAt:    row.approvedAt?.toISOString() ?? null,
+    createdBy:     row.createdBy,
+    updatedBy:     row.updatedBy,
+    createdAt:     row.createdAt.toISOString(),
+    updatedAt:     row.updatedAt.toISOString(),
+  }
+}
+
+interface BpRow {
+  id: string; docType: string; version: number; status: string
+  digest: unknown
+  sourcePdfId: string | null; distilledAt: Date | null; distilledModel: string | null
+  supersededBy: string | null; effectiveDate: Date | null
+  retiredAt: Date | null; retireReason: string | null
+  approvedBy: string | null; approvedAt: Date | null
+  createdBy: string; updatedBy: string
+  createdAt: Date; updatedAt: Date
+}
+
+function shapeBp(row: BpRow) {
+  return {
+    id:             row.id,
+    docType:        row.docType,
+    version:        row.version,
+    status:         row.status,
+    digest:         row.digest,
+    sourcePdfId:    row.sourcePdfId,
+    distilledAt:    row.distilledAt?.toISOString() ?? null,
+    distilledModel: row.distilledModel,
+    supersededBy:   row.supersededBy,
+    effectiveDate:  row.effectiveDate?.toISOString() ?? null,
+    retiredAt:      row.retiredAt?.toISOString() ?? null,
+    retireReason:   row.retireReason,
+    approvedBy:     row.approvedBy,
+    approvedAt:     row.approvedAt?.toISOString() ?? null,
+    createdBy:      row.createdBy,
+    updatedBy:      row.updatedBy,
+    createdAt:      row.createdAt.toISOString(),
+    updatedAt:      row.updatedAt.toISOString(),
+  }
+}
+
+// -------- Type Policy routes ---------------------------------------------
+export const regulatoryTypePolicyRoutes: FastifyPluginAsync = async (app) => {
+  const svc = new RegulatoryTypePolicyService(app.prisma)
+
+  async function assertAiReady(): Promise<boolean> {
+    const engine = await resolveAiEngineSettings(app.prisma)
+    return app.aiGateway.isConfigured(engine.default)
+  }
+
+  const trackEnum = z.enum(['ind', 'nda', 'maa', 'bla', 'variation', 'other']).nullable().optional()
+
+  const createSchema = z.object({
+    docType:             z.string().min(1).max(80),
+    smePrompt:           z.string().min(1).max(100_000),
+    bestPracticeDigest:  z.unknown().optional(),
+    sectionRules:        sectionRulesSchema.optional(),
+    templateId:          z.string().nullable().optional(),
+    checklistTemplateId: z.string().nullable().optional(),
+    regulatoryTrack:     trackEnum,
+    reviewTierFormula:   z.string().nullable().optional(),
+  })
+
+  const patchSchema = z.object({
+    smePrompt:           z.string().min(1).max(100_000).optional(),
+    bestPracticeDigest:  z.unknown().optional(),
+    sectionRules:        sectionRulesSchema.optional(),
+    templateId:          z.string().nullable().optional(),
+    checklistTemplateId: z.string().nullable().optional(),
+    regulatoryTrack:     trackEnum,
+    reviewTierFormula:   z.string().nullable().optional(),
+  })
+
+  function mapServiceError(err: unknown): { code: number; body: Record<string, unknown> } | null {
+    if (!(err instanceof RegulatoryTypePolicyServiceError)) return null
+    switch (err.code) {
+      case 'not_found': return { code: 404, body: { error: 'not_found', message: err.message } }
+      case 'duplicate': return { code: 409, body: { error: 'duplicate', message: err.message } }
+    }
+  }
+
+  app.get('/', { preHandler: readGate }, async () => {
+    const rows = await svc.listAll()
+    return { policies: rows.map(r => shapePolicy(r as PolicyRow)) }
+  })
+
+  app.get('/:docType', { preHandler: readGate }, async (request, reply) => {
+    const { docType } = request.params as { docType: string }
+    const row = await svc.getCurrent(docType.replace(/-/g, '_'))
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    return shapePolicy(row as PolicyRow)
+  })
+
+  app.post('/', { preHandler: writeGate }, async (request, reply) => {
+    const parsed = createSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.create(parsed.data, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_type_policy.created',
+        entityType: 'regulatory_type_policy',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version },
+        ipAddress:  request.ip ?? null,
+      })
+      return reply.code(201).send(shapePolicy(row as PolicyRow))
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.patch('/:docType', { preHandler: writeGate }, async (request, reply) => {
+    const { docType } = request.params as { docType: string }
+    const parsed = patchSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.update(docType, parsed.data, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_type_policy.updated',
+        entityType: 'regulatory_type_policy',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, changedKeys: Object.keys(parsed.data) },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapePolicy(row as PolicyRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.post('/:docType/retire', { preHandler: writeGate }, async (request, reply) => {
+    const { docType } = request.params as { docType: string }
+    const parsed = retireSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.retire(docType, parsed.data.reason, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_type_policy.retired',
+        entityType: 'regulatory_type_policy',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, reason: parsed.data.reason },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapePolicy(row as PolicyRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  // BP distill upload — mirror of med-content-type-policies' distill-file.
+  app.post('/:docType/distill-best-practice-file', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
+    const { docType: rawDocType } = request.params as { docType: string }
+    const docType = rawDocType.replace(/-/g, '_')
+
+    const policy = await svc.getCurrent(docType)
+    if (!policy) return reply.code(404).send({ error: 'no_current_policy' })
+
+    const file: MultipartFile | undefined = await request.file().catch(() => undefined)
+    if (!file) return reply.code(400).send({ error: 'no_file', message: 'multipart file part is required' })
+
+    const buf = await file.toBuffer()
+    if (buf.length > MAX_BP_PDF_BYTES) {
+      return reply.code(413).send({ error: 'too_large', message: `File > ${MAX_BP_PDF_BYTES / 1024 / 1024}MB` })
+    }
+    if ((file.mimetype ?? '').toLowerCase() !== 'application/pdf') {
+      return reply.code(400).send({ error: 'not_pdf', mimetype: file.mimetype, message: 'Best-Practice uploads must be application/pdf.' })
+    }
+
+    const blobKey = generateBlobKey(`platform/regulatory-best-practices/${policy.id}`, 'pdf')
+    try {
+      await app.blob.put({
+        bucket: 'documents',
+        key:    blobKey,
+        body:   buf,
+        contentType: file.mimetype,
+        metadata: {
+          originalFilename:     file.filename,
+          regulatoryPolicyId:   policy.id,
+          docType,
+          uploadedBy:           request.user!.id,
+          kind:                 'regulatory-best-practice',
+        },
+      })
+    } catch (err) {
+      app.log.warn({ err, policyId: policy.id }, 'regulatory bp pdf blob put failed')
+      return reply.code(503).send({ error: 'storage_failed', message: 'Could not store the PDF. Try again.' })
+    }
+
+    const upload = await app.prisma.documentUpload.create({
+      data: {
+        projectId:       null,
+        uploadedBy:      request.user!.id,
+        blobKey,
+        fileName:        file.filename,
+        fileSizeBytes:   buf.length,
+        contentType:     file.mimetype,
+        virusScanStatus: 'passed',
+        sourceCategory:  'best_practice',
+        status:          'confirmed',
+        title:           file.filename,
+      },
+    })
+
+    const jobId = `regulatory-bp-distill-${docType}-${upload.id}`
+    try {
+      await app.queue.enqueue('regulatory.distill_best_practice', {
+        docType,
+        uploadId: upload.id,
+        actorId:  request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      app.log.warn({ err, policyId: policy.id, uploadId: upload.id }, 'regulatory bp distill enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'PDF stored but could not enqueue distillation.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'regulatory_type_policy.bp_distill_enqueued',
+      entityType: 'regulatory_type_policy',
+      entityId:   policy.id,
+      details:    { docType, version: policy.version, uploadId: upload.id, jobId, fileName: file.filename, fileSizeBytes: buf.length },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({
+      jobId,
+      uploadId:  upload.id,
+      policyId:  policy.id,
+      docType,
+      version:   policy.version,
+      fileName:  file.filename,
+      sizeBytes: buf.length,
+    })
+  })
+}
+
+// -------- AI Prompt routes -----------------------------------------------
+export const regulatoryAiPromptRoutes: FastifyPluginAsync = async (app) => {
+  const svc = new RegulatoryAiPromptService(app.prisma)
+
+  const createSchema = z.object({
+    docType:      z.string().min(1).max(80),
+    smePrompt:    z.string().min(1).max(100_000),
+    sectionRules: sectionRulesSchema.optional(),
+  })
+  const patchSchema = z.object({
+    smePrompt:    z.string().min(1).max(100_000).optional(),
+    sectionRules: sectionRulesSchema.optional(),
+  })
+
+  async function assertAiReady(): Promise<boolean> {
+    const engine = await resolveAiEngineSettings(app.prisma)
+    return app.aiGateway.isConfigured(engine.default)
+  }
+
+  function mapServiceError(err: unknown): { code: number; body: Record<string, unknown> } | null {
+    if (!(err instanceof RegulatoryAiPromptServiceError)) return null
+    switch (err.code) {
+      case 'not_found':       return { code: 404, body: { error: 'not_found',       message: err.message } }
+      case 'draft_exists':    return { code: 409, body: { error: 'draft_exists',    message: err.message } }
+      case 'not_a_draft':     return { code: 409, body: { error: 'not_a_draft',     message: err.message } }
+      case 'already_retired': return { code: 409, body: { error: 'already_retired', message: err.message } }
+    }
+  }
+
+  app.get('/', { preHandler: readGate }, async () => {
+    const rows = await svc.listAllApproved()
+    return { prompts: rows.map(r => shapeAiPrompt(r as AiPromptRow)) }
+  })
+
+  app.get('/:docType', { preHandler: readGate }, async (request, reply) => {
+    const { docType } = request.params as { docType: string }
+    const row = await svc.getApproved(docType.replace(/-/g, '_'))
+    if (!row) return reply.code(404).send({ error: 'no_approved_prompt' })
+    return shapeAiPrompt(row as AiPromptRow)
+  })
+
+  app.get('/:docType/versions', { preHandler: readGate }, async (request) => {
+    const { docType } = request.params as { docType: string }
+    const rows = await svc.listVersions(docType.replace(/-/g, '_'))
+    return { versions: rows.map(r => shapeAiPrompt(r as AiPromptRow)) }
+  })
+
+  app.post('/', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
+    const parsed = createSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.createDraft(parsed.data, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_ai_prompt.draft_created',
+        entityType: 'regulatory_ai_prompt_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, promptChars: row.smePrompt.length },
+        ipAddress:  request.ip ?? null,
+      })
+      return reply.code(201).send(shapeAiPrompt(row as AiPromptRow))
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.patch('/:id', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
+    const { id } = request.params as { id: string }
+    const parsed = patchSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.updateDraft(id, parsed.data, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_ai_prompt.draft_updated',
+        entityType: 'regulatory_ai_prompt_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, changedKeys: Object.keys(parsed.data) },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapeAiPrompt(row as AiPromptRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.post('/:id/approve', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
+    const { id } = request.params as { id: string }
+    try {
+      const row = await svc.approve(id, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_ai_prompt.approved',
+        entityType: 'regulatory_ai_prompt_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapeAiPrompt(row as AiPromptRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.post('/:id/retire', { preHandler: writeGate }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const parsed = retireSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.retire(id, parsed.data.reason, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_ai_prompt.retired',
+        entityType: 'regulatory_ai_prompt_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, reason: parsed.data.reason },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapeAiPrompt(row as AiPromptRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+}
+
+// -------- Best-Practice routes -------------------------------------------
+export const regulatoryBestPracticeRoutes: FastifyPluginAsync = async (app) => {
+  const svc = new RegulatoryBestPracticeService(app.prisma)
+
+  const patchSchema = z.object({ digest: digestSchema.optional() })
+
+  function mapServiceError(err: unknown): { code: number; body: Record<string, unknown> } | null {
+    if (!(err instanceof RegulatoryBpServiceError)) return null
+    switch (err.code) {
+      case 'not_found':       return { code: 404, body: { error: 'not_found',       message: err.message } }
+      case 'not_a_draft':     return { code: 409, body: { error: 'not_a_draft',     message: err.message } }
+      case 'already_retired': return { code: 409, body: { error: 'already_retired', message: err.message } }
+    }
+  }
+
+  app.get('/', { preHandler: readGate }, async () => {
+    const rows = await svc.listAllApproved()
+    return { records: rows.map(r => shapeBp(r as BpRow)) }
+  })
+
+  app.get('/:docType', { preHandler: readGate }, async (request, reply) => {
+    const { docType } = request.params as { docType: string }
+    const row = await svc.getApproved(docType.replace(/-/g, '_'))
+    if (!row) return reply.code(404).send({ error: 'no_approved_record' })
+    return shapeBp(row as BpRow)
+  })
+
+  app.get('/:docType/versions', { preHandler: readGate }, async (request) => {
+    const { docType } = request.params as { docType: string }
+    const rows = await svc.listVersions(docType.replace(/-/g, '_'))
+    return { versions: rows.map(r => shapeBp(r as BpRow)) }
+  })
+
+  app.patch('/:id', { preHandler: writeGate }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const parsed = patchSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.updateDraft(id, parsed.data, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_best_practice.draft_updated',
+        entityType: 'regulatory_best_practice_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, principleCount: parsed.data.digest?.principles?.length ?? null },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapeBp(row as BpRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.post('/:id/approve', { preHandler: writeGate }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    try {
+      const row = await svc.approve(id, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_best_practice.approved',
+        entityType: 'regulatory_best_practice_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapeBp(row as BpRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+
+  app.post('/:id/retire', { preHandler: writeGate }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const parsed = retireSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    try {
+      const row = await svc.retire(id, parsed.data.reason, request.user!.id)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'regulatory_best_practice.retired',
+        entityType: 'regulatory_best_practice_record',
+        entityId:   row.id,
+        details:    { docType: row.docType, version: row.version, reason: parsed.data.reason },
+        ipAddress:  request.ip ?? null,
+      })
+      return shapeBp(row as BpRow)
+    } catch (err) {
+      const mapped = mapServiceError(err)
+      if (mapped) return reply.code(mapped.code).send(mapped.body)
+      throw err
+    }
+  })
+}

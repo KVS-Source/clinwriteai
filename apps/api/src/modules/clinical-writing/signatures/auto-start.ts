@@ -1,5 +1,5 @@
-// Automatic start of the signature chain (2026-11-17): when the CRM meeting completes, with every Reviewer
-// done reviewing, the document reaches pending_signature and its chain starts by itself, in the
+// Automatic start of the signature chain (2026-11-17): when the CRM is finished ("Finish CRM and send for
+// approval", with every Reviewer done reviewing) the document reaches pending_signature and its chain starts by itself, in the
 // approvers_first order:
 //   1. every Approver (A), in parallel — each approves and signs in one step ("Approve & E-sign");
 //   2. once the last Approver has signed: every Author (R), Reviewer (C) and Informed (I), in parallel,

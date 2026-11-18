@@ -5,7 +5,7 @@
 import Fastify from 'fastify'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Completing the meeting starts signing; the chain itself is covered in signatures/.
+// Finishing the CRM ("Finish CRM and send for approval") starts signing; the chain itself is covered in signatures/.
 const startChainWhenReviewDone = vi.hoisted(() => vi.fn(async () => ({ chainStarted: true })))
 vi.mock('../signatures/auto-start.js', () => ({ startChainWhenReviewDone }))
 
@@ -45,6 +45,9 @@ function fakePrisma() {
       },
       update: async ({ where, data }: Row) => Object.assign(meetings.find(m => m.id === where.id)!, data),
       count: async ({ where }: Row) => meetings.filter(m => matches(m, where)).length,
+      findFirst: async ({ where }: Row) => meetings.find(m => matches(m, where)) ?? null,
+      findMany: async ({ where, include }: Row) => meetings.filter(m => matches(m, where)).map(m =>
+        include?.resolutions ? { ...m, resolutions: resolutions.filter(r => r.meetingId === m.id).map(r => ({ commentId: r.commentId })) } : m),
       create: async ({ data }: Row) => { const m = { id: `m${meetings.length + 1}`, status: 'scheduled', ...data }; meetings.push(m); return m },
     },
     crmAttendee: {
@@ -107,11 +110,11 @@ describe('CRM resolve + complete', () => {
   let t: Awaited<ReturnType<typeof build>>
   beforeEach(async () => { t = await build() })
 
-  it('completes the meeting when the only open comments are approval verdicts → pending_signature', async () => {
+  it('completes the meeting when the only open comments are approval verdicts → document back in review', async () => {
     t.db.comments.push({ id: 'c-approve', documentId: 'DOC-1', status: 'open', verdict: 'approve' })
     const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
     expect(res.statusCode).toBe(200)
-    expect(t.db.documents[0].status).toBe('pending_signature')
+    expect(t.db.documents[0].status).toBe('in_review')   // not on to signing: that is "Finish CRM and send for approval"
   })
 
   it('still blocks completion while a real comment is unresolved', async () => {
@@ -137,7 +140,7 @@ describe('CRM resolve + complete', () => {
 
     const done = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
     expect(done.statusCode).toBe(200)
-    expect(t.db.documents[0].status).toBe('pending_signature')
+    expect(t.db.documents[0].status).toBe('in_review')
   })
 
   it('rejects a resolution without a note (Part 11 audit)', async () => {
@@ -146,37 +149,173 @@ describe('CRM resolve + complete', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('cannot complete while a Reviewer has not clicked Mark review done, and starts no signing', async () => {
+  it('completing a meeting never starts signing, even when every Reviewer is done', async () => {
     startChainWhenReviewDone.mockClear()
-    t.db.raci.push(
-      { documentId: 'DOC-1', userId: 'u-c',  letter: 'C', reviewedAt: null, removedAt: null },
-      { documentId: 'DOC-1', userId: 'u-c2', letter: 'C', reviewedAt: new Date(), removedAt: null },
-    )
+    t.db.raci.push({ documentId: 'DOC-1', userId: 'u-c', letter: 'C', reviewedAt: new Date(), removedAt: null })
     const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
-    expect(res.statusCode).toBe(422)
-    expect(res.json()).toMatchObject({ error: 'reviews_pending', pendingReviewers: 1 })
-    expect(t.db.documents[0].status).toBe('crm_in_progress')
-    expect(t.db.meetings[0].status).toBe('in_progress')
+    expect(res.statusCode).toBe(200)
+    expect(t.db.documents[0].status).toBe('in_review')
     expect(startChainWhenReviewDone).not.toHaveBeenCalled()
   })
 
-  it('once every Reviewer is done, completing the meeting moves to signing and starts the chain', async () => {
-    startChainWhenReviewDone.mockClear()
-    t.db.raci.push(
-      { documentId: 'DOC-1', userId: 'u-c',   letter: 'C', reviewedAt: new Date(), removedAt: null },
-      { documentId: 'DOC-1', userId: 'u-old', letter: 'C', reviewedAt: null, removedAt: new Date() },   // removed: doesn't count
-    )
+  it('a Reviewer who has not clicked Mark review done does not stop the meeting from completing', async () => {
+    t.db.raci.push({ documentId: 'DOC-1', userId: 'u-c', letter: 'C', reviewedAt: null, removedAt: null })
     const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
+    expect(res.statusCode).toBe(200)
+    expect(t.db.meetings[0].status).toBe('complete')
+  })
+
+  it('stays crm_in_progress when completing one meeting while another is still open', async () => {
+    t.db.meetings.push({ id: 'm2', documentId: 'DOC-1', chairId: 'u-chair', status: 'scheduled', meetingRef: 'CRM-2' })
+    expect((await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })).statusCode).toBe(200)
+    expect(t.db.documents[0].status).toBe('crm_in_progress')
+  })
+})
+
+// "Finish CRM and send for approval": the explicit step that moves the document to pending signature.
+describe('Finish CRM and send for approval', () => {
+  const finish = (app: Awaited<ReturnType<typeof build>>['app']) => app.inject({ method: 'POST', url: '/documents/DOC-1/crm/finish' })
+  // A document in review whose one meeting was held and completed in this review round.
+  const ready = async (user: Row = {}) => {
+    const t = await build(user)
+    Object.assign(t.db.documents[0]!, { status: 'in_review', submittedForReviewAt: new Date('2026-11-01T00:00:00Z') })
+    Object.assign(t.db.meetings[0]!, { status: 'complete', endedAt: new Date('2026-11-02T00:00:00Z') })
+    return t
+  }
+
+  it('moves the document to pending signature and starts the chain (Author)', async () => {
+    startChainWhenReviewDone.mockClear()
+    const t = await ready()
+    const res = await finish(t.app)
     expect(res.statusCode).toBe(200)
     expect(t.db.documents[0].status).toBe('pending_signature')
     expect(startChainWhenReviewDone).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ documentId: 'DOC-1', actorId: 'u-chair' }))
   })
 
-  it('a failed chain start does not fail the completed meeting', async () => {
+  it('a failed chain start does not fail it', async () => {
     startChainWhenReviewDone.mockRejectedValueOnce(new Error('down'))
-    const res = await t.app.inject({ method: 'POST', url: '/crm/m1/complete' })
-    expect(res.statusCode).toBe(200)
+    const t = await ready()
+    expect((await finish(t.app)).statusCode).toBe(200)
     expect(t.db.documents[0].status).toBe('pending_signature')
+  })
+
+  it('is allowed to the PM and to a meeting chair, not to a Reviewer, an Approver or an Informed person', async () => {
+    for (const [user, letter, expected] of [
+      [{ id: 'u-pm', role: 'pm' }, null, 200],
+      [{ id: 'u-x', role: 'contributor' }, 'chair', 200],
+      [{ id: 'u-c', role: 'contributor' }, 'C', 403],
+      [{ id: 'u-a', role: 'contributor' }, 'A', 403],
+      [{ id: 'u-i', role: 'contributor' }, 'I', 403],
+    ] as const) {
+      const t = await ready(user)
+      if (letter === 'chair') t.db.meetings[0]!.chairId = 'u-x'
+      else if (letter) t.db.raci.push({ documentId: 'DOC-1', userId: user.id, letter })
+      const res = await finish(t.app)
+      expect(res.statusCode, `${user.id} ${letter}`).toBe(expected)
+      if (expected === 403) expect(res.json().error).toBe('crm_finish_forbidden')
+    }
+  })
+
+  it('refuses while a meeting is still scheduled or in progress', async () => {
+    const t = await ready()
+    t.db.meetings.push({ id: 'm2', documentId: 'DOC-1', chairId: 'u-chair', status: 'scheduled', meetingRef: 'CRM-2' })
+    const res = await finish(t.app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'meeting_open', meetingRef: 'CRM-2' })
+    expect(t.db.documents[0].status).toBe('in_review')
+  })
+
+  it('refuses when no meeting was held in this review round (an older one does not count)', async () => {
+    const t = await ready()
+    t.db.documents[0]!.submittedForReviewAt = new Date('2026-11-10T00:00:00Z')   // resubmitted after the meeting
+    const res = await finish(t.app)
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('no_meeting_held')
+  })
+
+  it('a meeting held during authoring does not count', async () => {
+    const t = await ready()
+    t.db.meetings[0]!.returnToStatus = 'in_authoring'
+    expect((await finish(t.app)).json().error).toBe('no_meeting_held')
+  })
+
+  it('refuses while a Reviewer has not clicked Mark review done, and starts no signing', async () => {
+    startChainWhenReviewDone.mockClear()
+    const t = await ready()
+    t.db.raci.push(
+      { documentId: 'DOC-1', userId: 'u-c',   letter: 'C', reviewedAt: null, removedAt: null },
+      { documentId: 'DOC-1', userId: 'u-c2',  letter: 'C', reviewedAt: new Date(), removedAt: null },
+      { documentId: 'DOC-1', userId: 'u-old', letter: 'C', reviewedAt: null, removedAt: new Date() },   // removed: doesn't count
+    )
+    const res = await finish(t.app)
+    expect(res.statusCode).toBe(422)
+    expect(res.json()).toMatchObject({ error: 'reviews_pending', pendingReviewers: 1 })
+    expect(t.db.documents[0].status).toBe('in_review')
+    expect(startChainWhenReviewDone).not.toHaveBeenCalled()
+  })
+
+  it('refuses while a real comment has no resolution; approval verdicts and resolved comments are fine', async () => {
+    const t = await ready()
+    t.db.comments.push(
+      { id: 'c-approve', documentId: 'DOC-1', status: 'open', verdict: 'approve' },
+      { id: 'c-new',     documentId: 'DOC-1', status: 'open', verdict: null },
+    )
+    const refused = await finish(t.app)
+    expect(refused.statusCode).toBe(422)
+    expect(refused.json()).toMatchObject({ error: 'comments_unresolved', unresolvedCommentIds: ['c-new'] })
+    t.db.comments[1]!.status = 'resolved'
+    expect((await finish(t.app)).statusCode).toBe(200)
+  })
+
+  it('only while the document is in review', async () => {
+    for (const status of ['in_authoring', 'crm_in_progress', 'pending_signature']) {
+      const t = await ready()
+      t.db.documents[0]!.status = status
+      const res = await finish(t.app)
+      expect(res.statusCode, status).toBe(409)
+      expect(res.json().error).toBe('wrong_status')
+    }
+  })
+
+  it('tells the access probe who may finish', async () => {
+    const t = await ready({ id: 'u-c', role: 'contributor' })
+    t.db.raci.push({ documentId: 'DOC-1', userId: 'u-c', letter: 'C' })
+    expect((await t.app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json()).toEqual({ canSchedule: true, canFinish: false })
+    const author = await ready()
+    expect((await author.app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json().canFinish).toBe(true)
+  })
+})
+
+describe('several meetings on one document', () => {
+  const schedule = (app: Awaited<ReturnType<typeof build>>['app']) => app.inject({
+    method: 'POST', url: '/documents/DOC-1/crm',
+    payload: { chairId: 'u-pm', scheduledDate: '2099-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
+  })
+
+  it('a second meeting can be scheduled once the first is complete (the document stays in review)', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.documents[0]!.status = 'in_review'
+    db.meetings[0]!.status = 'complete'
+    const res = await schedule(app)
+    expect(res.statusCode).toBe(201)
+    expect(db.meetings).toHaveLength(2)
+  })
+
+  it.each(['scheduled', 'in_progress'])('refuses a new meeting while another is %s', async (status) => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.documents[0]!.status = 'in_review'
+    db.meetings[0]!.status = status
+    const res = await schedule(app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'meeting_open', meetingRef: 'CRM-1' })
+    expect(db.meetings).toHaveLength(1)
+  })
+
+  it('a cancelled meeting does not block the next one', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.documents[0]!.status = 'in_review'
+    db.meetings[0]!.status = 'cancelled'
+    expect((await schedule(app)).statusCode).toBe(201)
   })
 })
 
@@ -207,7 +346,7 @@ describe('who may schedule and resolve', () => {
       expect(res.statusCode).toBe(403)
       expect(res.json().error).toBe('crm_schedule_forbidden')
       expect(db.meetings).toHaveLength(before)
-      expect((await app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json()).toEqual({ canSchedule: false })
+      expect((await app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json().canSchedule).toBe(false)
     }
   })
 
@@ -216,6 +355,7 @@ describe('who may schedule and resolve', () => {
       const { app, db } = await build({ id: 'u-x', role: 'contributor' })
       db.documents[0]!.status = 'in_review'
       db.raci.push({ documentId: 'DOC-1', userId: 'u-x', letter })
+      db.meetings.length = 0   // none open
       expect((await schedule(app)).statusCode, letter).toBe(expected)
     }
   })
@@ -274,6 +414,11 @@ describe('a project manager running a CRM', () => {
     db.comments[0]!.status = 'resolved'
 
     expect((await app.inject({ method: 'POST', url: `/crm/${id}/complete` })).statusCode).toBe(200)
+    expect(db.documents[0]!.status).toBe('in_review')   // completing only closes the meeting
+
+    // The PM sends it on: no meeting open, one held this round, nothing unresolved.
+    const finished = await app.inject({ method: 'POST', url: '/documents/DOC-1/crm/finish' })
+    expect(finished.statusCode).toBe(200)
     expect(db.documents[0]!.status).toBe('pending_signature')
   })
 
@@ -368,7 +513,7 @@ describe('who can be in a meeting (CW-014, CW-098)', () => {
 
   it('a PM who is not a listed project member can still chair the meeting they schedule', async () => {
     const { app, db } = await build({ id: 'u-pm2', role: 'pm' })
-    db.documents[0]!.status = 'in_review'; people(db)
+    db.documents[0]!.status = 'in_review'; people(db); db.meetings.length = 0
     const list = (await app.inject({ method: 'GET', url: '/documents/DOC-1/crm/people' })).json()
     expect(list.find((p: { id: string }) => p.id === 'u-pm2')).toMatchObject({ isPm: true, canChair: true })
     expect((await schedule(app, { chairId: 'u-pm2' })).statusCode).toBe(201)
@@ -382,7 +527,7 @@ describe('who can be in a meeting (CW-014, CW-098)', () => {
 
   it('schedules with a PM, Author, Reviewer or Approver as chair and the document\'s people as attendees', async () => {
     const { app, db } = await build({ id: 'u-pm', role: 'pm' })
-    db.documents[0]!.status = 'in_review'; people(db)
+    db.documents[0]!.status = 'in_review'; people(db); db.meetings.length = 0
     const res = await schedule(app, { chairId: 'u-c', attendees: [{ userId: 'u-i', roleInCrm: 'Observer' }, { userId: 'u-qc', roleInCrm: 'Reviewer' }] })
     expect(res.statusCode).toBe(201)
     expect(db.attendees.map(a => a.userId).sort()).toEqual(['u-c', 'u-i', 'u-qc'])
@@ -392,7 +537,7 @@ describe('who can be in a meeting (CW-014, CW-098)', () => {
     const { app, db } = await build({ id: 'u-pm', role: 'pm' })
     const sent: Array<Record<string, unknown>> = []
     app.decorate('notifications', { send: async (n: Record<string, unknown>) => { sent.push(n); return n } } as never)
-    db.documents[0]!.status = 'in_review'; people(db)
+    db.documents[0]!.status = 'in_review'; people(db); db.meetings.length = 0
     db.raci.push({ documentId: 'DOC-1', userId: 'u-a', letter: 'A' }, { documentId: 'DOC-1', userId: 'u-ac', letter: 'A' }, { documentId: 'DOC-1', userId: 'u-ac', letter: 'C' })
     // The form sent the Approver-only person as a Reviewer and left the other Approver out.
     const res = await schedule(app, { chairId: 'u-c', attendees: [{ userId: 'u-a', roleInCrm: 'Reviewer' }] })

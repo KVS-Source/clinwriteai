@@ -31,5 +31,7 @@ test('Module A — CRM: resolve pending comments and end the meeting', async ({ 
 
   await page.locator('[data-crm-end]').click()
   await expect(page.locator('[data-crm-complete]')).toBeVisible({ timeout: 10_000 })
-  await expect(page.locator('[data-crm-to-signature]')).toBeVisible()
+  // Completing a meeting leaves the document in review: the next step is another meeting, "Finish CRM and
+  // send for approval" (Author, PM or chair), or — once it is pending signature — the E-Signature link.
+  await expect(page.locator('[data-crm-schedule-another], [data-crm-finish], [data-crm-to-signature]').first()).toBeVisible()
 })

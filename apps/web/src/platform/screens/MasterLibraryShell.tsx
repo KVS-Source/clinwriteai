@@ -53,6 +53,9 @@ export const MASTER_LIBRARY_TABS: Tab[] = [
   // Phase M-C.1 — medical-writing policy admin. PM-only writes; reads
   // allowed for any authed Module-C user.
   { slug: 'med-content-policies',  label: 'Medical Content Policies' },
+  // Phase M-D.1 — regulatory-writing policy admin. PM-only writes;
+  // reads allowed for any authed Module-D user.
+  { slug: 'regulatory-policies',   label: 'Regulatory Policies' },
 ]
 
 // Master Documents lists documents only (sections are pulled from inside them).
@@ -80,6 +83,7 @@ function useTabCounts(): Partial<Record<string, number>> {
   const policies = useQuery({ queryKey: ['document-type-policies'], queryFn: () => platformApi.listDocumentTypePolicies(), ...opts })
   const pubPolicies = useQuery({ queryKey: ['publication-type-policies'], queryFn: () => platformApi.listPublicationTypePolicies(), ...opts })
   const medPolicies = useQuery({ queryKey: ['med-content-type-policies'], queryFn: () => platformApi.listMedContentTypePolicies(), ...opts })
+  const regPolicies = useQuery({ queryKey: ['regulatory-type-policies'], queryFn: () => platformApi.listRegulatoryTypePolicies(), ...opts })
   const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...opts })
   const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...opts })
   return {
@@ -95,6 +99,7 @@ function useTabCounts(): Partial<Record<string, number>> {
     policies:         countOf(policies.data?.policies),
     'publication-policies': countOf(pubPolicies.data?.policies),
     'med-content-policies': countOf(medPolicies.data?.policies),
+    'regulatory-policies':  countOf(regPolicies.data?.policies),
   }
 }
 

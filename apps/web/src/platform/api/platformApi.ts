@@ -538,6 +538,35 @@ export const platformApi = {
       ruleCount:    number
     }>(`/ai-prompts/${encodeURIComponent(id)}/extract-section-rules`, {}),
 
+  // --- SectionTemplate (migration 90) ----------------------------------
+  // Per-section formatting JSON that flows into every AI call so Claude
+  // preserves authored styling. Versioned per (docType, sectionKey) with
+  // draft → approved → retired lifecycle. Document creation snapshots
+  // the approved row onto each section — admin approvals of newer
+  // templates don't retroactively rewrite in-flight documents.
+  listSectionTemplates: () =>
+    api.get<{ templates: SectionTemplate[] }>(`/section-templates`),
+  listSectionTemplatesForDocType: (docType: string) =>
+    api.get<{ templates: SectionTemplate[] }>(`/section-templates/${encodeURIComponent(docType)}`),
+  getSectionTemplate: async (docType: string, sectionKey: string): Promise<SectionTemplate | null> => {
+    try {
+      return await api.get<SectionTemplate>(`/section-templates/${encodeURIComponent(docType)}/${encodeURIComponent(sectionKey)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listSectionTemplateVersions: (docType: string, sectionKey: string) =>
+    api.get<{ versions: SectionTemplate[] }>(`/section-templates/${encodeURIComponent(docType)}/${encodeURIComponent(sectionKey)}/versions`),
+  createSectionTemplateDraft: (body: SectionTemplateCreateBody) =>
+    api.post<SectionTemplate>(`/section-templates`, body),
+  updateSectionTemplateDraft: (id: string, body: SectionTemplatePatchBody) =>
+    api.patch<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}`, body),
+  approveSectionTemplate: (id: string) =>
+    api.post<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}/approve`, {}),
+  retireSectionTemplate: (id: string, reason: string) =>
+    api.post<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}/retire`, { reason }),
+
   // --- BestPracticeRecord (Phase-2 pointer refactor, migration 74) ------
   // BP digest is its own versioned entity. The distill worker writes to
   // a draft row for the docType; admin reviews + approves. Distillation
@@ -1037,6 +1066,54 @@ export interface AiPromptCreateBody {
 export interface AiPromptPatchBody {
   smePrompt?:    string
   sectionRules?: AiPromptSectionRules
+}
+
+// --- SectionTemplate (platform/section-template, migration 90) ----------
+// Per-section formatting JSON. The format object itself is deliberately
+// loosely typed on the web side (admin edits as raw JSON) — the server
+// validates against the full Zod schema in
+// apps/api/src/modules/platform/section-template/schema.ts.
+export type SectionTemplateStatus = 'draft' | 'approved' | 'retired'
+
+export type SectionTemplateFormat = {
+  page?:       Record<string, unknown>
+  font?:       Record<string, unknown>
+  paragraph?:  Record<string, unknown>
+  heading?:    Record<string, unknown>
+  list?:       Record<string, unknown>
+  table?:      Record<string, unknown>
+  references?: Record<string, unknown>
+  numbering?:  Record<string, unknown>
+  notes?:      string
+}
+
+export interface SectionTemplate {
+  id:            string
+  docType:       string
+  sectionKey:    string
+  version:       number
+  status:        SectionTemplateStatus
+  formatJson:    SectionTemplateFormat
+  supersededBy:  string | null
+  effectiveDate: string | null
+  retiredAt:     string | null
+  retireReason:  string | null
+  approvedBy:    string | null
+  approvedAt:    string | null
+  createdBy:     string
+  updatedBy:     string
+  createdAt:     string
+  updatedAt:     string
+}
+
+export interface SectionTemplateCreateBody {
+  docType:    string
+  sectionKey: string
+  formatJson: SectionTemplateFormat
+}
+
+export interface SectionTemplatePatchBody {
+  formatJson: SectionTemplateFormat
 }
 
 // --- BestPracticeRecord (platform/best-practice) --------------------------

@@ -794,7 +794,6 @@ function BpSection({
   })
   const draft = versionsQ.data?.versions.find(v => v.status === 'draft') ?? null
 
-  const [bpFile, setBpFile] = useState<File | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [localInfo,  setLocalInfo]  = useState<string | null>(null)
@@ -804,19 +803,7 @@ function BpSection({
     qc.invalidateQueries({ queryKey: ['publication-best-practice-records-approved'] })
     onChanged()
   }
-
-  const distill = useMutation({
-    mutationFn: () => {
-      if (!bpFile) throw new Error('Pick a PDF first')
-      return platformApi.distillPublicationBestPracticeFile(docType, bpFile)
-    },
-    onSuccess: (res) => {
-      setLocalInfo(`Parser enqueued for ${res.fileName} — the draft digest will appear here shortly. (job ${res.jobId})`)
-      setLocalError(null)
-      setBpFile(null)
-    },
-    onError: (err: unknown) => { setLocalError(errMessage(err, 'Parser enqueue failed')); setLocalInfo(null) },
-  })
+  // BP distillation retired (M-F.1) — BP is author guidance now.
 
   const approve = useMutation({
     mutationFn: () => platformApi.approvePublicationBestPractice(draft!.id),
@@ -855,28 +842,9 @@ function BpSection({
       </header>
       <p className="mt-1 text-[12px] text-slate-700">{summary}</p>
 
-      <div className="mt-2 flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-2" data-bp-upload>
-        <div className="flex items-center gap-2">
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={e => setBpFile(e.currentTarget.files?.[0] ?? null)}
-            className="flex-1 text-[12px]"
-            data-field="pub-bp-pdf-file"
-          />
-          <button
-            type="button"
-            onClick={() => distill.mutate()}
-            disabled={distill.isPending || !bpFile || !aiReady}
-            title={!aiReady ? 'AI is not set up.' : undefined}
-            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            data-action="pub-distill-bp"
-          >{distill.isPending ? 'Uploading + parsing…' : 'Upload + parse'}</button>
-        </div>
-        {bpFile && <p className="text-[11px] text-slate-600">{bpFile.name} · {(bpFile.size / (1024*1024)).toFixed(2)} MB</p>}
-        <p className="text-[11px] text-slate-500">
-          PDF only. The parser writes a draft BestPracticeRecord — review + Approve below to make it live.
-        </p>
+      <div className="mt-2 flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-600" data-bp-upload="retired">
+        <p className="font-medium text-slate-700">BP distillation retired</p>
+        <p>BP is author guidance now, not AI steering. Formatting hints flow through Master Library &rarr; Section Templates instead. Existing approved digests stay available for authors who still rely on them.</p>
       </div>
 
       {draft && (

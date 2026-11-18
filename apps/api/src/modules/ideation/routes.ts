@@ -428,6 +428,7 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
           ideationArtefactId: artefact.id,
           actorId:            request.user!.id,
           sections:           sectionPayload,
+          docType:            docType ?? undefined,                 // migration 90: SectionTemplate snapshot
         })
       }
       return artefact

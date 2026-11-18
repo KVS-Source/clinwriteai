@@ -5,7 +5,8 @@
 // creation; upsert section content on save; bump new version;
 // score aiConfidence + aiFlags (worker hook).
 
-import type { Prisma, PrismaClient } from '@prisma/client'
+import type { PrismaClient } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { createHash } from 'node:crypto'
 
 export interface MedContentSectionPayload {
@@ -19,6 +20,8 @@ export interface MedContentInitialiseArgs {
   contentItemId: string
   actorId:       string
   sections:      MedContentSectionPayload[]
+  /** docType for SectionTemplate snapshot (migration 90). */
+  docType?:      string
 }
 
 export function hashMedSections(sections: MedContentSectionPayload[]): string {
@@ -53,15 +56,38 @@ export async function initialiseMedContentVersion(
     },
   })
   if (args.sections.length > 0) {
+    // SectionTemplate snapshot (migration 90) — same pattern as clinical.
+    const tplBySection = new Map<string, { id: string; formatJson: unknown }>()
+    if (args.docType) {
+      const docType = args.docType.replace(/-/g, '_')
+      const sectionKeys = args.sections.map(s => s.sectionId)
+      try {
+        const templates = await tx.sectionTemplate.findMany({
+          where:   { docType, sectionKey: { in: sectionKeys }, status: 'approved' },
+          orderBy: { version: 'desc' },
+          select:  { id: true, sectionKey: true, formatJson: true },
+        })
+        for (const t of templates) {
+          if (!tplBySection.has(t.sectionKey)) {
+            tplBySection.set(t.sectionKey, { id: t.id, formatJson: t.formatJson })
+          }
+        }
+      } catch { /* model absent on test mocks — fine */ }
+    }
     await tx.medContentSection.createMany({
-      data: args.sections.map(s => ({
-        medContentVersionId: version.id,
-        sectionId:           s.sectionId,
-        sectionNumber:       s.sectionNumber,
-        sectionTitle:        s.sectionTitle,
-        contentHtml:         s.contentHtml ?? '',
-        wordCount:           wordsIn(s.contentHtml ?? ''),
-      })),
+      data: args.sections.map(s => {
+        const tpl = tplBySection.get(s.sectionId)
+        return {
+          medContentVersionId: version.id,
+          sectionId:           s.sectionId,
+          sectionNumber:       s.sectionNumber,
+          sectionTitle:        s.sectionTitle,
+          contentHtml:         s.contentHtml ?? '',
+          wordCount:           wordsIn(s.contentHtml ?? ''),
+          sectionTemplateRecordId: tpl?.id ?? null,
+          templateFormatJson:      (tpl?.formatJson as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+        }
+      }),
     })
   }
   await tx.medContentItem.update({

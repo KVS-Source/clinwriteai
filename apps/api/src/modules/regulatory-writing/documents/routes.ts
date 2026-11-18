@@ -211,6 +211,7 @@ export const regulatorySubmissionDocumentRoutes: FastifyPluginAsync = async (app
         regulatoryDocumentId: doc.id,
         actorId:              request.user!.id,
         sections:             sectionPayload,
+        docType,                                                    // migration 90: SectionTemplate snapshot
       })
       return doc
     })

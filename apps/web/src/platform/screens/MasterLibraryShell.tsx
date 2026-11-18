@@ -44,6 +44,9 @@ export const MASTER_LIBRARY_TABS: Tab[] = [
   { slug: 'best-practices',        label: 'Best Practices'  },
   { slug: 'templates',             label: 'Templates'       },
   { slug: 'ai-prompts',            label: 'AI Prompts'      },
+  // Section Templates — per-section formatting JSON the AI sees on every
+  // draft + rewrite. Migration 90. PM-only writes.
+  { slug: 'section-templates',     label: 'Section Templates' },
   { slug: 'checklists',            label: 'Checklists'      },
   { slug: 'ich-frameworks',        label: 'ICH Frameworks'  },
   { slug: 'policies',              label: 'Doc Type Policies' },
@@ -95,6 +98,7 @@ function useTabCounts(isPm: boolean): Partial<Record<string, number>> {
   const medPolicies = useQuery({ queryKey: ['med-content-type-policies'], queryFn: () => platformApi.listMedContentTypePolicies(), ...pmOpts })
   const regPolicies = useQuery({ queryKey: ['regulatory-type-policies'], queryFn: () => platformApi.listRegulatoryTypePolicies(), ...pmOpts })
   const ideaPolicies = useQuery({ queryKey: ['ideation-type-policies'], queryFn: () => platformApi.listIdeationTypePolicies(), ...pmOpts })
+  const sectionTemplates = useQuery({ queryKey: ['section-templates-approved'], queryFn: () => platformApi.listSectionTemplates(), ...pmOpts })
   const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...pmOpts })
   const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...pmOpts })
   return {
@@ -104,6 +108,7 @@ function useTabCounts(isPm: boolean): Partial<Record<string, number>> {
       : undefined,
     templates:        countOf(templates.data),
     'ai-prompts':     countOf(policies.data?.policies),     // one SME prompt per doc-type policy
+    'section-templates': countOf(sectionTemplates.data?.templates),
     // One per template (deliverable + scope), not per version — matches the list, which shows each template's latest version.
     checklists:       Array.isArray(checklists.data) ? new Set(checklists.data.map(c => `${c.deliverableType}|${c.projectId ?? ''}`)).size : undefined,
     'ich-frameworks': countOf(frameworks.data),

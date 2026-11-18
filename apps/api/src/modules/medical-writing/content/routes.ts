@@ -262,10 +262,13 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
         },
       })
       // Phase M-C.2 — seed v0.1 + sections.
+      // docType threads through so SectionTemplate rows can be
+      // snapshotted at create time (migration 90).
       await initialiseMedContentVersion(tx, {
         contentItemId: item.id,
         actorId:       request.user!.id,
         sections:      sectionPayload,
+        docType:       dbType,
       })
       return item
     })

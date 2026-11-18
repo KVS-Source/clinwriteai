@@ -3,7 +3,11 @@
 // the /ai-suggest route + future section-context endpoints.
 
 import type { PrismaClient } from '@prisma/client'
-import { SECTION_GROUNDING_RULES as CLINICAL_SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
+import {
+  SECTION_GROUNDING_RULES as CLINICAL_SECTION_GROUNDING_RULES,
+  renderSectionTemplateNL,
+} from '../../platform/document-type-policy/resolve.js'
+import type { SectionTemplateFormat } from '../../platform/section-template/schema.js'
 
 export interface MedPolicyPrinciple {
   scope:    string
@@ -110,23 +114,28 @@ export function renderMedSectionRules(
 }
 
 export function renderMedPolicyPromptBlock(
-  policy:     MedPolicyRowForAi | null,
-  sectionKey: string | null = null,
+  policy:                MedPolicyRowForAi | null,
+  sectionKey:            string | null = null,
+  sectionTemplateFormat: SectionTemplateFormat | null = null,
 ): string {
-  if (!policy) return ''
+  if (!policy && !sectionTemplateFormat) return ''
   const parts: string[] = []
-  if (policy.smePrompt.trim().length > 0) {
+  if (policy && policy.smePrompt.trim().length > 0) {
     parts.push(`SME PROMPT (med-content policy v${policy.version})`, policy.smePrompt.trim())
   }
-  if (policy.complianceTrack) {
+  if (policy?.complianceTrack) {
     parts.push('', `COMPLIANCE TRACK: ${policy.complianceTrack}`)
   }
   // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
   const whole = "" // was: renderMedWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
-  if (sectionKey) {
+  if (policy && sectionKey) {
     const sec = renderMedSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
+  }
+  if (sectionKey && sectionTemplateFormat) {
+    const tpl = renderSectionTemplateNL(sectionTemplateFormat, sectionKey)
+    if (tpl) parts.push('', tpl)
   }
   return parts.join('\n')
 }

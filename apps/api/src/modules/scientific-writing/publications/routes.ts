@@ -239,10 +239,13 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
       })
 
       // Phase M-B.2 — seed v0.1 and its section_contents from the template.
+      // docType threads through so section rows can be snapshotted against
+      // the approved SectionTemplate for this (docType, sectionKey) pair.
       await initialisePublicationVersion(tx, {
         publicationId: pub.id,
         actorId:       request.user!.id,
         sections,
+        docType:       parsed.data.type,
       })
 
       // Materialise authors + exactly 4 ICMJE criterion rows per author.

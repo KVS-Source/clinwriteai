@@ -1111,6 +1111,298 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // --- GET /:documentId/ai-debug ------------------------------------------
+  //
+  // Verbose provenance dump for a single document — intended for support +
+  // debugging. Returns the policy stack pinned at create time, the AI
+  // prompt + best-practice records chosen, the attached sources with the
+  // same "would-drop" filter the worker applies (non-PDF, exceeds cap,
+  // blob missing), the current section rows + their aiConfidence + flags,
+  // the drafting-pass log, and the last 50 ai-related audit events. The
+  // client renders this as JSON with a Copy button so authors + support
+  // can paste it into a bug report.
+  //
+  // Same access gate as /ai-draft-status: canSeeDocument.
+  const MAX_SOURCE_BYTES_DEBUG = 20 * 1024 * 1024  // matches ai-initial-draft.ts
+
+  app.get('/:documentId/ai-debug', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true, type: true, title: true, status: true,
+        projectId: true, assigneeId: true, createdBy: true,
+        templateId: true,
+        currentVersionId: true,
+        aiDraftState: true, aiInstructions: true,
+        aiConfidenceOverall: true, aiLastPassAt: true, aiLastPassNumber: true,
+        policyVersionAtCreate: true,
+        aiPromptRecordId: true,
+        bestPracticeRecordId: true,
+        createdAt: true, updatedAt: true,
+      },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    // Policy stack — resolve the pinned trio + a snapshot of each row.
+    const typePolicyRow = doc.policyVersionAtCreate !== null
+      ? await app.prisma.documentTypePolicy.findFirst({
+          where:  { docType: doc.type.replace(/-/g, '_'), version: doc.policyVersionAtCreate },
+        })
+      : await app.prisma.documentTypePolicy.findFirst({
+          where:  { docType: doc.type.replace(/-/g, '_'), isCurrent: true, retiredAt: null },
+        })
+
+    const aiPromptRow = doc.aiPromptRecordId
+      ? await app.prisma.aiPromptRecord.findUnique({ where: { id: doc.aiPromptRecordId } })
+      : null
+
+    const bestPracticeRow = doc.bestPracticeRecordId
+      ? await app.prisma.bestPracticeRecord.findUnique({ where: { id: doc.bestPracticeRecordId } })
+      : null
+
+    const templateRow = doc.templateId
+      ? await app.prisma.documentTemplate.findUnique({
+          where: { id: doc.templateId },
+          select: { id: true, type: true, label: true, sections: true },
+        }).catch(() => null)
+      : null
+
+    // Attached sources — mirror the worker's would-drop filter so support
+    // can see exactly why a source was ignored.
+    const sourceLinks = await app.prisma.documentSource.findMany({
+      where: { documentId },
+      select: { uploadId: true, linkedBy: true, createdAt: true },
+    })
+    const uploadRows = sourceLinks.length > 0
+      ? await app.prisma.documentUpload.findMany({
+          where:  { id: { in: sourceLinks.map(l => l.uploadId) } },
+          select: {
+            id: true, fileName: true, contentType: true, fileSizeBytes: true,
+            sourceCategory: true, status: true, virusScanStatus: true,
+            title: true, blobKey: true, createdAt: true,
+          },
+        })
+      : []
+    const uploadsById = new Map(uploadRows.map(u => [u.id, u]))
+    const sources = sourceLinks.map(link => {
+      const u = uploadsById.get(link.uploadId)
+      if (!u) {
+        return {
+          uploadId:    link.uploadId,
+          linkedAt:    link.createdAt.toISOString(),
+          droppedBy:   'worker' as const,
+          dropReason:  'upload_not_found' as const,
+          dropDetail:  'DocumentSource row references a missing DocumentUpload.',
+        }
+      }
+      const isPdf       = (u.contentType ?? '').toLowerCase() === 'application/pdf'
+      const exceedsCap  = u.fileSizeBytes > MAX_SOURCE_BYTES_DEBUG
+      const notConfirmed = u.status !== 'confirmed'
+      const virusFailed  = u.virusScanStatus === 'failed'
+
+      let dropReason: string | null = null
+      let dropDetail: string | null = null
+      if (notConfirmed) {
+        dropReason = 'status_not_confirmed'
+        dropDetail = `Upload status is '${u.status}' (worker only reads status='confirmed').`
+      } else if (virusFailed) {
+        dropReason = 'virus_scan_failed'
+        dropDetail = `Virus scan returned '${u.virusScanStatus}'.`
+      } else if (!isPdf) {
+        dropReason = 'not_pdf'
+        dropDetail = `Worker only reads application/pdf (this upload is '${u.contentType}').`
+      } else if (exceedsCap) {
+        dropReason = 'exceeds_cap'
+        dropDetail = `File is ${(u.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB; cap is ${MAX_SOURCE_BYTES_DEBUG / (1024 * 1024)} MB.`
+      }
+      return {
+        uploadId:        u.id,
+        title:           u.title ?? null,
+        fileName:        u.fileName,
+        contentType:     u.contentType,
+        fileSizeBytes:   u.fileSizeBytes,
+        sourceCategory:  u.sourceCategory,
+        status:          u.status,
+        virusScanStatus: u.virusScanStatus,
+        blobKey:         u.blobKey,
+        linkedBy:        link.linkedBy,
+        linkedAt:        link.createdAt.toISOString(),
+        willDrop:        dropReason !== null,
+        dropReason,
+        dropDetail,
+      }
+    })
+
+    const pdfSourceCount         = sources.filter(s => !s.willDrop).length
+    const droppedSourceCount     = sources.filter(s => s.willDrop).length
+    const nonPdfSourceCount      = sources.filter(s => s.dropReason === 'not_pdf').length
+
+    // Section rows with confidence + flags (same shape the writer screen
+    // renders).
+    const sectionRows = doc.currentVersionId
+      ? await app.prisma.sectionContent.findMany({
+          where:  { documentVersionId: doc.currentVersionId },
+          select: {
+            sectionId: true, sectionNumber: true, sectionTitle: true,
+            wordCount: true, aiConfidence: true, aiFlags: true,
+            lastEditedBy: true, lastEditedAt: true,
+            aiSpanCount: true, humanSpanCount: true,
+          },
+        })
+      : []
+    sectionRows.sort((a, b) => a.sectionId.localeCompare(b.sectionId, undefined, { numeric: true }))
+
+    // Drafting passes (full log for the chain).
+    const passRows = await app.prisma.aiDraftingPass.findMany({
+      where:   { documentId },
+      orderBy: { passNumber: 'asc' },
+    })
+
+    // Last 50 ai-related audit events for this document. audit_events
+    // lives in raw SQL (not Prisma) per ADR 0002, so we read directly.
+    const auditRows = await app.prisma.$queryRawUnsafe<Array<{
+      id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown
+    }>>(
+      `SELECT id, action, actor_id, timestamp, details
+         FROM audit_events
+        WHERE entity_type = 'document'
+          AND entity_id   = $1
+          AND action      IN (
+            'ai_initial_draft_enqueued',
+            'ai_initial_draft_skipped',
+            'ai_initial_draft_completed',
+            'ai_validation_pass_completed',
+            'ai_validation_pass_skipped',
+            'document_ai_suggestion_requested'
+          )
+        ORDER BY timestamp DESC
+        LIMIT 50`,
+      documentId,
+    ).catch(() => [])
+
+    const sectionRules = (typePolicyRow?.sectionRules ?? aiPromptRow?.sectionRules ?? {}) as Record<string, unknown>
+    const bpDigest     = ((bestPracticeRow?.digest) ?? typePolicyRow?.bestPracticeDigest ?? {}) as {
+      principles?: Array<{ scope?: string; severity?: string; text?: string }>
+    }
+
+    const templateSections = Array.isArray(templateRow?.sections)
+      ? (templateRow!.sections as Array<Record<string, unknown>>).length
+      : 0
+
+    return {
+      snapshotTakenAt: new Date().toISOString(),
+      aiStubMode:      stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
+
+      document: {
+        id:                   doc.id,
+        type:                 doc.type,
+        title:                doc.title,
+        status:               doc.status,
+        projectId:            doc.projectId,
+        assigneeId:           doc.assigneeId,
+        createdBy:            doc.createdBy,
+        templateId:           doc.templateId,
+        currentVersionId:     doc.currentVersionId,
+        aiDraftState:         doc.aiDraftState,
+        aiInstructions:       doc.aiInstructions,
+        aiConfidenceOverall:  doc.aiConfidenceOverall,
+        aiLastPassNumber:     doc.aiLastPassNumber,
+        aiLastPassAt:         doc.aiLastPassAt?.toISOString() ?? null,
+        createdAt:            doc.createdAt.toISOString(),
+        updatedAt:            doc.updatedAt.toISOString(),
+      },
+
+      policy: {
+        pinnedVersionAtCreate: doc.policyVersionAtCreate,
+        current: typePolicyRow ? {
+          id:                 typePolicyRow.id,
+          docType:            typePolicyRow.docType,
+          version:            typePolicyRow.version,
+          isCurrent:          typePolicyRow.isCurrent,
+          templateId:         typePolicyRow.templateId,
+          checklistTemplateId: typePolicyRow.checklistTemplateId,
+          guidelineKey:       (typePolicyRow as { guidelineKey?: string | null }).guidelineKey ?? null,
+          smePromptChars:     typePolicyRow.smePrompt.length,
+          sectionRuleGroupCount: Object.keys(sectionRules).length,
+          effectiveDate:      typePolicyRow.effectiveDate.toISOString(),
+          retiredAt:          typePolicyRow.retiredAt?.toISOString() ?? null,
+        } : null,
+      },
+
+      aiPromptRecord: aiPromptRow ? {
+        id:                 aiPromptRow.id,
+        docType:            aiPromptRow.docType,
+        version:            aiPromptRow.version,
+        status:             aiPromptRow.status,
+        smePromptChars:     aiPromptRow.smePrompt.length,
+        sectionRuleGroupCount: Object.keys((aiPromptRow.sectionRules ?? {}) as Record<string, unknown>).length,
+        approvedAt:         aiPromptRow.approvedAt?.toISOString() ?? null,
+        effectiveDate:      aiPromptRow.effectiveDate?.toISOString() ?? null,
+      } : null,
+
+      bestPracticeRecord: bestPracticeRow ? {
+        id:              bestPracticeRow.id,
+        docType:         bestPracticeRow.docType,
+        version:         bestPracticeRow.version,
+        status:          bestPracticeRow.status,
+        principleCount:  bpDigest.principles?.length ?? 0,
+        sourcePdfId:     bestPracticeRow.sourcePdfId,
+        distilledAt:     bestPracticeRow.distilledAt?.toISOString() ?? null,
+        distilledModel:  bestPracticeRow.distilledModel,
+        approvedAt:      bestPracticeRow.approvedAt?.toISOString() ?? null,
+      } : null,
+
+      template: templateRow ? {
+        id:            templateRow.id,
+        type:          templateRow.type,
+        label:         templateRow.label,
+        sectionCount:  templateSections,
+      } : null,
+
+      sources: {
+        totalLinked:          sources.length,
+        usableByDrafter:      pdfSourceCount,
+        droppedByDrafter:     droppedSourceCount,
+        nonPdfDropped:        nonPdfSourceCount,
+        items:                sources,
+      },
+
+      sections: sectionRows.map(s => ({
+        sectionId:      s.sectionId,
+        sectionNumber:  s.sectionNumber,
+        sectionTitle:   s.sectionTitle,
+        wordCount:      s.wordCount,
+        aiConfidence:   s.aiConfidence,
+        aiFlags:        s.aiFlags,
+        aiSpanCount:    s.aiSpanCount,
+        humanSpanCount: s.humanSpanCount,
+        lastEditedBy:   s.lastEditedBy,
+        lastEditedAt:   s.lastEditedAt?.toISOString() ?? null,
+      })),
+
+      draftingPasses: passRows.map(p => ({
+        passNumber:      p.passNumber,
+        startedAt:       p.startedAt.toISOString(),
+        finishedAt:      p.finishedAt?.toISOString() ?? null,
+        sectionsFlagged: p.sectionsFlagged,
+        confidenceAfter: p.confidenceAfter,
+        modelUsed:       p.modelUsed,
+        flagsJson:       p.flagsJson,
+      })),
+
+      auditTail: auditRows.map((a: { id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown }) => ({
+        auditId:   String(a.id),
+        timestamp: a.timestamp.toISOString(),
+        action:    a.action,
+        actorId:   a.actor_id,
+        details:   a.details,
+      })),
+    }
+  })
+
   app.post('/:documentId/restore', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = restoreSchema.safeParse(request.body)

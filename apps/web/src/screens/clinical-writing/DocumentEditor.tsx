@@ -30,6 +30,7 @@ import { SectionNavigator } from './SectionNavigator'
 import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
 import { AiConfidenceChip } from '../../components/ai-drafter/AiConfidenceChip'
 import { AiDraftingProgressToast } from '../../components/ai-drafter/AiDraftingProgressToast'
+import { AiDebugPanel } from '../../components/ai-drafter/AiDebugPanel'
 import { PresenceStack, avatarColor } from './PresenceStack'
 import { MyRaciRole, documentRaciKey } from './MyRaciRole'
 import { EditorToolbar }    from './EditorToolbar'
@@ -109,6 +110,7 @@ export function DocumentEditor() {
   // once state is complete / failed. Feeds the header chip, the section
   // badges, and the floating progress toast. See useAiDraftStatus.
   const aiDraft = useAiDraftStatus(documentId)
+  const [aiDebugOpen, setAiDebugOpen] = useState(false)
   const aiState = aiDraft.data?.state ?? null
   const aiSectionsByKey = useMemo(() => {
     const map = new Map<string, { confidence: number | null; flags: string[] }>()
@@ -744,6 +746,19 @@ export function DocumentEditor() {
               summary={aiDraft.summary}
               onClick={() => setActivePanel('ai-drafting-report')}
             />
+            {/* AI debug panel — exposes the full provenance (policy pins,
+                AI prompt record, BP record, sources + would-drop reasons,
+                per-section confidence, audit tail) with a Copy button so
+                authors can paste it into a bug report. */}
+            <button
+              type="button"
+              onClick={() => setAiDebugOpen(true)}
+              className="flex-none rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600 hover:bg-slate-50"
+              data-action="open-ai-debug"
+              title="Open the AI provenance panel for this document (policy + sources + confidence + audit)."
+            >
+              AI debug
+            </button>
             <div ref={versionMenuRef} className="relative flex-none" data-version-dropdown>
               <button
                 type="button"
@@ -1492,6 +1507,16 @@ export function DocumentEditor() {
           itself when the chain settles (complete / failed) or when the
           user dismisses. See AiDraftingProgressToast. */}
       <AiDraftingProgressToast state={aiState} summary={aiDraft.summary} />
+
+      {/* Verbose AI provenance panel — opens from the header's AI debug
+          button. Read-only JSON dump with a Copy button for support. */}
+      {documentId && (
+        <AiDebugPanel
+          documentId={documentId}
+          open={aiDebugOpen}
+          onClose={() => setAiDebugOpen(false)}
+        />
+      )}
     </div>
   )
 }

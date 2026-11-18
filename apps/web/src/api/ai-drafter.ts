@@ -51,4 +51,10 @@ export interface AiDraftStatusResponse {
 export const aiDrafterApi = {
   status: (documentId: string) =>
     api.get<AiDraftStatusResponse>(`/documents/${encodeURIComponent(documentId)}/ai-draft-status`),
+  // Verbose provenance dump for support + debugging — returns the policy
+  // stack, template, sources (with worker-drop reasons), section state +
+  // confidence, drafting passes, and the AI audit tail. The client
+  // renders this as JSON with a Copy button.
+  debug: (documentId: string) =>
+    api.get<Record<string, unknown>>(`/documents/${encodeURIComponent(documentId)}/ai-debug`),
 }

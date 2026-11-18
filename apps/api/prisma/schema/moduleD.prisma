@@ -49,6 +49,7 @@ model RegulatorySubmission {
   haCorrespondence          HaCorrespondence[]
   aggregateSafetyReports    AggregateSafetyReport[]
   oddAssessments            OddAssessment[]
+  documents                 RegulatoryDocument[]
 
   @@map("regulatory_submissions")
   @@index([projectId])
@@ -472,4 +473,108 @@ model RegulatoryDocumentChecklistTemplate {
   @@map("regulatory_document_checklist_templates")
   @@unique([docType, version])
   @@index([docType, isCurrent])
+}
+
+// ===== Phase M-D.2 — primary authoring entity =============================
+// RegulatoryDocument is the long-form narrative document authored inside
+// a submission. The eCTD node tree + canonical entries + CMC report +
+// ODD remain untouched — they're the structural index. This is the
+// writable surface: policy + versioning + sections + section locks.
+
+model RegulatoryDocument {
+  id                              String   @id @default(uuid())
+  submissionId                    String
+  projectId                       String
+  docType                         String                                          // ctd_m2_3_qos | ctd_m2_4_nonclin_overview | ctd_m2_5_clinical_overview | ctd_m2_6_nonclin_summary | ctd_m2_7_clinical_summary | cover_letter | ha_response_narrative | risk_benefit_statement
+  title                           String
+  status                          String   @default("drafting")                   // drafting | in_review | approved | superseded | archived
+  stage                           Int      @default(1)                            // 1..6
+  regulatoryTrack                 String?                                         // ind | nda | maa | bla | variation | other
+  version                         String   @default("v0.1")
+
+  regTypePolicyVersionAtCreate    Int?      @map("reg_type_policy_version_at_create")
+  regAiPromptRecordId             String?   @map("reg_ai_prompt_record_id")
+  regAiPromptVersionAtCreate      Int?      @map("reg_ai_prompt_version_at_create")
+  regBestPracticeRecordId         String?   @map("reg_best_practice_record_id")
+  regBestPracticeVersionAtCreate  Int?      @map("reg_best_practice_version_at_create")
+
+  aiDraftState                    String    @default("idle") @map("ai_draft_state_d")   // idle | drafting | validating | complete | failed
+  aiInstructions                  String?   @map("ai_instructions_d")
+
+  ownerId                         String
+  createdBy                       String
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
+  archivedAt                      DateTime?
+  archiveReason                   String?
+
+  currentVersionId                String?   @unique @map("current_version_id")
+
+  submission                      RegulatorySubmission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  versions                        RegulatoryDocumentVersion[] @relation("RegulatoryDocumentVersions")
+  currentVersion                  RegulatoryDocumentVersion?  @relation("RegulatoryDocumentCurrentVersion", fields: [currentVersionId], references: [id])
+
+  @@map("regulatory_documents")
+  @@index([submissionId])
+  @@index([projectId])
+  @@index([docType])
+  @@index([status])
+  @@index([regAiPromptRecordId])
+  @@index([regBestPracticeRecordId])
+}
+
+model RegulatoryDocumentVersion {
+  id                    String   @id @default(uuid())
+  regulatoryDocumentId  String
+  versionNumber         String
+  label                 String
+  contentHash           String
+  isCurrent             Boolean  @default(true)
+  createdBy             String
+  createdAt             DateTime @default(now())
+  restoreSource         Json?
+
+  document              RegulatoryDocument             @relation("RegulatoryDocumentVersions", fields: [regulatoryDocumentId], references: [id], onDelete: Cascade)
+  sections              RegulatoryDocumentSection[]
+  currentOf             RegulatoryDocument?            @relation("RegulatoryDocumentCurrentVersion")
+
+  @@map("regulatory_document_versions")
+  @@unique([regulatoryDocumentId, versionNumber])
+  @@index([regulatoryDocumentId])
+}
+
+model RegulatoryDocumentSection {
+  id                             String    @id @default(uuid())
+  regulatoryDocumentVersionId    String
+  sectionId                      String
+  sectionNumber                  String
+  sectionTitle                   String
+  contentHtml                    String    @default("")
+  wordCount                      Int       @default(0)
+  aiSpanCount                    Int       @default(0)
+  humanSpanCount                 Int       @default(0)
+  lastEditedBy                   String?
+  lastEditedAt                   DateTime?
+  aiConfidence                   Int?       @map("ai_confidence")
+  aiFlags                        String[]   @default([]) @map("ai_flags")
+
+  version                        RegulatoryDocumentVersion @relation(fields: [regulatoryDocumentVersionId], references: [id], onDelete: Cascade)
+
+  @@map("regulatory_document_sections")
+  @@unique([regulatoryDocumentVersionId, sectionId])
+  @@index([regulatoryDocumentVersionId])
+}
+
+model RegulatoryDocumentSectionLock {
+  id                     String    @id @default(uuid())
+  regulatoryDocumentId   String
+  sectionId              String
+  userId                 String
+  acquiredAt             DateTime  @default(now())
+  lastHeartbeatAt        DateTime  @default(now())
+
+  @@map("regulatory_document_section_locks")
+  @@unique([regulatoryDocumentId, sectionId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
 }

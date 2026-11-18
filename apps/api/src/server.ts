@@ -515,6 +515,18 @@ async function buildServer() {
   const { oddRoutes } = await import('./modules/regulatory-writing/odd/routes.js')
   await app.register(oddRoutes)
 
+  // Phase M-D.2 — primary writable regulatory-document entity + versioning
+  // + sections + section locks. Lives under /regulatory-documents (not
+  // /reg-submissions/:id/documents on the list route is already scoped).
+  const { regulatorySubmissionDocumentRoutes, regulatoryDocumentRoutes } =
+    await import('./modules/regulatory-writing/documents/routes.js')
+  await app.register(regulatorySubmissionDocumentRoutes, { prefix: '/reg-submissions' })
+  await app.register(regulatoryDocumentRoutes, { prefix: '/regulatory-documents' })
+
+  const { regulatoryDocumentSectionRoutes } =
+    await import('./modules/regulatory-writing/documents/section-routes.js')
+  await app.register(regulatoryDocumentSectionRoutes, { prefix: '/regulatory-documents' })
+
   // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
   // etc.) and externally-blocked endpoints (gateway, super-reviewers,
   // library-cards) with deterministic placeholder shapes so the UI's

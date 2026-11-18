@@ -1843,17 +1843,6 @@ export interface MasterLibraryAuditPage {
   offset:  number
 }
 
-/** GET /library/:id/audit — the details panel's Audit trail. */
-export interface MasterLibraryAuditTrail {
-  /** This version's Master Library activity: pushed / uploaded, new version, withdrawn, opened, shared,
-   *  invitation opened, locked out. Paged. */
-  library:            MasterLibraryAuditPage
-  /** "How it got here": key Clinical Writing milestones up to this version's push (empty for an upload). */
-  milestones:         MasterLibraryAuditEntry[]
-  /** The caller may read the source document's whole Clinical Writing trail (GET /library/:id/audit/full). */
-  fullTrailAvailable: boolean
-}
-
 export interface BestPractice {
   id:                 string
   module:             ModuleKey

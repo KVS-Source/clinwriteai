@@ -25,7 +25,12 @@ import { handleDistillPublicationBestPractice } from './jobs/pub-distill-best-pr
 import { handleDistillMedContentBestPractice } from './jobs/med-content-distill-best-practice.js'
 import { handleAiInitialDraftMedContent }      from './jobs/med-content-ai-initial-draft.js'
 import { handleAiValidationPassMedContent }    from './jobs/med-content-ai-validation-pass.js'
-import { handleDistillRegulatoryBestPractice } from './jobs/regulatory-distill-best-practice.js'
+import { handleDistillRegulatoryBestPractice }      from './jobs/regulatory-distill-best-practice.js'
+import { handleAiInitialDraftRegulatoryDocument }   from './jobs/regulatory-ai-initial-draft.js'
+import { handleAiValidationPassRegulatoryDocument } from './jobs/regulatory-ai-validation-pass.js'
+import { handleDistillIdeationBestPractice }        from './jobs/ideation-distill-best-practice.js'
+import { handleAiInitialDraftIdeationArtefact }     from './jobs/ideation-ai-initial-draft.js'
+import { handleAiValidationPassIdeationArtefact }   from './jobs/ideation-ai-validation-pass.js'
 import { handleDistillBestPractice } from './jobs/distill-best-practice.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
@@ -130,6 +135,14 @@ const handlers = {
   'med_content.ai_validation_pass':     handleAiValidationPassMedContent,
   // Module D — same BP distiller scoped to regulatory doctypes.
   'regulatory.distill_best_practice':   handleDistillRegulatoryBestPractice,
+  // Module D — initial draft + 85% validation loop (Phase M-D.3).
+  'regulatory.ai_initial_draft':        handleAiInitialDraftRegulatoryDocument,
+  'regulatory.ai_validation_pass':      handleAiValidationPassRegulatoryDocument,
+  // Module E — same BP distiller scoped to ideation doctypes (Phase M-E.1).
+  'ideation.distill_best_practice':     handleDistillIdeationBestPractice,
+  // Module E — initial draft + 85% validation loop (Phase M-E.3).
+  'ideation.ai_initial_draft':          handleAiInitialDraftIdeationArtefact,
+  'ideation.ai_validation_pass':        handleAiValidationPassIdeationArtefact,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
   // Platform — one-off Best-Practice PDF → structured digest. Enqueued
@@ -179,6 +192,11 @@ const concurrency: Record<JobName, number> = {
   'med_content.ai_initial_draft':       2,
   'med_content.ai_validation_pass':     1,
   'regulatory.distill_best_practice':   1,
+  'regulatory.ai_initial_draft':        2,
+  'regulatory.ai_validation_pass':      1,
+  'ideation.distill_best_practice':     1,
+  'ideation.ai_initial_draft':          2,
+  'ideation.ai_validation_pass':        1,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
   // One AI call per distillation; serial to keep provider pressure predictable.

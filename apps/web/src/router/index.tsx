@@ -59,6 +59,8 @@ import { GatewaySubmission }             from '../screens/regulatory-writing/Gat
 import { HAResponseDrafting }            from '../screens/regulatory-writing/HAResponseDrafting'
 import { RegulatoryIntelligence }        from '../screens/regulatory-writing/RegulatoryIntelligence'
 import { FinalOutputPortfolio }          from '../screens/regulatory-writing/FinalOutputPortfolio'
+import { RegulatoryDocumentLiveEditor }  from '../screens/regulatory-writing/RegulatoryDocumentLiveEditor'
+import { RegulatoryDocuments }          from '../screens/regulatory-writing/RegulatoryDocuments'
 import { IdeationPublishingHome }        from '../screens/ideation-publishing/IdeationPublishingHome'
 import { ArtefactUploadSourceCheck }    from '../screens/ideation-publishing/ArtefactUploadSourceCheck'
 import { ContentCardTagging }           from '../screens/ideation-publishing/ContentCardTagging'
@@ -71,6 +73,8 @@ import { ContentCalendar }              from '../screens/ideation-publishing/Con
 import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
 import { FinalOutputPublishingRecord }  from '../screens/ideation-publishing/FinalOutputPublishingRecord'
 import { StandardsMetadataDOI }         from '../screens/ideation-publishing/StandardsMetadataDOI'
+import { IdeationArtefactLiveEditor }   from '../screens/ideation-publishing/IdeationArtefactLiveEditor'
+import { NewIdeationArtefactsList }    from '../screens/ideation-publishing/NewIdeationArtefact'
 import { AdminPanel }                   from '../platform/screens/AdminPanel'
 import { SuperAdminPanel }              from '../platform/screens/SuperAdminPanel'
 import { UserManagement }               from '../platform/screens/UserManagement'
@@ -99,6 +103,7 @@ import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { PublicationPolicies }          from '../platform/screens/PublicationPolicies'
 import { MedContentPolicies }           from '../platform/screens/MedContentPolicies'
 import { RegulatoryPolicies }           from '../platform/screens/RegulatoryPolicies'
+import { IdeationPolicies }             from '../platform/screens/IdeationPolicies'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
 import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
 import { AdminGuard, NonAdminGuard, PmGuard, SuperAdminGuard }  from '../platform/components/guards'
@@ -186,6 +191,7 @@ export const router = createBrowserRouter([
           { path: 'publication-policies', element: <PublicationPolicies /> },
           { path: 'med-content-policies', element: <MedContentPolicies /> },
           { path: 'regulatory-policies',  element: <RegulatoryPolicies /> },
+          { path: 'ideation-policies',    element: <IdeationPolicies /> },
         ],
       },
       // Legacy admin URLs → Master Library equivalents. Keep around
@@ -308,6 +314,9 @@ export const router = createBrowserRouter([
                   { path: 'gateway',               element: <GatewaySubmission /> },
                   { path: 'ha-response',           element: <HAResponseDrafting /> },
                   { path: 'final',                 element: <FinalOutputPortfolio /> },
+                  // Phase M-D.2+ — long-form regulatory document authoring.
+                  { path: 'documents',                                   element: <RegulatoryDocuments /> },
+                  { path: 'documents/:regulatoryDocumentId/live-editor', element: <RegulatoryDocumentLiveEditor /> },
                 ],
               },
             ],
@@ -329,6 +338,9 @@ export const router = createBrowserRouter([
                   { path: 'ma-approval',  element: <MedicalAffairsApproval /> },
                   { path: 'final',        element: <FinalOutputPublishingRecord /> },
                   { path: 'standards',    element: <StandardsMetadataDOI /> },
+                  // Phase M-E.2+ — long-form ideation artefact authoring.
+                  { path: 'artefacts',    element: <NewIdeationArtefactsList /> },
+                  { path: 'artefacts/:ideationArtefactId/live-editor', element: <IdeationArtefactLiveEditor /> },
                 ],
               },
             ],

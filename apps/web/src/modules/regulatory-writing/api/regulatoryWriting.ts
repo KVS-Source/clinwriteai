@@ -217,4 +217,173 @@ export const regulatoryWritingApi = {
     api.get<RegulatorySubmission[]>(
       `/projects/${projectId}/reg-submissions/portfolio${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`,
     ),
+
+  // --- Regulatory documents (Phase M-D.2+) --------------------------------
+  listDocuments: (submissionId: string) =>
+    api.get<RegulatoryDocumentRow[]>(`/reg-submissions/${submissionId}/documents`),
+  createDocument: (submissionId: string, body: CreateRegulatoryDocumentBody) =>
+    api.post<RegulatoryDocumentRow>(`/reg-submissions/${submissionId}/documents`, body),
+  getDocument: (id: string) =>
+    api.get<RegulatoryDocumentRow>(`/regulatory-documents/${id}`),
+
+  getDocumentSections: (id: string) =>
+    api.get<{ regulatoryDocumentId: string; sections: RegulatoryDocumentSectionRow[] }>(
+      `/regulatory-documents/${id}/sections`,
+    ),
+  saveDocumentSection: (id: string, sectionId: string, contentHtml: string) =>
+    api.patch<{ id: string; sectionId: string; contentHtml: string; wordCount: number; lastEditedAt: string | null }>(
+      `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}`,
+      { contentHtml },
+    ),
+  acquireDocumentSectionLock: (id: string, sectionId: string) =>
+    api.post<RegDocSectionLockResult>(
+      `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}/lock`, {},
+    ),
+  releaseDocumentSectionLock: (id: string, sectionId: string) =>
+    api.delete<{ released: boolean }>(
+      `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}/lock`,
+    ),
+  listDocumentSectionLocks: (id: string) =>
+    api.get<{ regulatoryDocumentId: string; staleSeconds: number; locks: Array<{ sectionId: string; holder: RegDocSectionLockHolder }> }>(
+      `/regulatory-documents/${id}/locks`,
+    ),
+  listDocumentVersions: (id: string) =>
+    api.get<{
+      regulatoryDocumentId: string
+      currentVersionId:     string | null
+      versions:             Array<{ id: string; versionNumber: string; label: string; isCurrent: boolean; createdBy: string; createdAt: string }>
+    }>(`/regulatory-documents/${id}/versions`),
+  bumpDocumentVersion: (id: string, body: { label: string; newVersionNumber: string; note?: string }) =>
+    api.post<{ id: string; versionNumber: string; label: string; createdAt: string }>(
+      `/regulatory-documents/${id}/versions/bump`, body,
+    ),
+
+  startDocumentAiInitialDraft: (id: string, body: { aiInstructions?: string } = {}) =>
+    api.post<{ jobId: string; regulatoryDocumentId: string; state: 'enqueued' }>(
+      `/regulatory-documents/${id}/ai-initial-draft`, body,
+    ),
+
+  aiSuggestDocumentSection: (
+    id: string,
+    sectionId: string,
+    body: {
+      intent:        'draft_from_source' | 'tighten' | 'explain' | 'custom' | 'edit'
+      customPrompt?: string
+      currentContent?: string
+      selectionText?: string
+      scope?:        'section' | 'document' | 'source'
+      attachedSourceIds?: string[]
+      model?:        string
+    },
+  ) =>
+    api.post<{ responseText: string; model: string; recordId?: string; scope?: string }>(
+      `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
+      body,
+    ),
+
+  // --- Section comments (Phase M-D.5) ------------------------------------
+  listDocumentComments: (id: string, sectionId?: string) =>
+    api.get<{ regulatoryDocumentId: string; comments: RegDocCommentRow[] }>(
+      `/regulatory-documents/${id}/comments${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`,
+    ),
+  createDocumentComment: (
+    id: string,
+    sectionId: string,
+    body: {
+      text:              string
+      severity?:         'info' | 'warning' | 'blocking'
+      parentCommentId?:  string
+      mentionedUserIds?: string[]
+    },
+  ) =>
+    api.post<RegDocCommentRow>(
+      `/regulatory-documents/${id}/sections/${encodeURIComponent(sectionId)}/comments`,
+      body,
+    ),
+  resolveDocumentComment: (id: string, commentId: string, body: { resolutionNote?: string } = {}) =>
+    api.post<RegDocCommentRow>(
+      `/regulatory-documents/${id}/comments/${commentId}/resolve`,
+      body,
+    ),
+}
+
+// --- Regulatory document shapes (Phase M-D.2/3/4) -----------------------
+
+export interface CreateRegulatoryDocumentBody {
+  docType:         'ctd_m2_3_qos' | 'ctd_m2_4_nonclin_overview' | 'ctd_m2_5_clinical_overview'
+                 | 'ctd_m2_6_nonclin_summary' | 'ctd_m2_7_clinical_summary'
+                 | 'cover_letter' | 'ha_response_narrative' | 'risk_benefit_statement'
+  title:           string
+  regulatoryTrack?: 'ind' | 'nda' | 'maa' | 'bla' | 'variation' | 'other'
+  ownerId?:        string
+  aiInstructions?: string
+}
+
+export interface RegulatoryDocumentRow {
+  id:                              string
+  submissionId:                    string
+  projectId:                       string
+  docType:                         string
+  title:                           string
+  status:                          string
+  stage:                           number
+  regulatoryTrack:                 string | null
+  version:                         string
+  regTypePolicyVersionAtCreate:    number | null
+  regAiPromptRecordId:             string | null
+  regAiPromptVersionAtCreate:      number | null
+  regBestPracticeRecordId:         string | null
+  regBestPracticeVersionAtCreate:  number | null
+  aiDraftState:                    'idle' | 'drafting' | 'validating' | 'complete' | 'failed'
+  aiInstructions:                  string | null
+  ownerId:                         string
+  createdBy:                       string
+  createdAt:                       string
+  updatedAt:                       string
+  archivedAt:                      string | null
+  archiveReason:                   string | null
+  currentVersionId:                string | null
+}
+
+export interface RegulatoryDocumentSectionRow {
+  id:            string
+  sectionId:     string
+  sectionNumber: string
+  sectionTitle:  string
+  contentHtml:   string
+  wordCount:     number
+  aiConfidence:  number | null
+  aiFlags:       string[]
+  lastEditedBy:  string | null
+  lastEditedAt:  string | null
+}
+
+export interface RegDocSectionLockHolder {
+  userId:           string
+  acquiredAt:       string
+  lastHeartbeatAt:  string
+  expiresInSeconds: number
+}
+
+export interface RegDocSectionLockResult {
+  outcome:      'acquired' | 'extended' | 'stolen' | 'conflict'
+  holder:       RegDocSectionLockHolder
+  staleSeconds: number
+}
+
+export interface RegDocCommentRow {
+  id:                   string
+  regulatoryDocumentId: string
+  sectionId:            string
+  authorId:             string
+  authorName:           string
+  text:                 string
+  severity:             'info' | 'warning' | 'blocking'
+  status:               'open' | 'resolved'
+  resolvedBy:           string | null
+  resolvedAt:           string | null
+  resolutionNote:       string | null
+  parentCommentId:      string | null
+  mentionedUserIds:     string[]
+  createdAt:            string
 }

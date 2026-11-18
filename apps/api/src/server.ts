@@ -326,6 +326,20 @@ async function buildServer() {
   await app.register(regulatoryAiPromptRoutes,      { prefix: '/regulatory-ai-prompts' })
   await app.register(regulatoryBestPracticeRoutes,  { prefix: '/regulatory-best-practice-records' })
 
+  // Ideation Policy admin (Phase M-E.1, migration 87) — mirror of the
+  // regulatory policy stack scoped to ideation / KOL engagement
+  // doctypes (kol_engagement_brief, patient_story, hcp_insight_report,
+  // medical_affairs_narrative, disease_awareness_brief, press_release).
+  // Writes PM-only + Module E gated.
+  const {
+    ideationTypePolicyRoutes,
+    ideationAiPromptRoutes,
+    ideationBestPracticeRoutes,
+  } = await import('./modules/ideation/policy/routes.js')
+  await app.register(ideationTypePolicyRoutes,   { prefix: '/ideation-type-policies' })
+  await app.register(ideationAiPromptRoutes,     { prefix: '/ideation-ai-prompts' })
+  await app.register(ideationBestPracticeRoutes, { prefix: '/ideation-best-practice-records' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')
@@ -515,6 +529,28 @@ async function buildServer() {
   const { oddRoutes } = await import('./modules/regulatory-writing/odd/routes.js')
   await app.register(oddRoutes)
 
+  // Phase M-D.2 — primary writable regulatory-document entity + versioning
+  // + sections + section locks. Lives under /regulatory-documents (not
+  // /reg-submissions/:id/documents on the list route is already scoped).
+  const { regulatorySubmissionDocumentRoutes, regulatoryDocumentRoutes } =
+    await import('./modules/regulatory-writing/documents/routes.js')
+  await app.register(regulatorySubmissionDocumentRoutes, { prefix: '/reg-submissions' })
+  await app.register(regulatoryDocumentRoutes, { prefix: '/regulatory-documents' })
+
+  const { regulatoryDocumentSectionRoutes } =
+    await import('./modules/regulatory-writing/documents/section-routes.js')
+  await app.register(regulatoryDocumentSectionRoutes, { prefix: '/regulatory-documents' })
+
+  // Phase M-D.4 — section-scoped /ai-suggest.
+  const { regulatoryDocumentAiSuggestSectionRoutes } =
+    await import('./modules/regulatory-writing/documents/ai-suggest-section-routes.js')
+  await app.register(regulatoryDocumentAiSuggestSectionRoutes, { prefix: '/regulatory-documents' })
+
+  // Phase M-D.5 — section comments with RACI gating.
+  const { regulatoryDocumentCommentRoutes } =
+    await import('./modules/regulatory-writing/documents/comment-routes.js')
+  await app.register(regulatoryDocumentCommentRoutes, { prefix: '/regulatory-documents' })
+
   // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
   // etc.) and externally-blocked endpoints (gateway, super-reviewers,
   // library-cards) with deterministic placeholder shapes so the UI's
@@ -538,6 +574,21 @@ async function buildServer() {
 
   const { publishingRoutes } = await import('./modules/ideation/publishing/routes.js')
   await app.register(publishingRoutes, { prefix: '/ideation' })
+
+  // Phase M-E.2 — artefact section / version / lock routes.
+  const { ideationArtefactSectionRoutes } =
+    await import('./modules/ideation/artefacts/section-routes.js')
+  await app.register(ideationArtefactSectionRoutes, { prefix: '/ideation-artefacts' })
+
+  // Phase M-E.4 — section-scoped /ai-suggest.
+  const { ideationArtefactAiSuggestSectionRoutes } =
+    await import('./modules/ideation/artefacts/ai-suggest-section-routes.js')
+  await app.register(ideationArtefactAiSuggestSectionRoutes, { prefix: '/ideation-artefacts' })
+
+  // Phase M-E.5 — section comments with RACI gating.
+  const { ideationArtefactCommentRoutes } =
+    await import('./modules/ideation/artefacts/comment-routes.js')
+  await app.register(ideationArtefactCommentRoutes, { prefix: '/ideation-artefacts' })
 
   // Aliases + stubs — the web client speaks /ideation-projects/*,
   // /ideation-artefacts/*, /ideation-cards/*, /ideation-calendar/*,

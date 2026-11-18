@@ -3,7 +3,7 @@ import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
-  MasterLibraryShareRecord, MasterLibraryAuditPage, MasterLibraryAuditTrail, BestPractice,
+  MasterLibraryShareRecord, MasterLibraryAuditPage, BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
@@ -59,7 +59,7 @@ export interface LibraryListParams {
   version?: string
   from?: string
   to?: string
-  sort?: 'recent' | 'oldest' | 'name-asc' | 'name-desc'
+  sort?: 'recent' | 'oldest' | 'name-asc' | 'name-desc' | 'type-asc' | 'type-desc' | 'ta-asc' | 'ta-desc'
   includeRetired?: boolean
   limit?: number
 }
@@ -259,12 +259,9 @@ export const platformApi = {
   // Everyone the document has ever been shared with, by whom and when (newest first, permanent).
   listLibraryItemShares: (itemId: string) =>
     api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
-  // The document's whole audit trail (source document + library entry), newest first, a page at a time. Read-only.
+  // This document's Master Library activity (pushed / uploaded, viewed, shared, ...), newest first, a page at a time. Read-only.
   listLibraryItemAudit: (itemId: string, offset = 0, limit = 50) =>
-    api.get<MasterLibraryAuditTrail>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
-  // The source document's whole Clinical Writing trail — only for people who may read it there (RACI, PM, auditor).
-  listLibraryItemFullAudit: (itemId: string, offset = 0, limit = 50) =>
-    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit/full?limit=${limit}&offset=${offset}`),
+    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),
@@ -724,6 +721,69 @@ export const platformApi = {
     api.post<RegulatoryBestPracticeRecord>(`/regulatory-best-practice-records/${encodeURIComponent(id)}/approve`, {}),
   retireRegulatoryBestPractice: (id: string, reason: string) =>
     api.post<RegulatoryBestPracticeRecord>(`/regulatory-best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
+
+  // --- Ideation (Module E) policy stack --------------------------------
+  listIdeationTypePolicies: () =>
+    api.get<{ policies: IdeationTypePolicy[] }>(`/ideation-type-policies`),
+  getIdeationTypePolicy: async (docType: string): Promise<IdeationTypePolicy | null> => {
+    try {
+      return await api.get<IdeationTypePolicy>(`/ideation-type-policies/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  createIdeationTypePolicy: (body: IdeationTypePolicyCreateBody) =>
+    api.post<IdeationTypePolicy>(`/ideation-type-policies`, body),
+  updateIdeationTypePolicy: (docType: string, body: IdeationTypePolicyPatchBody) =>
+    api.patch<IdeationTypePolicy>(`/ideation-type-policies/${encodeURIComponent(docType)}`, body),
+  retireIdeationTypePolicy: (docType: string, reason: string) =>
+    api.post<IdeationTypePolicy>(`/ideation-type-policies/${encodeURIComponent(docType)}/retire`, { reason }),
+  distillIdeationBestPracticeFile: (docType: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return api.upload<{
+      jobId:     string
+      uploadId:  string
+      policyId:  string
+      docType:   string
+      version:   number
+      fileName:  string
+      sizeBytes: number
+    }>(`/ideation-type-policies/${encodeURIComponent(docType)}/distill-best-practice-file`, form)
+  },
+
+  listIdeationAiPrompts: () =>
+    api.get<{ prompts: IdeationAiPromptRecord[] }>(`/ideation-ai-prompts`),
+  getIdeationAiPrompt: async (docType: string): Promise<IdeationAiPromptRecord | null> => {
+    try {
+      return await api.get<IdeationAiPromptRecord>(`/ideation-ai-prompts/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listIdeationAiPromptVersions: (docType: string) =>
+    api.get<{ versions: IdeationAiPromptRecord[] }>(`/ideation-ai-prompts/${encodeURIComponent(docType)}/versions`),
+  createIdeationAiPromptDraft: (body: IdeationAiPromptCreateBody) =>
+    api.post<IdeationAiPromptRecord>(`/ideation-ai-prompts`, body),
+  updateIdeationAiPromptDraft: (id: string, body: IdeationAiPromptPatchBody) =>
+    api.patch<IdeationAiPromptRecord>(`/ideation-ai-prompts/${encodeURIComponent(id)}`, body),
+  approveIdeationAiPrompt: (id: string) =>
+    api.post<IdeationAiPromptRecord>(`/ideation-ai-prompts/${encodeURIComponent(id)}/approve`, {}),
+  retireIdeationAiPrompt: (id: string, reason: string) =>
+    api.post<IdeationAiPromptRecord>(`/ideation-ai-prompts/${encodeURIComponent(id)}/retire`, { reason }),
+
+  listIdeationBestPracticeRecords: () =>
+    api.get<{ records: IdeationBestPracticeRecord[] }>(`/ideation-best-practice-records`),
+  listIdeationBestPracticeVersions: (docType: string) =>
+    api.get<{ versions: IdeationBestPracticeRecord[] }>(`/ideation-best-practice-records/${encodeURIComponent(docType)}/versions`),
+  updateIdeationBestPracticeDraft: (id: string, body: IdeationBestPracticePatchBody) =>
+    api.patch<IdeationBestPracticeRecord>(`/ideation-best-practice-records/${encodeURIComponent(id)}`, body),
+  approveIdeationBestPractice: (id: string) =>
+    api.post<IdeationBestPracticeRecord>(`/ideation-best-practice-records/${encodeURIComponent(id)}/approve`, {}),
+  retireIdeationBestPractice: (id: string, reason: string) =>
+    api.post<IdeationBestPracticeRecord>(`/ideation-best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
 
   listPublicationAiPrompts: () =>
     api.get<{ prompts: PublicationAiPromptRecord[] }>(`/publication-ai-prompts`),
@@ -1310,6 +1370,103 @@ export interface RegulatoryBestPracticeRecord {
 }
 
 export interface RegulatoryBestPracticePatchBody {
+  digest?: BestPracticeDigestShape
+}
+
+// --- Ideation (Module E) policy types ---------------------------------
+
+export type IdeationChannelHint = 'kol' | 'hcp' | 'patient' | 'press'
+
+export interface IdeationTypePolicy {
+  id:                   string
+  docType:              string
+  version:              number
+  isCurrent:            boolean
+  templateId:           string | null
+  checklistTemplateId:  string | null
+  channelHint:          IdeationChannelHint | null
+  reviewTierFormula:    string | null
+  smePrompt:            string
+  bestPracticeDigest:   unknown
+  sectionRules:         unknown
+  effectiveDate:        string
+  retiredAt:            string | null
+  retiredBy:            string | null
+  retireReason:         string | null
+  supersededBy:         string | null
+  createdBy:            string
+  updatedBy:            string
+  createdAt:            string
+  updatedAt:            string
+}
+
+export interface IdeationTypePolicyCreateBody {
+  docType:              string
+  smePrompt:            string
+  bestPracticeDigest?:  unknown
+  sectionRules?:        Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+  templateId?:          string | null
+  checklistTemplateId?: string | null
+  channelHint?:         IdeationChannelHint | null
+  reviewTierFormula?:   string | null
+}
+
+export type IdeationTypePolicyPatchBody = Omit<IdeationTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
+  smePrompt?: string
+}
+
+export interface IdeationAiPromptRecord {
+  id:            string
+  docType:       string
+  version:       number
+  status:        AiPromptStatus
+  smePrompt:     string
+  sectionRules:  unknown
+  supersededBy:  string | null
+  effectiveDate: string | null
+  retiredAt:     string | null
+  retireReason:  string | null
+  approvedBy:    string | null
+  approvedAt:    string | null
+  createdBy:     string
+  updatedBy:     string
+  createdAt:     string
+  updatedAt:     string
+}
+
+export interface IdeationAiPromptCreateBody {
+  docType:       string
+  smePrompt:     string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface IdeationAiPromptPatchBody {
+  smePrompt?:    string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface IdeationBestPracticeRecord {
+  id:             string
+  docType:        string
+  version:        number
+  status:         BestPracticeStatus
+  digest:         BestPracticeDigestShape
+  sourcePdfId:    string | null
+  distilledAt:    string | null
+  distilledModel: string | null
+  supersededBy:   string | null
+  effectiveDate:  string | null
+  retiredAt:      string | null
+  retireReason:   string | null
+  approvedBy:     string | null
+  approvedAt:     string | null
+  createdBy:      string
+  updatedBy:      string
+  createdAt:      string
+  updatedAt:      string
+}
+
+export interface IdeationBestPracticePatchBody {
   digest?: BestPracticeDigestShape
 }
 

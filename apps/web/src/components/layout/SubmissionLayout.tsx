@@ -11,6 +11,7 @@ export function SubmissionLayout() {
     { to: base,                       label: t('component.submission_layout.tab_setup_strategy'), end: true },
     { to: `${base}/ectd-map`,         label: t('component.submission_layout.tab_ectd_map') },
     { to: `${base}/module2-editor`,   label: t('component.submission_layout.tab_module2_editor') },
+    { to: `${base}/documents`,        label: 'Documents' },
     { to: `${base}/finalisation`,     label: t('component.submission_layout.tab_cmc_nonclinical') },
     { to: `${base}/super-review`,     label: t('component.submission_layout.tab_super_review') },
     { to: `${base}/redaction`,        label: t('component.submission_layout.tab_redaction') },

@@ -3691,7 +3691,6 @@
       "can_admin_2": "Suspend or deprovision users in your organisation",
       "can_admin_3": "Edit the RACI matrix and review the audit trail",
       "can_admin_4": "Manage organisation settings and subscription",
-      "cannot_admin_1": "Grant or change the super-admin role",
       "cannot_admin_2": "See or manage users of other organisations",
       "cannot_admin_3": "Suspend yourself or the last active admin",
       "can_clinical_writer_1": "Draft and edit documents in Clinical Writing",

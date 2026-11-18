@@ -66,7 +66,6 @@ const ROLE_PROFILES: Partial<Record<PlatformUserRole, RoleProfile>> & Record<
       'page.role_home.can_admin_4',
     ],
     cannotKeys: [
-      'page.role_home.cannot_admin_1',
       'page.role_home.cannot_admin_2',
       'page.role_home.cannot_admin_3',
     ],

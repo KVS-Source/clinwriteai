@@ -143,10 +143,11 @@ export function renderIdeaPolicyPromptBlock(
   if (policy.channelHint) {
     parts.push('', `CHANNEL HINT: ${policy.channelHint}`)
   }
-  const whole = renderIdeaWholeDocPrinciples(policy.bestPracticeDigest)
+  // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
+  const whole = "" // was: renderIdeaWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
   if (sectionKey) {
-    const sec = renderIdeaSectionRules(sectionKey, policy.bestPracticeDigest, policy.sectionRules)
+    const sec = renderIdeaSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
   return parts.join('\n')

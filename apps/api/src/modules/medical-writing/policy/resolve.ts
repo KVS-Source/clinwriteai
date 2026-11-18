@@ -121,10 +121,11 @@ export function renderMedPolicyPromptBlock(
   if (policy.complianceTrack) {
     parts.push('', `COMPLIANCE TRACK: ${policy.complianceTrack}`)
   }
-  const whole = renderMedWholeDocPrinciples(policy.bestPracticeDigest)
+  // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
+  const whole = "" // was: renderMedWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
   if (sectionKey) {
-    const sec = renderMedSectionRules(sectionKey, policy.bestPracticeDigest, policy.sectionRules)
+    const sec = renderMedSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
   return parts.join('\n')

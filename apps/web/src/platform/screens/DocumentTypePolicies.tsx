@@ -254,7 +254,6 @@ function AssociationsTable({
               <tr>
                 <th className="px-3 py-2 font-semibold">Doc type</th>
                 <th className="px-3 py-2 font-semibold">AI prompt</th>
-                <th className="px-3 py-2 font-semibold">BP digest</th>
                 <th className="px-3 py-2 font-semibold">Template</th>
                 <th className="px-3 py-2 font-semibold">Checklist</th>
                 <th className="px-3 py-2 font-semibold">ICH</th>
@@ -277,7 +276,6 @@ function AssociationsTable({
                     </div>
                   </td>
                   <td className="px-3 py-2 align-top"><ChipAiPrompt row={p.aiPrompt} legacy={p.smePrompt} /></td>
-                  <td className="px-3 py-2 align-top"><ChipBp row={p.bestPractice} legacy={p.bestPracticeDigest} /></td>
                   <td className="px-3 py-2 align-top"><ChipTemplate policy={p} /></td>
                   <td className="px-3 py-2 align-top"><ChipChecklist policy={p} /></td>
                   <td className="px-3 py-2 align-top"><ChipFramework policy={p} /></td>
@@ -373,7 +371,7 @@ function ChipFramework({ policy }: { policy: DocumentTypePolicy }) {
 // ---- side panel: details + minimal edits -------------------------------
 
 function AssociationsPanel({
-  policy, aiReady, onChanged,
+  policy, aiReady: _aiReady, onChanged,
 }: {
   policy:    PolicyEnriched
   aiReady:   boolean
@@ -412,20 +410,9 @@ function AssociationsPanel({
         manageLabel="Manage in AI Prompts"
       />
 
-      <AssociationRow
-        label="Best-practice digest"
-        state={policy.bestPractice ? 'approved' : (policy.bestPracticeDigest?.principles?.length ? 'legacy' : 'missing')}
-        summary={policy.bestPractice
-          ? `Approved v${policy.bestPractice.version} · ${policy.bestPractice.digest?.principles?.length ?? 0} principles`
-          : policy.bestPracticeDigest?.principles?.length
-            ? `Legacy digest still in use · ${policy.bestPracticeDigest.principles.length} principles`
-            : 'No digest'}
-        detail={null}
-        manageTo={null}
-        manageLabel={null}
-      >
-        <BpSection docType={policy.docType} aiReady={aiReady} onChanged={onChanged} />
-      </AssociationRow>
+      {/* BP removed per product decision — BP is author guidance, not AI
+          steering. The drafter no longer composes BP principles into its
+          system prompt. Tables + routes retained as read-only legacy. */}
 
       <AssociationRow
         label="Template"
@@ -826,3 +813,6 @@ function DigestPreview({ digest }: { digest: BestPracticeDigest }) {
     </ul>
   )
 }
+
+// BP removed from the admin UI — functions retained as read-only legacy for a potential future re-introduction.
+void ChipBp; void BpSection;

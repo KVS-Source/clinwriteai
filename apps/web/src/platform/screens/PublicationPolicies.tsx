@@ -276,7 +276,6 @@ function AssociationsTable({
               <tr>
                 <th className="px-3 py-2 font-semibold">Doc type</th>
                 <th className="px-3 py-2 font-semibold">AI prompt</th>
-                <th className="px-3 py-2 font-semibold">BP digest</th>
                 <th className="px-3 py-2 font-semibold">Template</th>
                 <th className="px-3 py-2 font-semibold">Checklist</th>
                 <th className="px-3 py-2 font-semibold">Guideline</th>
@@ -299,7 +298,6 @@ function AssociationsTable({
                     </div>
                   </td>
                   <td className="px-3 py-2 align-top"><ChipAiPrompt row={p.aiPrompt} legacy={p.smePrompt} /></td>
-                  <td className="px-3 py-2 align-top"><ChipBp row={p.bestPractice} legacy={p.bestPracticeDigest} /></td>
                   <td className="px-3 py-2 align-top"><ChipPin value={p.templateId} missingLabel="none" hint={p.templateId ?? 'No template'} /></td>
                   <td className="px-3 py-2 align-top"><ChipPin value={p.checklistTemplateId} missingLabel="none" hint={p.checklistTemplateId ?? 'No checklist'} /></td>
                   <td className="px-3 py-2 align-top"><ChipGuideline value={p.guidelineKey} /></td>
@@ -422,7 +420,7 @@ function AssociationsPanel({
 
       <AiPromptSection docType={policy.docType} approved={policy.aiPrompt} legacySme={policy.smePrompt} aiReady={aiReady} onChanged={onChanged} />
 
-      <BpSection docType={policy.docType} approved={policy.bestPractice} legacyDigest={policy.bestPracticeDigest as { principles?: unknown[] } | null} aiReady={aiReady} onChanged={onChanged} />
+      {/* BP removed per product decision — BP is author guidance, not AI steering. */}
 
       <section className="rounded-md border border-slate-200 bg-slate-50 p-3" data-pins>
         <p className="mb-2 text-[12px] font-semibold text-slate-800">Policy pins</p>
@@ -924,3 +922,6 @@ function BpSection({
     </section>
   )
 }
+
+// BP removed from the admin UI — functions retained as read-only legacy for a potential future re-introduction.
+void ChipBp; void BpSection;

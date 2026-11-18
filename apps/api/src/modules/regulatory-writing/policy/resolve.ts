@@ -119,10 +119,11 @@ export function renderRegPolicyPromptBlock(
   if (policy.regulatoryTrack) {
     parts.push('', `REGULATORY TRACK: ${policy.regulatoryTrack}`)
   }
-  const whole = renderRegWholeDocPrinciples(policy.bestPracticeDigest)
+  // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
+  const whole = "" // was: renderRegWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
   if (sectionKey) {
-    const sec = renderRegSectionRules(sectionKey, policy.bestPracticeDigest, policy.sectionRules)
+    const sec = renderRegSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
   return parts.join('\n')

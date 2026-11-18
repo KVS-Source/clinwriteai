@@ -125,10 +125,14 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
     expect(body.policy.sectionRules).toEqual([
       { severity: 'should', text: 'Describe the washout period.' },
     ])
-    // The rendered block is what the AI drafter + /ai-suggest inject —
-    // same character-identical text (asserted by policy-prompt-parity).
+    // The rendered block is what the AI drafter + /ai-suggest inject.
+    // BP-derived principles (both whole-doc + section-scoped) were
+    // retired as AI steering inputs (Nov 2026) — they're surfaced on
+    // body.policy for author visibility but don't flow into the
+    // composed prompt.
     expect(body.renderedPromptBlock).toContain('SME PROMPT (policy v3)')
-    expect(body.renderedPromptBlock).toContain('[MUST] Follow ICH M11 structural register throughout.')
+    expect(body.renderedPromptBlock).not.toContain('Follow ICH M11 structural register throughout.')
+    expect(body.renderedPromptBlock).not.toContain('Numbered list, one inclusion criterion per line.')
     expect(body.renderedPromptBlock).toContain('SECTION RULES (s6_2)')
   })
 

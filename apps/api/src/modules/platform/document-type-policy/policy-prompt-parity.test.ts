@@ -51,18 +51,17 @@ describe('renderPolicyPromptBlock — API ↔ worker parity', () => {
     expect(workerRender(null)).toBe('')
   })
 
-  it('both include the SME prompt + document-wide principles ordered must → should → nice', () => {
+  it('includes the SME prompt + does NOT include BP digest principles (removed Nov 2026)', () => {
     const out = apiRender(SAMPLE_POLICY)
     expect(out).toContain('SME PROMPT (policy v3)')
-    expect(out).toContain('[MUST] Follow ICH M11 structural register throughout.')
-    expect(out).toContain('[SHOULD] Methods and Results sections should be concise.')
-    expect(out).toContain('[NICE] Prefer active voice.')
-    // Order check
-    const mustIx   = out.indexOf('[MUST]')
-    const shouldIx = out.indexOf('[SHOULD]')
-    const niceIx   = out.indexOf('[NICE]')
-    expect(mustIx).toBeLessThan(shouldIx)
-    expect(shouldIx).toBeLessThan(niceIx)
+    // BP was retired as an AI-steering input — it's author-facing
+    // guidance now, not prompt content. Neither the DOCUMENT-WIDE
+    // PRINCIPLES block nor any `whole-doc` BP principles should flow
+    // into the composed prompt.
+    expect(out).not.toContain('DOCUMENT-WIDE PRINCIPLES')
+    expect(out).not.toContain('Follow ICH M11 structural register throughout.')
+    expect(out).not.toContain('Prefer active voice.')
+    expect(out).not.toContain('Methods and Results sections should be concise.')
   })
 
   it('SECTION_GROUNDING_RULES is character-identical on API + worker', () => {
@@ -75,15 +74,19 @@ describe('renderPolicyPromptBlock — API ↔ worker parity', () => {
     expect(API_GROUNDING).toMatch(/reference markers/)
   })
 
-  it('surfaces section-scoped rules only when a sectionKey is passed', () => {
+  it('surfaces explicit section_rules only (no BP-scoped section principles)', () => {
     const withoutKey = apiRender(SAMPLE_POLICY)
     expect(withoutKey).not.toContain('SECTION RULES')
 
     const withKey = apiRender(SAMPLE_POLICY, 's6_2')
     expect(withKey).toContain('SECTION RULES (s6_2)')
-    expect(withKey).toContain('[MUST] Numbered list, one inclusion criterion per line.')
+    // Explicit `policy.sectionRules[s6_2]` entries DO flow into the
+    // prompt — those are author-curated rules, not BP-derived.
     expect(withKey).toContain('[MUST] Must list GCP-ineligible populations explicitly.')
-    expect(withKey).toContain('[SHOULD] Cross-reference exclusion criteria by number.')
     expect(withKey).toContain('[SHOULD] Should describe the washout period.')
+    // BP-scoped section principles (scope: 'section:s6_2') are now
+    // suppressed since BP was retired as an AI steering input.
+    expect(withKey).not.toContain('Numbered list, one inclusion criterion per line.')
+    expect(withKey).not.toContain('Cross-reference exclusion criteria by number.')
   })
 })

@@ -154,10 +154,11 @@ export function renderPolicyPromptBlock(
   if (policy.smePrompt.trim().length > 0) {
     parts.push(`SME PROMPT (policy v${policy.version})`, policy.smePrompt.trim())
   }
-  const whole = renderWholeDocPrinciples(policy.bestPracticeDigest)
+  // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
+  const whole = "" // was: renderWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
   if (sectionKey) {
-    const sec = renderSectionRules(sectionKey, policy.bestPracticeDigest, policy.sectionRules)
+    const sec = renderSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
   return parts.join('\n')

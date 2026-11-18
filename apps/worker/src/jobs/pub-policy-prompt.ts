@@ -176,10 +176,11 @@ export function renderPubPolicyPromptBlock(
   if (policy.guidelineKey) {
     parts.push('', `REPORTING GUIDELINE: ${policy.guidelineKey}`)
   }
-  const whole = renderPubWholeDocPrinciples(policy.bestPracticeDigest)
+  // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
+  const whole = "" // was: renderPubWholeDocPrinciples(policy.bestPracticeDigest)
   if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
   if (sectionKey) {
-    const sec = renderPubSectionRules(sectionKey, policy.bestPracticeDigest, policy.sectionRules)
+    const sec = renderPubSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
   return parts.join('\n')

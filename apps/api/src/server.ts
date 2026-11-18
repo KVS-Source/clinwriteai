@@ -527,6 +527,11 @@ async function buildServer() {
     await import('./modules/regulatory-writing/documents/section-routes.js')
   await app.register(regulatoryDocumentSectionRoutes, { prefix: '/regulatory-documents' })
 
+  // Phase M-D.4 — section-scoped /ai-suggest.
+  const { regulatoryDocumentAiSuggestSectionRoutes } =
+    await import('./modules/regulatory-writing/documents/ai-suggest-section-routes.js')
+  await app.register(regulatoryDocumentAiSuggestSectionRoutes, { prefix: '/regulatory-documents' })
+
   // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
   // etc.) and externally-blocked endpoints (gateway, super-reviewers,
   // library-cards) with deterministic placeholder shapes so the UI's

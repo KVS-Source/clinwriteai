@@ -16,9 +16,13 @@ import { requiredSigners } from './access.js'
 // Postgres advisory-lock key serialising signature-id allocation (arbitrary, unique to this use).
 const SIGNATURE_ID_LOCK_KEY = 7301001
 
-/** Test switch for the content gate (see startSignatureChain). Off unless set, and never in production. */
+/** Test switch for the content gate (see startSignatureChain). Off unless set. In production the
+ *  second flag SIGNATURE_ALLOW_SKIP_IN_PROD=1 must ALSO be set, so a stale test env var on a prod
+ *  host can never silently bypass the gate. */
 function skipContentGate(): boolean {
-  return process.env.SIGNATURE_SKIP_CONTENT_GATE === '1' && process.env.NODE_ENV !== 'production'
+  if (process.env.SIGNATURE_SKIP_CONTENT_GATE !== '1') return false
+  return process.env.NODE_ENV !== 'production'
+    || process.env.SIGNATURE_ALLOW_SKIP_IN_PROD === '1'
 }
 
 export type SignerInput = {
@@ -126,11 +130,17 @@ export async function startSignatureChain(app: FastifyInstance, args: {
     })
     if (!content.ok) {
       // TEST ONLY: SIGNATURE_SKIP_CONTENT_GATE=1 lets a chain open on a document with empty sections or
-      // placeholders, to exercise the signing flow on sample data. Never honoured in production, off by
-      // default, and every use is logged and recorded in the audit entry.
+      // placeholders, to exercise the signing flow on sample data. Off by default; in production the
+      // second flag SIGNATURE_ALLOW_SKIP_IN_PROD=1 must also be set. Every use is logged and recorded
+      // in the audit entry.
       if (skipContentGate()) {
         contentGateSkipped = content.problems.length
-        app.log.warn({ documentId, problems: content.problems.length }, 'SIGNATURE_SKIP_CONTENT_GATE is on: opening a signature chain on incomplete content')
+        app.log.warn({
+          documentId,
+          problems: content.problems.length,
+          nodeEnv: process.env.NODE_ENV,
+          prodOverride: process.env.NODE_ENV === 'production',
+        }, 'SIGNATURE_SKIP_CONTENT_GATE is on: opening a signature chain on incomplete content')
       } else {
         return { ok: false, status: 409, body: contentBlockedBody(content) as unknown as Record<string, unknown> }
       }

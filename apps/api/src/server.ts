@@ -447,6 +447,12 @@ async function buildServer() {
   await app.register(medContentSectionRoutes, { prefix: '/med-content' })
   await app.register(medSlideLockRoutes)
 
+  // Phase M-C.4 — section-scoped /ai-suggest. Sits alongside the
+  // existing content-level /ai-suggest in content/routes.ts.
+  const { medContentAiSuggestSectionRoutes } =
+    await import('./modules/medical-writing/content/ai-suggest-section-routes.js')
+  await app.register(medContentAiSuggestSectionRoutes, { prefix: '/med-content' })
+
   const { kolSessionRoutes } = await import('./modules/medical-writing/content/routes.js')
   await app.register(kolSessionRoutes, { prefix: '/kol-sessions' })
 

@@ -633,9 +633,11 @@ export function CRMModule() {
   const startMut = useMutation({ mutationFn: () => crmApi.startMeeting(meeting!.id), onSuccess: refresh })
   const endMut   = useMutation({ mutationFn: () => crmApi.completeMeeting(meeting!.id), onSuccess: refresh })
   // Finish CRM and send for approval: the document moves to Pending signature and signing starts.
+  const [finishOpen, setFinishOpen] = useState(false)
   const finishMut = useMutation({
     mutationFn: () => crmApi.finishCrm(activeDocId!),
     onSuccess: () => {
+      setFinishOpen(false)
       refresh()
       qc.invalidateQueries({ queryKey: ['signature-chains', activeDocId] })
       qc.invalidateQueries({ queryKey: ['document-raci', activeDocId] })
@@ -649,7 +651,7 @@ export function CRMModule() {
   const isComplete    = meeting?.status === 'complete'
 
   // The meetings request fixes a document stuck in CRM after its meeting completed; pick that up.
-  const stuckInCrm = isComplete && activeDoc?.status === 'crm-in-progress'
+  const stuckInCrm = isComplete && activeDoc?.status === 'crm-in-progress' && !openMeeting
   useEffect(() => {
     if (!stuckInCrm) return
     const t = setTimeout(() => {
@@ -676,6 +678,10 @@ export function CRMModule() {
   if (!activeDocId || meetingsLoading) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{projectDocs.length === 0 && !meetingsLoading ? t('page.crm_module.no_documents') : t('page.crm_module.loading_meeting')}</p></div>
   }
+
+  // An older meeting picked from the history list: a record to look at, not the document's current state.
+  const latestMeeting = [...meetings].reverse().find(m => m.status !== 'cancelled')
+  const viewingPast = !!meeting && !!latestMeeting && meeting.id !== latestMeeting.id
 
   // Another meeting may be scheduled while none is open and the document is still in review or authoring.
   const canScheduleAnother = !openMeeting && (activeDoc?.status === 'in-review' || activeDoc?.status === 'in-authoring')
@@ -799,11 +805,10 @@ export function CRMModule() {
           {canFinish && (
             <button
               type="button"
-              onClick={() => { if (window.confirm(t('page.crm_module.finish_confirm'))) finishMut.mutate() }}
-              disabled={finishMut.isPending}
-              className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              onClick={() => { finishMut.reset(); setFinishOpen(true) }}
+              className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
               data-crm-finish
-            >{finishMut.isPending ? t('page.crm_module.finishing') : t('page.crm_module.finish_crm')}</button>
+            >{t('page.crm_module.finish_crm')}</button>
           )}
           {(activeDoc?.status === 'pending-signature' || activeDoc?.status === 'signed') && (
             <button
@@ -814,13 +819,22 @@ export function CRMModule() {
             >{t('page.crm_module.go_to_signature')}</button>
           )}
         </div>
-        {(startMut.isError || endMut.isError || finishMut.isError) && (
+        {(startMut.isError || endMut.isError) && (
           <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-crm-error>
-            {finishMut.isError ? apiMessage(finishMut.error, t('page.crm_module.finish_failed'))
-              : startMut.isError ? apiMessage(startMut.error, t('page.crm_module.start_failed')) : apiMessage(endMut.error, t('page.crm_module.end_failed'))}
+            {startMut.isError ? apiMessage(startMut.error, t('page.crm_module.start_failed')) : apiMessage(endMut.error, t('page.crm_module.end_failed'))}
           </p>
         )}
-        {isComplete && (activeDoc?.status === 'crm-in-progress' ? (
+        {/* The completion banners describe where the document stands now, so only for the current meeting.
+            An older meeting picked from the history list is just a record: no status message. */}
+        {isComplete && viewingPast && (
+          <p className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 p-2 text-[12px] text-slate-600" data-crm-past>
+            {t('page.crm_module.viewing_past', { ref: meeting.meetingRef })}
+            <button type="button" onClick={() => setViewMeetingId(null)} className="font-semibold text-blue-700 hover:underline" data-crm-back-to-latest>
+              {t('page.crm_module.back_to_latest')}
+            </button>
+          </p>
+        )}
+        {isComplete && !viewingPast && (activeDoc?.status === 'crm-in-progress' && !openMeeting ? (
           <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-800" data-crm-complete-pending>
             {t('page.crm_module.complete_pending')}
           </p>
@@ -832,6 +846,46 @@ export function CRMModule() {
           </p>
         ))}
       </div>
+
+      {/* Finish CRM and send for approval — confirmation. */}
+      {finishOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="finish-crm-title" data-finish-crm-dialog>
+          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+            <h2 id="finish-crm-title" className="text-[15px] font-bold text-slate-900">{t('page.crm_module.finish_dialog_title')}</h2>
+            <p className="mt-1 text-[12px] leading-relaxed text-slate-600">{t('page.crm_module.finish_dialog_intro')}</p>
+            <ul className="mt-3 flex flex-col gap-1.5 rounded-md bg-slate-50 p-3 text-[12px] leading-relaxed text-slate-700">
+              {['finish_dialog_1', 'finish_dialog_2', 'finish_dialog_3'].map(k => (
+                <li key={k} className="flex gap-2"><span aria-hidden="true" className="text-blue-600">•</span><span>{t(`page.crm_module.${k}`)}</span></li>
+              ))}
+            </ul>
+            {finishMut.isError && (
+              <p className="mt-3 rounded-md bg-red-50 px-2.5 py-1.5 text-[12px] text-red-700" role="alert" data-crm-error>
+                {apiMessage(finishMut.error, t('page.crm_module.finish_failed'))}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFinishOpen(false)}
+                disabled={finishMut.isPending}
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {t('button.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => finishMut.mutate()}
+                disabled={finishMut.isPending}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                data-action="confirm-finish-crm"
+                autoFocus
+              >
+                {finishMut.isPending ? t('page.crm_module.finishing') : t('page.crm_module.finish_dialog_confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* A meeting left "in progress" for more than a day is probably finished: say so. */}
       {inProgress && meeting.startedAt && Date.now() - new Date(meeting.startedAt).getTime() > STALE_MEETING_MS && (

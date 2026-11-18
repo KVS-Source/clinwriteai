@@ -575,6 +575,11 @@ async function buildServer() {
   const { publishingRoutes } = await import('./modules/ideation/publishing/routes.js')
   await app.register(publishingRoutes, { prefix: '/ideation' })
 
+  // Phase M-E.2 — artefact section / version / lock routes.
+  const { ideationArtefactSectionRoutes } =
+    await import('./modules/ideation/artefacts/section-routes.js')
+  await app.register(ideationArtefactSectionRoutes, { prefix: '/ideation-artefacts' })
+
   // Aliases + stubs — the web client speaks /ideation-projects/*,
   // /ideation-artefacts/*, /ideation-cards/*, /ideation-calendar/*,
   // /ideation-adaptations/*, /ideation-orcid/*, /ideation-social-alerts/*,

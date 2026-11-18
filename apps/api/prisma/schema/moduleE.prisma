@@ -61,15 +61,81 @@ model IdeationArtefact {
   ideationBestPracticeRecordId         String?  @map("ideation_best_practice_record_id")
   ideationBestPracticeVersionAtCreate  Int?     @map("ideation_best_practice_version_at_create")
 
-  ideationProject        IdeationProject       @relation(fields: [ideationProjectId], references: [id], onDelete: Cascade)
+  // Phase M-E.2 — ownership + AI draft state + versioned content.
+  ownerId                              String?  @map("owner_id")
+  aiDraftState                         String   @default("idle") @map("ai_draft_state_e")   // idle | drafting | validating | complete | failed
+  aiInstructions                       String?  @map("ai_instructions_e")
+  currentVersionId                     String?  @unique @map("current_version_id")
+
+  ideationProject        IdeationProject                 @relation(fields: [ideationProjectId], references: [id], onDelete: Cascade)
   cards                  IdeationContentCard[]
   currencyChecks         ClaimCurrencyCheck[]
+  versions               IdeationArtefactVersion[]       @relation("IdeationArtefactVersions")
+  currentVersion         IdeationArtefactVersion?        @relation("IdeationArtefactCurrentVersion", fields: [currentVersionId], references: [id])
 
   @@map("ideation_artefacts")
   @@index([ideationProjectId])
   @@index([docType])
   @@index([ideationAiPromptRecordId])
   @@index([ideationBestPracticeRecordId])
+}
+
+// --- Phase M-E.2 ----------------------------------------------------------
+
+model IdeationArtefactVersion {
+  id                    String   @id @default(uuid())
+  ideationArtefactId    String
+  versionNumber         String
+  label                 String
+  contentHash           String
+  isCurrent             Boolean  @default(true)
+  createdBy             String
+  createdAt             DateTime @default(now())
+  restoreSource         Json?
+
+  artefact              IdeationArtefact             @relation("IdeationArtefactVersions", fields: [ideationArtefactId], references: [id], onDelete: Cascade)
+  sections              IdeationArtefactSection[]
+  currentOf             IdeationArtefact?            @relation("IdeationArtefactCurrentVersion")
+
+  @@map("ideation_artefact_versions")
+  @@unique([ideationArtefactId, versionNumber])
+  @@index([ideationArtefactId])
+}
+
+model IdeationArtefactSection {
+  id                             String    @id @default(uuid())
+  ideationArtefactVersionId      String
+  sectionId                      String
+  sectionNumber                  String
+  sectionTitle                   String
+  contentHtml                    String    @default("")
+  wordCount                      Int       @default(0)
+  aiSpanCount                    Int       @default(0)
+  humanSpanCount                 Int       @default(0)
+  lastEditedBy                   String?
+  lastEditedAt                   DateTime?
+  aiConfidence                   Int?       @map("ai_confidence")
+  aiFlags                        String[]   @default([]) @map("ai_flags")
+
+  version                        IdeationArtefactVersion @relation(fields: [ideationArtefactVersionId], references: [id], onDelete: Cascade)
+
+  @@map("ideation_artefact_sections")
+  @@unique([ideationArtefactVersionId, sectionId])
+  @@index([ideationArtefactVersionId])
+}
+
+model IdeationArtefactSectionLock {
+  id                   String    @id @default(uuid())
+  ideationArtefactId   String
+  sectionId            String
+  userId               String
+  acquiredAt           DateTime  @default(now())
+  lastHeartbeatAt      DateTime  @default(now())
+
+  @@map("ideation_artefact_section_locks")
+  @@unique([ideationArtefactId, sectionId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
 }
 
 // --------------------------------------------------------------------------

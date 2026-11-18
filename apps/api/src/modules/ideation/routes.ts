@@ -35,7 +35,72 @@ const createArtefactSchema = z.object({
   originalApprovalDate: z.string().datetime(),
   version: z.string().min(1),
   masterLibraryPushDate: z.string().datetime().optional(),
+  // Phase M-E.1/2 — optional docType + aiInstructions so the create flow
+  // can pin the current IdeationTypePolicy + latest-approved AI prompt +
+  // BP record and seed v0.1 sections.
+  docType: z.enum([
+    'kol_engagement_brief',
+    'patient_story',
+    'hcp_insight_report',
+    'medical_affairs_narrative',
+    'disease_awareness_brief',
+    'press_release',
+    'scientific_exchange_note',
+    'congress_summary',
+  ]).optional(),
+  aiInstructions: z.string().max(2000).optional(),
 })
+
+// Per-docType fallback section skeletons used when no policy template
+// is pinned. Mirrors the regulatory FALLBACK_SECTIONS shape.
+const IDEATION_FALLBACK_SECTIONS: Record<string, Array<{ id: string; number: string; title: string }>> = {
+  kol_engagement_brief: [
+    { id: 'kol_profile',       number: '1', title: 'KOL profile' },
+    { id: 'engagement_goals',  number: '2', title: 'Engagement goals' },
+    { id: 'talking_points',    number: '3', title: 'Talking points' },
+    { id: 'follow_up',         number: '4', title: 'Follow-up actions' },
+  ],
+  patient_story: [
+    { id: 'patient_background', number: '1', title: 'Patient background' },
+    { id: 'the_story',          number: '2', title: 'The story' },
+    { id: 'key_message',        number: '3', title: 'Key message' },
+    { id: 'disclosures',        number: '4', title: 'Consent + disclosures' },
+  ],
+  hcp_insight_report: [
+    { id: 'executive_summary',  number: '1', title: 'Executive summary' },
+    { id: 'methodology',        number: '2', title: 'Methodology' },
+    { id: 'findings',           number: '3', title: 'Findings' },
+    { id: 'recommendations',    number: '4', title: 'Recommendations' },
+  ],
+  medical_affairs_narrative: [
+    { id: 'context',            number: '1', title: 'Context' },
+    { id: 'core_message',       number: '2', title: 'Core message' },
+    { id: 'supporting_evidence',number: '3', title: 'Supporting evidence' },
+    { id: 'distribution',       number: '4', title: 'Distribution channels' },
+  ],
+  disease_awareness_brief: [
+    { id: 'disease_background', number: '1', title: 'Disease background' },
+    { id: 'burden',             number: '2', title: 'Patient + societal burden' },
+    { id: 'call_to_action',     number: '3', title: 'Call to action' },
+  ],
+  press_release: [
+    { id: 'headline',           number: '1', title: 'Headline + dateline' },
+    { id: 'lead_paragraph',     number: '2', title: 'Lead paragraph' },
+    { id: 'body',               number: '3', title: 'Body' },
+    { id: 'boilerplate',        number: '4', title: 'Boilerplate + contacts' },
+  ],
+  scientific_exchange_note: [
+    { id: 'purpose',            number: '1', title: 'Purpose of exchange' },
+    { id: 'scientific_content', number: '2', title: 'Scientific content' },
+    { id: 'disclaimers',        number: '3', title: 'Disclaimers' },
+  ],
+  congress_summary: [
+    { id: 'congress_overview',  number: '1', title: 'Congress overview' },
+    { id: 'session_highlights', number: '2', title: 'Session highlights' },
+    { id: 'takeaways',          number: '3', title: 'Key takeaways' },
+    { id: 'next_steps',         number: '4', title: 'Next steps' },
+  ],
+}
 
 const createCardSchema = z.object({
   sourceSection: z.string().min(1),
@@ -288,18 +353,84 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
       if (ageDays > 90) sourceCurrencyStatus = 'warned'
     }
 
-    const created = await app.prisma.ideationArtefact.create({
-      data: {
-        ideationProjectId,
-        sourceModule: parsed.data.sourceModule ?? null,
-        sourceDocId: parsed.data.sourceDocId ?? null,
-        filePath: parsed.data.filePath ?? null,
-        title: parsed.data.title,
-        originalApprovalDate: new Date(parsed.data.originalApprovalDate),
-        version: parsed.data.version,
-        masterLibraryPushDate: parsed.data.masterLibraryPushDate ? new Date(parsed.data.masterLibraryPushDate) : null,
-        sourceCurrencyStatus,
-      },
+    // Phase M-E.1/2 — pin policy stack + seed v0.1 sections when docType
+    // is provided. (Legacy callers that omit docType get the old shape:
+    // artefact created without a version chain + no policy pins.)
+    const docType = parsed.data.docType ?? null
+    let policyPin: { id: string; version: number } | null = null
+    let promptPin: { id: string; version: number } | null = null
+    let bpPin:     { id: string; version: number } | null = null
+    if (docType) {
+      const policy = await app.prisma.ideationTypePolicy.findFirst({
+        where: { docType, isCurrent: true, retiredAt: null },
+      })
+      policyPin = policy ? { id: policy.id, version: policy.version } : null
+      promptPin = await app.prisma.ideationAiPromptRecord.findFirst({
+        where:   { docType, status: 'approved' },
+        orderBy: { version: 'desc' },
+        select:  { id: true, version: true },
+      })
+      bpPin = await app.prisma.ideationBestPracticeRecord.findFirst({
+        where:   { docType, status: 'approved' },
+        orderBy: { version: 'desc' },
+        select:  { id: true, version: true },
+      })
+    }
+
+    let sectionPayload: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string }> = []
+    if (docType) {
+      const policyForTemplate = policyPin
+        ? await app.prisma.ideationTypePolicy.findUnique({ where: { id: policyPin.id } })
+        : null
+      if (policyForTemplate?.templateId) {
+        const tmpl = await app.prisma.ideationArtefactTemplate.findUnique({ where: { id: policyForTemplate.templateId } })
+        const tmplSections = (tmpl?.sections as unknown as Array<{ id: string; number?: string; title: string }>) ?? []
+        if (tmplSections.length > 0) {
+          sectionPayload = tmplSections.map((s, i) => ({
+            sectionId:     String(s.id ?? `s${i + 1}`),
+            sectionNumber: String(s.number ?? i + 1),
+            sectionTitle:  String(s.title ?? `Section ${i + 1}`),
+          }))
+        }
+      }
+      if (sectionPayload.length === 0) {
+        sectionPayload = (IDEATION_FALLBACK_SECTIONS[docType] ?? [])
+          .map(s => ({ sectionId: s.id, sectionNumber: s.number, sectionTitle: s.title }))
+      }
+    }
+
+    const { initialiseIdeationArtefactVersion } = await import('./artefacts/section-service.js')
+
+    const created = await app.prisma.$transaction(async (tx) => {
+      const artefact = await tx.ideationArtefact.create({
+        data: {
+          ideationProjectId,
+          sourceModule: parsed.data.sourceModule ?? null,
+          sourceDocId: parsed.data.sourceDocId ?? null,
+          filePath: parsed.data.filePath ?? null,
+          title: parsed.data.title,
+          originalApprovalDate: new Date(parsed.data.originalApprovalDate),
+          version: parsed.data.version,
+          masterLibraryPushDate: parsed.data.masterLibraryPushDate ? new Date(parsed.data.masterLibraryPushDate) : null,
+          sourceCurrencyStatus,
+          docType,
+          ideationTypePolicyVersionAtCreate:   policyPin?.version ?? null,
+          ideationAiPromptRecordId:            promptPin?.id      ?? null,
+          ideationAiPromptVersionAtCreate:     promptPin?.version ?? null,
+          ideationBestPracticeRecordId:        bpPin?.id          ?? null,
+          ideationBestPracticeVersionAtCreate: bpPin?.version     ?? null,
+          ownerId:                             request.user!.id,
+          aiInstructions:                      parsed.data.aiInstructions?.trim() || null,
+        },
+      })
+      if (sectionPayload.length > 0) {
+        await initialiseIdeationArtefactVersion(tx, {
+          ideationArtefactId: artefact.id,
+          actorId:            request.user!.id,
+          sections:           sectionPayload,
+        })
+      }
+      return artefact
     })
 
     await app.audit.append({
@@ -313,6 +444,11 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
         sourceModule: parsed.data.sourceModule ?? null,
         sourceCurrencyStatus,
         title: parsed.data.title,
+        docType,
+        sectionCount: sectionPayload.length,
+        ideationTypePolicyVersionAtCreate: policyPin?.version ?? null,
+        ideationAiPromptRecordId:          promptPin?.id      ?? null,
+        ideationBestPracticeRecordId:      bpPin?.id          ?? null,
       },
       ipAddress: request.ip ?? null,
     })

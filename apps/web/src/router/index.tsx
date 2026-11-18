@@ -60,6 +60,7 @@ import { HAResponseDrafting }            from '../screens/regulatory-writing/HAR
 import { RegulatoryIntelligence }        from '../screens/regulatory-writing/RegulatoryIntelligence'
 import { FinalOutputPortfolio }          from '../screens/regulatory-writing/FinalOutputPortfolio'
 import { RegulatoryDocumentLiveEditor }  from '../screens/regulatory-writing/RegulatoryDocumentLiveEditor'
+import { RegulatoryDocuments }          from '../screens/regulatory-writing/RegulatoryDocuments'
 import { IdeationPublishingHome }        from '../screens/ideation-publishing/IdeationPublishingHome'
 import { ArtefactUploadSourceCheck }    from '../screens/ideation-publishing/ArtefactUploadSourceCheck'
 import { ContentCardTagging }           from '../screens/ideation-publishing/ContentCardTagging'
@@ -310,6 +311,7 @@ export const router = createBrowserRouter([
                   { path: 'ha-response',           element: <HAResponseDrafting /> },
                   { path: 'final',                 element: <FinalOutputPortfolio /> },
                   // Phase M-D.2+ — long-form regulatory document authoring.
+                  { path: 'documents',                                   element: <RegulatoryDocuments /> },
                   { path: 'documents/:regulatoryDocumentId/live-editor', element: <RegulatoryDocumentLiveEditor /> },
                 ],
               },

@@ -50,7 +50,10 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
     const { id } = request.params as { id: string }
     const row = await app.prisma.ideationArtefact.findUnique({ where: { id } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
+    // Full row first: this route also serves the Ideation project screen's
+    // getArtefact (the old duplicate alias in aliases-and-stubs.ts was removed).
     return {
+      ...row,
       id:                   row.id,
       ideationProjectId:    row.ideationProjectId,
       title:                row.title,

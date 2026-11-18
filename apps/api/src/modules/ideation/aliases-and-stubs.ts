@@ -370,12 +370,8 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
 
   // --- Artefact paths (/ideation-artefacts/*) ---------------------------
 
-  app.get('/ideation-artefacts/:ideationArtefactId', { preHandler: eGate }, async (request, reply) => {
-    const { ideationArtefactId } = request.params as { ideationArtefactId: string }
-    const row = await app.prisma.ideationArtefact.findUnique({ where: { id: ideationArtefactId } })
-    if (!row) return reply.code(404).send({ error: 'not_found' })
-    return row
-  })
+  // GET /ideation-artefacts/:id is served by artefacts/section-routes.ts
+  // (registering it here too crashed startup with FST_ERR_DUPLICATED_ROUTE).
 
   const uploadArtefactSchema = z.object({
     ideationProjectId: z.string().min(1),

@@ -55,14 +55,29 @@ export const publicationSectionRoutes: FastifyPluginAsync = async (app) => {
     }
   }
 
+  // Drafting guidance per section id, from the current template of the publication's type (same docType slug and
+  // policy → template link as POST /publications). Empty when no template is configured.
+  async function templateGuidance(type: string, subtype: string | null): Promise<Map<string, string>> {
+    const docType = (subtype ? `${type}_${subtype}` : type).toLowerCase().replace(/-/g, '_')
+    const policy = await app.prisma.publicationTypePolicy.findFirst({
+      where: { docType, isCurrent: true, retiredAt: null }, select: { templateId: true },
+    })
+    if (!policy?.templateId) return new Map()
+    const tmpl = await app.prisma.publicationTemplate.findUnique({ where: { id: policy.templateId }, select: { sections: true } })
+    const list = Array.isArray(tmpl?.sections) ? (tmpl!.sections as Array<{ id?: unknown; guidance?: unknown }>) : []
+    return new Map(list.filter(s => typeof s.id === 'string' && typeof s.guidance === 'string' && s.guidance)
+      .map(s => [s.id as string, s.guidance as string]))
+  }
+
   // --- GET /publications/:id/sections ------------------------------------
   app.get('/:id/sections', { preHandler: gate }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const pub = await app.prisma.publication.findUnique({
-      where: { id }, select: { id: true, deletedAt: true },
+      where: { id }, select: { id: true, deletedAt: true, type: true, subtype: true },
     })
     if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
     const sections = await sectionSvc.listCurrentSections(id)
+    const guidance = await templateGuidance(pub.type, pub.subtype)
     return {
       publicationId: id,
       sections:      sections.map(s => ({
@@ -70,6 +85,7 @@ export const publicationSectionRoutes: FastifyPluginAsync = async (app) => {
         sectionId:     s.sectionId,
         sectionNumber: s.sectionNumber,
         sectionTitle:  s.sectionTitle,
+        guidance:      guidance.get(s.sectionId) ?? null,
         contentHtml:   s.contentHtml,
         wordCount:     s.wordCount,
         aiConfidence:  s.aiConfidence,

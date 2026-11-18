@@ -266,6 +266,8 @@ export interface PublicationSectionRow {
   sectionId:     string
   sectionNumber: string
   sectionTitle:  string
+  // Drafting guidance from the publication type's template (e.g. "Do not fabricate values…"); null when none.
+  guidance?:     string | null
   contentHtml:   string
   wordCount:     number
   aiConfidence:  number | null

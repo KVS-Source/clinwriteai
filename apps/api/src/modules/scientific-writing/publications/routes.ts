@@ -21,7 +21,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { buildGppReport } from './gpp/builder.js'
 import { renderGppReportPdf } from './gpp/pdf-renderer.js'
-import { initialisePublicationVersion, type PublicationSectionPayload } from './section-service.js'
+import { initialisePublicationVersion, templateSectionPayloads, type PublicationSectionPayload } from './section-service.js'
 import { actorCanEditPublicationContent, PUBLICATION_EDIT_FORBIDDEN } from './access/publication-raci.js'
 import {
   canAdvancePublication,
@@ -208,14 +208,8 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
         where: { id: policy.templateId },
       })
       if (tmpl) {
-        const tmplSections = tmpl.sections as unknown as Array<{ id: string; number?: string; title: string }>
-        if (Array.isArray(tmplSections) && tmplSections.length > 0) {
-          sections = tmplSections.map((s, i) => ({
-            sectionId:     String(s.id ?? `s${i + 1}`),
-            sectionNumber: String(s.number ?? i + 1),
-            sectionTitle:  String(s.title ?? `Section ${i + 1}`),
-          }))
-        }
+        const fromTemplate = templateSectionPayloads(tmpl.sections)
+        if (fromTemplate.length > 0) sections = fromTemplate
       }
     }
 

@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "template": {
+    "docType": "manuscript_original_research",
+    "label": "Original Research Manuscript",
+    "description": "Original Research Manuscript — master starting template (v1.0). Intended use: Interventional clinical studies; adapt the reporting guideline and content for observational, diagnostic, systematic review, or other designs.",
+    "guidelineKey": "CONSORT"
+  },
+  "provenance": {
+    "sourceFile": "docs/ClinWrite_Master_Manuscript_Template.docx",
+    "sourceVersion": "MASTER STARTING TEMPLATE | Version 1.0 | [Date]",
+    "note": "This is a working manuscript starting point, not a regulatory-approved or journal-approved submission form. Journal and study-specific requirements take precedence.",
+    "generatedBy": "manuscript_to_json.py (sections = numbered Heading 1s; sub-headings, placeholders and table shells = starter HTML)"
+  },
+  "documentControl": [
+    {
+      "field": "Study / protocol ID",
+      "placeholder": "[Study ID]",
+      "mapsTo": null
+    },
+    {
+      "field": "Investigational product / intervention",
+      "placeholder": "[Name]",
+      "mapsTo": null
+    },
+    {
+      "field": "Manuscript working title",
+      "placeholder": "[Title]",
+      "mapsTo": "publication.title"
+    },
+    {
+      "field": "Target journal",
+      "placeholder": "[Journal / not yet selected]",
+      "mapsTo": "publication.journal"
+    },
+    {
+      "field": "Applicable reporting guideline",
+      "placeholder": "[CONSORT 2025 / other]",
+      "mapsTo": "publication.guideline"
+    },
+    {
+      "field": "Source documents",
+      "placeholder": "[Protocol version/date; SAP version/date; CSR version/date; tables/listings/figures]",
+      "mapsTo": "publication.sourceDocumentId (+ citations)"
+    },
+    {
+      "field": "Draft version / date",
+      "placeholder": "[v0.1 / date]",
+      "mapsTo": "publication.version"
+    },
+    {
+      "field": "Medical writer / lead author",
+      "placeholder": "[Name]",
+      "mapsTo": "publication.authors (R)"
+    },
+    {
+      "field": "Status",
+      "placeholder": "[Draft / internal review / author review]",
+      "mapsTo": "publication.status"
+    }
+  ],
+  "sections": [
+    {
+      "id": "title",
+      "number": "1",
+      "title": "Title page",
+      "guidance": "Confirm authorship against ICMJE criteria, author order, affiliations, and journal title-page rules. Do not infer authors or contributions.",
+      "starterHtml": "<p>[Concise informative manuscript title specifying population, intervention, comparator, and study design where appropriate]</p><p><strong>Short running title:</strong> [≤ journal limit]</p><p><strong>Authors:</strong> [Full names, degrees, affiliations, ORCID IDs as required]</p><p><strong>Corresponding author:</strong> [Name, institution, postal address, email]</p><p><strong>Trial registration:</strong> [Registry, identifier, registration date, URL]</p><p><strong>Word count:</strong> [Main text] | Tables: [n] | Figures: [n] | Supplementary files: [n]</p>"
+    },
+    {
+      "id": "abstract",
+      "number": "2",
+      "title": "Abstract",
+      "guidance": "Use the target journal’s structured/unstructured format and word limit. For randomized trials, align with CONSORT for abstracts.",
+      "starterHtml": "<h3>Importance / Background</h3><p>[Clinical problem and knowledge gap]</p><h3>Objective</h3><p>[Primary study objective]</p><h3>Design, setting, and participants</h3><p>[Design, sites, recruitment period, eligibility, sample size]</p><h3>Interventions</h3><p>[Arms, dose, duration]</p><h3>Main outcomes and measures</h3><p>[Prespecified primary outcome, timepoint, analysis]</p><h3>Results</h3><p>[Randomized/analyzed N; main numerical effect estimate, precision interval, safety summary]</p><h3>Conclusions</h3><p>[Balanced conclusion supported by results]</p><h3>Trial registration</h3><p>[Registry and identifier]</p><p><strong>Keywords:</strong> [3–6 journal-compliant terms, preferably MeSH]</p>"
+    },
+    {
+      "id": "intro",
+      "number": "3",
+      "title": "Introduction",
+      "guidance": "Use numbered Vancouver citations in order of first appearance: [1], [2], etc.; verify each claim against a source.",
+      "starterHtml": "<h3>3.1 Background and unmet need</h3><p>[Summarize disease burden, current treatment landscape, and key references.]</p><h3>3.2 Scientific rationale</h3><p>[Explain the intervention, mechanism, prior evidence, and evidence gap.]</p><h3>3.3 Objectives and hypotheses</h3><p>[State prespecified primary objective, key secondary objectives, and hypothesis.]</p>"
+    },
+    {
+      "id": "methods",
+      "number": "4",
+      "title": "Methods",
+      "guidance": "Methods must reconcile with approved protocol, SAP and CSR; distinguish prespecified from post hoc analyses. Report dates and approvals accurately.",
+      "starterHtml": "<h3>4.1 Study design and oversight</h3><p>[Phase, randomized/nonrandomized, parallel-group/crossover, allocation ratio, blinding, multicenter status, countries, study dates.]</p><h3>4.2 Ethics and informed consent</h3><p>[Ethics committee/IRB approvals, consent procedure, applicable ethical standards.]</p><h3>4.3 Participants</h3><p>[Inclusion/exclusion criteria, recruitment, setting, and screening procedures.]</p><h3>4.4 Randomization, allocation concealment, and blinding</h3><p>[Sequence generation, stratification, concealment, roles blinded, unblinding procedures; mark not applicable where relevant.]</p><h3>4.5 Interventions and comparators</h3><p>[Dose, route, frequency, duration, permitted/concomitant therapies, adherence.]</p><h3>4.6 Outcomes and assessments</h3><p>[Primary/secondary endpoints, exact definitions, assessment timepoints, measurement instruments, safety outcomes.]</p><h3>4.7 Sample size determination</h3><p>[Assumptions, power, alpha, clinically meaningful effect, attrition.]</p><h3>4.8 Statistical analysis</h3><p>[Analysis sets, estimand, models, covariates, missing data, multiplicity, sensitivity analyses, interim analyses, software.]</p><h3>4.9 Protocol amendments and deviations</h3><p>[Important post-start changes, dates, rationale, impact on analysis.]</p>"
+    },
+    {
+      "id": "results",
+      "number": "5",
+      "title": "Results",
+      "guidance": "Do not fabricate values. Preserve denominators, units, analysis sets, rounding, and CSR/TLF traceability; avoid interpreting findings in Results.",
+      "starterHtml": "<h3>5.1 Participant disposition</h3><p>[Screened, excluded, randomized, treated, completed, discontinued; reasons; cite Figure 1.]</p><h3>5.2 Baseline demographics and clinical characteristics</h3><p>[Analysis populations, baseline comparability; cite Table 1.]</p><h3>5.3 Primary efficacy outcome</h3><p>[Numerator/denominator or summary statistics by arm, effect estimate, 95% CI, p-value if applicable, analysis population/timepoint.]</p><h3>5.4 Secondary and exploratory outcomes</h3><p>[Results in prespecified order; label exploratory/post hoc findings.]</p><h3>5.5 Safety and tolerability</h3><p>[Exposure, TEAEs, serious AEs, AESIs, discontinuations, deaths; denominators and coding dictionary/version.]</p><h3>5.6 Additional analyses</h3><p>[Subgroups, sensitivity analyses, protocol deviations, missing data as applicable.]</p>"
+    },
+    {
+      "id": "discussion",
+      "number": "6",
+      "title": "Discussion",
+      "starterHtml": "<h3>6.1 Principal findings</h3><p>[Summarize primary and clinically meaningful findings without repeating every result.]</p><h3>6.2 Interpretation in context</h3><p>[Compare with prior literature; explain agreement/disagreement and clinical relevance.]</p><h3>6.3 Strengths and limitations</h3><p>[Design strengths, bias, missingness, generalizability, multiplicity, follow-up limitations.]</p><h3>6.4 Clinical and research implications</h3><p>[What findings imply and what further studies are warranted.]</p>"
+    },
+    {
+      "id": "conclusion",
+      "number": "7",
+      "title": "Conclusion",
+      "starterHtml": "<p>[Concise evidence-based conclusion consistent with prespecified outcomes and limitations; avoid overstating causality or efficacy.]</p>"
+    },
+    {
+      "id": "declarations",
+      "number": "8",
+      "title": "Declarations and publication information",
+      "starterHtml": "<h3>Ethics approval and consent</h3><p>[Committee names, approval IDs/dates, consent statement.]</p><h3>Consent for publication</h3><p>[Applicable statement or Not applicable.]</p><h3>Trial registration</h3><p>[Registry, number, date; note retrospective registration if applicable.]</p><h3>Funding and sponsor role</h3><p>[Funding source, grant number, role in design, conduct, analysis, writing, publication decision.]</p><h3>Conflicts of interest / competing interests</h3><p>[Author-specific disclosures; ICMJE disclosure forms if requested.]</p><h3>Author contributions</h3><p>[Author-specific contributions; CRediT taxonomy if required; all authors approve final manuscript.]</p><h3>Acknowledgments and medical writing support</h3><p>[Contributors not meeting authorship criteria, editorial support, funding.]</p><h3>Data sharing / availability</h3><p>[Availability, access conditions, repository, protocol/SAP availability where applicable.]</p><h3>Use of AI-assisted tools</h3><p>[Disclosure per journal policy, including tool and human oversight where required.]</p>"
+    },
+    {
+      "id": "references",
+      "number": "9",
+      "title": "References",
+      "guidance": "Vancouver numeric style; follow the selected journal’s punctuation, journal abbreviation, DOI, and author-count requirements.",
+      "starterHtml": "<p>1. [Author AA, Author BB. Article title. Abbreviated Journal Title. Year;volume(issue):pages. doi:...]</p><p>2. [Next cited reference.]</p>"
+    },
+    {
+      "id": "tables_figures",
+      "number": "10",
+      "title": "Tables and figures",
+      "guidance": "Replace shells with validated values from TLFs; define abbreviations, denominators, units, missing data, and statistical footnotes.",
+      "starterHtml": "<p><strong>Table 1. Baseline demographic and clinical characteristics</strong></p><table><thead><tr><th>Characteristic</th><th>Intervention [N= ]</th><th>Comparator [N= ]</th></tr></thead><tbody><tr><td>Age, years, mean (SD)</td><td>[ ]</td><td>[ ]</td></tr><tr><td>Female, n (%)</td><td>[ ]</td><td>[ ]</td></tr><tr><td>Baseline disease measure, mean (SD)</td><td>[ ]</td><td>[ ]</td></tr></tbody></table><p><strong>Table 2. Primary and key secondary efficacy outcomes</strong></p><table><thead><tr><th>Outcome / timepoint</th><th>Intervention</th><th>Comparator</th><th>Effect (95% CI) / p-value</th></tr></thead><tbody><tr><td>Primary outcome [timepoint]</td><td>[ ]</td><td>[ ]</td><td>[ ]</td></tr><tr><td>Key secondary outcome</td><td>[ ]</td><td>[ ]</td><td>[ ]</td></tr></tbody></table><p><strong>Table 3. Summary of treatment-emergent adverse events</strong></p><table><thead><tr><th>Safety category</th><th>Intervention n/N (%)</th><th>Comparator n/N (%)</th></tr></thead><tbody><tr><td>Any TEAE</td><td>[ ]</td><td>[ ]</td></tr><tr><td>Serious TEAE</td><td>[ ]</td><td>[ ]</td></tr><tr><td>TEAE leading to discontinuation</td><td>[ ]</td><td>[ ]</td></tr><tr><td>Deaths</td><td>[ ]</td><td>[ ]</td></tr></tbody></table><p>Figure 1. Participant flow diagram — [Insert CONSORT flow diagram or study-appropriate equivalent.]</p><p>Figure 2. Primary outcome visualization — [Insert validated figure and legend.]</p><p>Supplementary materials — [Detailed methods, extra tables/figures, reporting checklist, protocol/SAP where required.]</p>"
+    },
+    {
+      "id": "traceability",
+      "number": "12",
+      "title": "Drafting traceability log",
+      "internal": true,
+      "starterHtml": "<table><thead><tr><th>Manuscript section</th><th>Source document / location</th><th>Open query / decision</th><th>Owner / status</th></tr></thead><tbody><tr><td>Methods: outcomes</td><td>[Protocol § / SAP §]</td><td>[Query]</td><td>[Owner/status]</td></tr><tr><td>Results: primary endpoint</td><td>[CSR § / TLF ID]</td><td>[Query]</td><td>[Owner/status]</td></tr><tr><td>Safety</td><td>[CSR § / TLF ID]</td><td>[Query]</td><td>[Owner/status]</td></tr></tbody></table>"
+    }
+  ],
+  "checklist": [
+    {
+      "id": "all_placeholders_resolved_target_journal_formatt",
+      "label": "All placeholders resolved; target journal formatting applied",
+      "required": true,
+      "groupId": "format"
+    },
+    {
+      "id": "study_design_and_reporting_guideline_confirmed_e",
+      "label": "Study design and reporting guideline confirmed (e.g., CONSORT 2025 for randomized trials)",
+      "required": true,
+      "groupId": "equator"
+    },
+    {
+      "id": "objectives_endpoints_populations_and_timepoints_",
+      "label": "Objectives, endpoints, populations, and timepoints match protocol/SAP/CSR",
+      "required": true,
+      "groupId": "equator"
+    },
+    {
+      "id": "all_results_reconciled_against_approved_tables_l",
+      "label": "All results reconciled against approved tables, listings, and figures",
+      "required": true,
+      "groupId": "figures"
+    },
+    {
+      "id": "numerical_consistency_across_abstract_text_table",
+      "label": "Numerical consistency across abstract, text, tables, figures, and supplements",
+      "required": true,
+      "groupId": "figures"
+    },
+    {
+      "id": "randomization_masking_sample_size_missing_data_a",
+      "label": "Randomization, masking, sample size, missing data, and estimands accurately reported",
+      "required": true,
+      "groupId": "equator"
+    },
+    {
+      "id": "safety_denominators_ae_terms_and_exposure_verifi",
+      "label": "Safety denominators, AE terms, and exposure verified",
+      "required": true,
+      "groupId": "figures"
+    },
+    {
+      "id": "ethics_registration_funding_data_sharing_coi_and",
+      "label": "Ethics, registration, funding, data sharing, COI, and authorship statements complete",
+      "required": true,
+      "groupId": "statements"
+    },
+    {
+      "id": "references_verified_vancouver_numbering_sequenti",
+      "label": "References verified; Vancouver numbering sequential; all figures/tables cited",
+      "required": true,
+      "groupId": "refs"
+    },
+    {
+      "id": "author_approval_and_sponsor_publication_process_",
+      "label": "Author approval and sponsor publication process documented",
+      "required": true,
+      "groupId": "statements"
+    }
+  ]
+}

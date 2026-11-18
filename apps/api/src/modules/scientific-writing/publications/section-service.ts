@@ -33,6 +33,19 @@ export interface InitialiseArgs {
   sections:      PublicationSectionPayload[]
 }
 
+/** A PublicationTemplate's `sections` JSON → the v0.1 section payloads for a new publication. Each section keeps its
+ *  id / number / title and starts with the template's starterHtml (sub-headings, [placeholders], table shells, e.g.
+ *  docs/templates/manuscript-original-research.template.json); a section without one starts empty. */
+export function templateSectionPayloads(raw: unknown): PublicationSectionPayload[] {
+  if (!Array.isArray(raw)) return []
+  return (raw as Array<{ id?: unknown; number?: unknown; title?: unknown; starterHtml?: unknown }>).map((s, i) => ({
+    sectionId:     String(s.id ?? `s${i + 1}`),
+    sectionNumber: String(s.number ?? i + 1),
+    sectionTitle:  String(s.title ?? `Section ${i + 1}`),
+    ...(typeof s.starterHtml === 'string' && s.starterHtml && { contentHtml: s.starterHtml }),
+  }))
+}
+
 /** Hash the full set of section bodies so provenance can bind an
  *  e-signature to an exact content set later (same pattern as Module A).
  *  Stable ordering by sectionId keeps the hash deterministic across
@@ -117,10 +130,12 @@ export class PublicationSectionService {
       select: { currentVersionId: true },
     })
     if (!pub?.currentVersionId) return []
-    return this.prisma.publicationSectionContent.findMany({
+    const rows = await this.prisma.publicationSectionContent.findMany({
       where:   { publicationVersionId: pub.currentVersionId },
-      orderBy: { sectionNumber: 'asc' },
     })
+    // Natural order by section number: "1, 2, … 10, 12" and "2.1 < 2.10". A text sort put "10" before "2", so a
+    // template with ten or more sections listed Tables & figures right after the Title page.
+    return rows.sort((a, b) => a.sectionNumber.localeCompare(b.sectionNumber, 'en', { numeric: true }))
   }
 
   async upsertSectionContent(args: UpsertSectionArgs) {

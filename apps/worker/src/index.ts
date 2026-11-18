@@ -28,6 +28,7 @@ import { handleAiValidationPassMedContent }    from './jobs/med-content-ai-valid
 import { handleDistillRegulatoryBestPractice }      from './jobs/regulatory-distill-best-practice.js'
 import { handleAiInitialDraftRegulatoryDocument }   from './jobs/regulatory-ai-initial-draft.js'
 import { handleAiValidationPassRegulatoryDocument } from './jobs/regulatory-ai-validation-pass.js'
+import { handleDistillIdeationBestPractice }        from './jobs/ideation-distill-best-practice.js'
 import { handleDistillBestPractice } from './jobs/distill-best-practice.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
@@ -135,6 +136,8 @@ const handlers = {
   // Module D — initial draft + 85% validation loop (Phase M-D.3).
   'regulatory.ai_initial_draft':        handleAiInitialDraftRegulatoryDocument,
   'regulatory.ai_validation_pass':      handleAiValidationPassRegulatoryDocument,
+  // Module E — same BP distiller scoped to ideation doctypes (Phase M-E.1).
+  'ideation.distill_best_practice':     handleDistillIdeationBestPractice,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
   // Platform — one-off Best-Practice PDF → structured digest. Enqueued
@@ -186,6 +189,7 @@ const concurrency: Record<JobName, number> = {
   'regulatory.distill_best_practice':   1,
   'regulatory.ai_initial_draft':        2,
   'regulatory.ai_validation_pass':      1,
+  'ideation.distill_best_practice':     1,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
   // One AI call per distillation; serial to keep provider pressure predictable.

@@ -53,12 +53,23 @@ model IdeationArtefact {
   approvalStatusCheck    String   @default("pending")              // passed|blocked|confirmed_external|pending
   masterLibraryPushDate  DateTime? @db.Date                        // null for uploads; set for Master Library pulls
 
+  // Phase M-E.1 — docType pin + policy stack pointers.
+  docType                              String?  @map("doc_type")
+  ideationTypePolicyVersionAtCreate    Int?     @map("ideation_type_policy_version_at_create")
+  ideationAiPromptRecordId             String?  @map("ideation_ai_prompt_record_id")
+  ideationAiPromptVersionAtCreate      Int?     @map("ideation_ai_prompt_version_at_create")
+  ideationBestPracticeRecordId         String?  @map("ideation_best_practice_record_id")
+  ideationBestPracticeVersionAtCreate  Int?     @map("ideation_best_practice_version_at_create")
+
   ideationProject        IdeationProject       @relation(fields: [ideationProjectId], references: [id], onDelete: Cascade)
   cards                  IdeationContentCard[]
   currencyChecks         ClaimCurrencyCheck[]
 
   @@map("ideation_artefacts")
   @@index([ideationProjectId])
+  @@index([docType])
+  @@index([ideationAiPromptRecordId])
+  @@index([ideationBestPracticeRecordId])
 }
 
 // --------------------------------------------------------------------------
@@ -250,4 +261,125 @@ model DublinCoreMetadata {
   card                     IdeationContentCard @relation(fields: [ideationContentCardId], references: [id], onDelete: Cascade)
 
   @@map("dublin_core_metadata")
+}
+
+// ===== Phase M-E.1 — policy stack =======================================
+// Mirror of Module D's RegulatoryTypePolicy trio. docType values target
+// the authored ideation artefact kinds (kol_engagement_brief,
+// patient_story, hcp_insight_report, medical_affairs_narrative,
+// disease_awareness_brief, press_release, etc.).
+
+model IdeationTypePolicy {
+  id                  String    @id @default(uuid())
+  docType             String
+  version             Int
+  isCurrent           Boolean   @default(true)
+  templateId          String?
+  checklistTemplateId String?
+  channelHint         String?                                        // 'kol' | 'hcp' | 'patient' | 'press' | null
+  reviewTierFormula   String?
+  smePrompt           String    @default("")
+  bestPracticeDigest  Json      @default("{\"principles\":[]}")
+  sectionRules        Json      @default("{}")
+  effectiveDate       DateTime  @default(now())
+  retiredAt           DateTime?
+  retiredBy           String?
+  retireReason        String?
+  supersededBy        String?
+  createdBy           String
+  updatedBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("ideation_type_policies")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model IdeationAiPromptRecord {
+  id            String    @id @default(uuid())
+  docType       String
+  version       Int
+  status        String    @default("draft")                          // 'draft' | 'approved' | 'retired'
+  smePrompt     String
+  sectionRules  Json      @default("{}")
+  supersededBy  String?
+  effectiveDate DateTime?
+  retiredAt     DateTime?
+  retireReason  String?
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdBy     String
+  updatedBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("ideation_ai_prompt_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model IdeationBestPracticeRecord {
+  id             String    @id @default(uuid())
+  docType        String
+  version        Int
+  status         String    @default("draft")
+  digest         Json      @default("{\"principles\":[]}")
+  sourcePdfId    String?
+  distilledAt    DateTime?
+  distilledModel String?
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("ideation_best_practice_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model IdeationArtefactTemplate {
+  id          String    @id @default(uuid())
+  docType     String
+  version     Int       @default(1)
+  isCurrent   Boolean   @default(true)
+  label       String
+  description String    @default("")
+  sections    Json      @default("[]")
+  retiredAt   DateTime?
+  retiredBy   String?
+  createdBy   String
+  updatedBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("ideation_artefact_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model IdeationArtefactChecklistTemplate {
+  id         String    @id @default(uuid())
+  docType    String
+  version    Int       @default(1)
+  isCurrent  Boolean   @default(true)
+  items      Json      @default("[]")
+  retiredAt  DateTime?
+  retiredBy  String?
+  createdBy  String
+  updatedBy  String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("ideation_artefact_checklist_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
 }

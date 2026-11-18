@@ -326,6 +326,20 @@ async function buildServer() {
   await app.register(regulatoryAiPromptRoutes,      { prefix: '/regulatory-ai-prompts' })
   await app.register(regulatoryBestPracticeRoutes,  { prefix: '/regulatory-best-practice-records' })
 
+  // Ideation Policy admin (Phase M-E.1, migration 87) — mirror of the
+  // regulatory policy stack scoped to ideation / KOL engagement
+  // doctypes (kol_engagement_brief, patient_story, hcp_insight_report,
+  // medical_affairs_narrative, disease_awareness_brief, press_release).
+  // Writes PM-only + Module E gated.
+  const {
+    ideationTypePolicyRoutes,
+    ideationAiPromptRoutes,
+    ideationBestPracticeRoutes,
+  } = await import('./modules/ideation/policy/routes.js')
+  await app.register(ideationTypePolicyRoutes,   { prefix: '/ideation-type-policies' })
+  await app.register(ideationAiPromptRoutes,     { prefix: '/ideation-ai-prompts' })
+  await app.register(ideationBestPracticeRoutes, { prefix: '/ideation-best-practice-records' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')

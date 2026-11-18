@@ -142,6 +142,130 @@ export const consistencyRoutes: FastifyPluginAsync = async (app) => {
     return latest
   })
 
+  // Phase M-D.7+ — agentic consistency narrative. Calls Claude to turn
+  // the latest ConsistencyCheckResult + contradictions into a 2-3
+  // sentence advisory for the Regulatory Lead. Mirror of Module C's
+  // agentic MLR advisory report. Deterministic structured data stays
+  // the authoritative shape; the AI narrative is additive.
+  app.get('/:submissionId/consistency/advisory', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { submissionId } = request.params as { submissionId: string }
+
+    const latest = await app.prisma.consistencyCheckResult.findFirst({
+      where:   { submissionId },
+      orderBy: { runAt: 'desc' },
+      include: { contradictions: true },
+    })
+    if (!latest) return reply.code(404).send({ error: 'no_run_yet' })
+
+    const submission = await app.prisma.regulatorySubmission.findUnique({
+      where:  { id: submissionId },
+      select: { id: true, projectId: true, submissionType: true },
+    })
+    const project = submission?.projectId
+      ? await app.prisma.project.findUnique({ where: { id: submission.projectId }, select: { tenantId: true } })
+      : null
+
+    const openContradictions = latest.contradictions.filter(c => !c.resolved)
+    const majorOpen = openContradictions.filter(c => c.severity === 'major').length
+    const minorOpen = openContradictions.filter(c => c.severity === 'minor').length
+    const totalContradictions = latest.contradictions.length
+    const resolvedCount = totalContradictions - openContradictions.length
+
+    const stats = {
+      totalContradictions,
+      resolvedCount,
+      openCount: openContradictions.length,
+      majorOpen,
+      minorOpen,
+      passed: latest.passed,
+    }
+
+    const systemPrompt = [
+      'You are a regulatory-compliance advisor summarising an eCTD consistency check for the Regulatory Lead.',
+      '',
+      'RULES',
+      '1. Produce a 2-3 sentence narrative advisory. Plain prose, no lists, no headings.',
+      '2. Lead with risk level; name the top concern; recommend one specific next action.',
+      '3. Do not invent counts or severities — use ONLY the numbers given below.',
+      '4. If no contradictions exist, say so plainly ("No cross-module contradictions detected; package is submission-ready pending validator.").',
+      '5. Internal tool for compliance staff; no marketing phrasing.',
+    ].join('\n')
+
+    const contradictionSummary = openContradictions.slice(0, 6).map(c =>
+      `  - [${c.severity}] ${c.sourceSection} says "${c.sourceValue.slice(0, 80)}" vs ${c.targetSection} says "${c.targetValue.slice(0, 80)}"`,
+    ).join('\n')
+
+    const userPrompt = [
+      `Submission: ${submission?.submissionType ?? 'unknown'} (${submissionId})`,
+      `Consistency check run at: ${latest.runAt.toISOString()}`,
+      '',
+      'Stats:',
+      `  total contradictions: ${totalContradictions} (${resolvedCount} resolved, ${openContradictions.length} open)`,
+      `  open major: ${majorOpen}`,
+      `  open minor: ${minorOpen}`,
+      `  passes 5→6 gate: ${latest.passed ? 'yes' : 'no (open major contradictions block)'}`,
+      '',
+      openContradictions.length > 0 ? 'Top open contradictions:' : 'All contradictions resolved.',
+      contradictionSummary,
+      '',
+      'Write the advisory.',
+    ].join('\n')
+
+    let narrative: string | null = null
+    let aiModel = 'stub-consistency-advisor-v1'
+    let aiCallRecordId: string | null = null
+
+    try {
+      const model = await chooseModel(app.prisma)
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId ?? project?.tenantId ?? 'unknown',
+        projectId: submission?.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'D',
+        intent:    'agentic_consistency_advisory',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 400,
+      })
+      narrative = result.responseText.trim()
+      aiModel = result.model
+      aiCallRecordId = result.recordId
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      request.log.warn({ err, submissionId }, 'consistency advisory AI call failed — returning deterministic-only')
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'agentic_consistency_advisory_generated',
+      entityType: 'regulatory_submission',
+      entityId:   submissionId,
+      details: {
+        consistencyRunId: latest.id,
+        majorOpen,
+        minorOpen,
+        model:            aiModel,
+        aiCallRecordId,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      submissionId,
+      consistencyRunId: latest.id,
+      model:            aiModel,
+      generatedAt:      new Date().toISOString(),
+      stats,
+      openContradictions: openContradictions.map(c => ({
+        id: c.id, severity: c.severity, sourceSection: c.sourceSection, targetSection: c.targetSection,
+      })),
+      narrative,
+    }
+  })
+
   app.patch('/:submissionId/consistency/contradictions/:contradictionId/resolve', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { submissionId, contradictionId } = request.params as { submissionId: string; contradictionId: string }
     const parsed = resolveContradictionSchema.safeParse(request.body ?? {})

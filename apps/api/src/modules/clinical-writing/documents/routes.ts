@@ -33,7 +33,6 @@ import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
-import type { SectionTemplateFormat } from '../../platform/section-template/schema.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
@@ -700,7 +699,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
               where:  { OR: [{ sectionId }, { id: sectionId }] },
               select: {
                 sectionId: true, sectionNumber: true, sectionTitle: true,
-                sectionTemplateRecordId: true, templateFormatJson: true,
+                sectionTemplateRecordId: true, templateFormatRules: true,
               },
             },
           },
@@ -722,24 +721,23 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return null
     })
 
-    // Section template (migration 90). Prefer the snapshot pinned on the
-    // section at create-time; fall back to the currently-approved template
-    // for sections authored before migration 90 (templateFormatJson is NULL).
+    // Section template (migration 91). Prefer the NL snapshot pinned on
+    // the section at create-time; fall back to the currently-approved
+    // template for sections authored before the snapshot existed.
     // Wrapped in try/catch so test mocks without sectionTemplate still work.
-    let sectionTemplateFormat: SectionTemplateFormat | null =
-      (section.templateFormatJson as unknown as SectionTemplateFormat | null) ?? null
-    if (!sectionTemplateFormat) {
+    let sectionTemplateFormatRules: string | null = section.templateFormatRules ?? null
+    if (!sectionTemplateFormatRules) {
       try {
         const approved = await app.prisma.sectionTemplate.findFirst({
           where:   { docType: doc.type.replace(/-/g, '_'), sectionKey: section.sectionId, status: 'approved' },
           orderBy: { version: 'desc' },
-          select:  { formatJson: true },
+          select:  { formatRules: true },
         })
-        sectionTemplateFormat = (approved?.formatJson as unknown as SectionTemplateFormat | null) ?? null
+        sectionTemplateFormatRules = approved?.formatRules ?? null
       } catch { /* model absent on test mocks or pre-migration — fine */ }
     }
 
-    const renderedPromptBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormat)
+    const renderedPromptBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
 
     const wholeDocPrinciples = policy
       ? policy.bestPracticeDigest.principles
@@ -2567,22 +2565,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       app.log.warn({ err, documentId }, 'policy resolve failed — falling back to no-policy prompt')
       return null
     })
-    // Section template (migration 90). Snapshot pinned on the section
+    // Section template (migration 91). Snapshot pinned on the section
     // wins; else the latest approved SectionTemplate for (docType, key).
     // Wrapped in try/catch so test mocks without sectionTemplate still work.
-    let sectionTemplateFormat: SectionTemplateFormat | null =
-      ((section as { templateFormatJson?: unknown }).templateFormatJson as SectionTemplateFormat | null | undefined) ?? null
-    if (!sectionTemplateFormat) {
+    let sectionTemplateFormatRules: string | null =
+      ((section as { templateFormatRules?: string | null }).templateFormatRules) ?? null
+    if (!sectionTemplateFormatRules) {
       try {
         const approved = await app.prisma.sectionTemplate.findFirst({
           where:   { docType: doc.type.replace(/-/g, '_'), sectionKey: section.sectionId, status: 'approved' },
           orderBy: { version: 'desc' },
-          select:  { formatJson: true },
+          select:  { formatRules: true },
         })
-        sectionTemplateFormat = (approved?.formatJson as unknown as SectionTemplateFormat | null) ?? null
+        sectionTemplateFormatRules = approved?.formatRules ?? null
       } catch { /* model absent on test mocks or pre-migration — fine */ }
     }
-    const policyBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormat)
+    const policyBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
 
     // ----- Carry-prompt opt-in (step B of sPM-carry-prompt) -------------
     // When FEATURE_CARRY_PROMPT allowlists this doc type, replace the

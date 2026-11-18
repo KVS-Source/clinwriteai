@@ -21,7 +21,7 @@ const writeGate = requireAuth({ roles: ['pm'] })
 
 interface Row {
   id: string; docType: string; sectionKey: string; version: number; status: string
-  formatJson: unknown
+  formatRules: string
   supersededBy: string | null; effectiveDate: Date | null
   retiredAt: Date | null; retireReason: string | null
   approvedBy: string | null; approvedAt: Date | null
@@ -35,7 +35,7 @@ function shape(row: Row) {
     sectionKey:    row.sectionKey,
     version:       row.version,
     status:        row.status,
-    formatJson:    row.formatJson,
+    formatRules:   row.formatRules,
     supersededBy:  row.supersededBy,
     effectiveDate: row.effectiveDate?.toISOString() ?? null,
     retiredAt:     row.retiredAt?.toISOString() ?? null,

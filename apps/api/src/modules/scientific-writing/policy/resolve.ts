@@ -15,7 +15,6 @@ import {
   SECTION_GROUNDING_RULES as CLINICAL_SECTION_GROUNDING_RULES,
   renderSectionTemplateNL,
 } from '../../platform/document-type-policy/resolve.js'
-import type { SectionTemplateFormat } from '../../platform/section-template/schema.js'
 
 export interface PubPolicyPrinciple {
   scope:    string
@@ -122,11 +121,11 @@ export function renderPubSectionRules(
 }
 
 export function renderPubPolicyPromptBlock(
-  policy:                PubPolicyRowForAi | null,
-  sectionKey:            string | null = null,
-  sectionTemplateFormat: SectionTemplateFormat | null = null,
+  policy:                     PubPolicyRowForAi | null,
+  sectionKey:                 string | null = null,
+  sectionTemplateFormatRules: string | null = null,
 ): string {
-  if (!policy && !sectionTemplateFormat) return ''
+  if (!policy && !sectionTemplateFormatRules) return ''
   const parts: string[] = []
   if (policy && policy.smePrompt.trim().length > 0) {
     parts.push(`SME PROMPT (publication policy v${policy.version})`, policy.smePrompt.trim())
@@ -141,8 +140,8 @@ export function renderPubPolicyPromptBlock(
     const sec = renderPubSectionRules(sectionKey, { principles: [] }, policy.sectionRules)
     if (sec) parts.push('', `SECTION RULES (${sectionKey})`, sec)
   }
-  if (sectionKey && sectionTemplateFormat) {
-    const tpl = renderSectionTemplateNL(sectionTemplateFormat, sectionKey)
+  if (sectionKey && sectionTemplateFormatRules) {
+    const tpl = renderSectionTemplateNL(sectionTemplateFormatRules, sectionKey)
     if (tpl) parts.push('', tpl)
   }
   return parts.join('\n')

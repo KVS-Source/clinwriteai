@@ -1068,24 +1068,11 @@ export interface AiPromptPatchBody {
   sectionRules?: AiPromptSectionRules
 }
 
-// --- SectionTemplate (platform/section-template, migration 90) ----------
-// Per-section formatting JSON. The format object itself is deliberately
-// loosely typed on the web side (admin edits as raw JSON) — the server
-// validates against the full Zod schema in
-// apps/api/src/modules/platform/section-template/schema.ts.
+// --- SectionTemplate (platform/section-template, migration 91) ----------
+// Per-section formatting rules authored as natural language. The admin
+// writes the exact text the AI reads on every draft + rewrite — no
+// translation step.
 export type SectionTemplateStatus = 'draft' | 'approved' | 'retired'
-
-export type SectionTemplateFormat = {
-  page?:       Record<string, unknown>
-  font?:       Record<string, unknown>
-  paragraph?:  Record<string, unknown>
-  heading?:    Record<string, unknown>
-  list?:       Record<string, unknown>
-  table?:      Record<string, unknown>
-  references?: Record<string, unknown>
-  numbering?:  Record<string, unknown>
-  notes?:      string
-}
 
 export interface SectionTemplate {
   id:            string
@@ -1093,7 +1080,7 @@ export interface SectionTemplate {
   sectionKey:    string
   version:       number
   status:        SectionTemplateStatus
-  formatJson:    SectionTemplateFormat
+  formatRules:   string
   supersededBy:  string | null
   effectiveDate: string | null
   retiredAt:     string | null
@@ -1107,13 +1094,13 @@ export interface SectionTemplate {
 }
 
 export interface SectionTemplateCreateBody {
-  docType:    string
-  sectionKey: string
-  formatJson: SectionTemplateFormat
+  docType:     string
+  sectionKey:  string
+  formatRules: string
 }
 
 export interface SectionTemplatePatchBody {
-  formatJson: SectionTemplateFormat
+  formatRules: string
 }
 
 // --- BestPracticeRecord (platform/best-practice) --------------------------

@@ -10,19 +10,18 @@
 //   - Only one 'draft' row per (docType, sectionKey) at a time — admin
 //     edits the draft in place rather than piling up untouched drafts.
 
-import type { PrismaClient, Prisma } from '@prisma/client'
-import type { SectionTemplateFormat } from './schema.js'
+import type { PrismaClient } from '@prisma/client'
 
 export type SectionTemplateStatus = 'draft' | 'approved' | 'retired'
 
 export interface CreateInput {
-  docType:    string
-  sectionKey: string
-  formatJson: SectionTemplateFormat
+  docType:     string
+  sectionKey:  string
+  formatRules: string
 }
 
 export interface UpdateDraftInput {
-  formatJson: SectionTemplateFormat
+  formatRules: string
 }
 
 export class SectionTemplateService {
@@ -96,11 +95,11 @@ export class SectionTemplateService {
       data: {
         docType,
         sectionKey,
-        version:    nextVersion,
-        status:     'draft',
-        formatJson: input.formatJson as unknown as Prisma.InputJsonValue,
-        createdBy:  actorId,
-        updatedBy:  actorId,
+        version:     nextVersion,
+        status:      'draft',
+        formatRules: input.formatRules,
+        createdBy:   actorId,
+        updatedBy:   actorId,
       },
     })
   }
@@ -117,8 +116,8 @@ export class SectionTemplateService {
     return this.prisma.sectionTemplate.update({
       where: { id },
       data:  {
-        formatJson: input.formatJson as unknown as Prisma.InputJsonValue,
-        updatedBy:  actorId,
+        formatRules: input.formatRules,
+        updatedBy:   actorId,
       },
     })
   }

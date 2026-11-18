@@ -37,10 +37,10 @@ async function build(opts: {
   sectionRows?: Array<{
     sectionId: string; sectionNumber: string; sectionTitle: string
     sectionTemplateRecordId?: string | null
-    templateFormatJson?:      unknown
+    templateFormatRules?:     string | null
   }>
   aiInstructions?: string | null
-  sectionTemplateApproved?: { formatJson: unknown } | null
+  sectionTemplateApproved?: { formatRules: string } | null
 }) {
   const sections = opts.sectionRows ?? [
     { sectionId: 's6_2', sectionNumber: '6.2', sectionTitle: 'Inclusion Criteria' },
@@ -85,7 +85,7 @@ async function build(opts: {
       findUnique: vi.fn(async () => null),
       findFirst:  vi.fn(async () => null),
     },
-    // Migration 90: section-context endpoint falls back to the
+    // Migration 91: section-context endpoint falls back to the
     // latest-approved SectionTemplate when the section has no
     // snapshot pinned. Tests pass `sectionTemplateApproved: null`
     // (default) to exercise the "no template" path.
@@ -186,24 +186,20 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
       bestPracticeDigest: SAMPLE_DIGEST,
       sectionRules:       SAMPLE_RULES,
     }
+    const snapshotRules = 'Font: Times New Roman 11pt.\nLists: numbered, one item per line.'
     const { app } = await build({
       policyPinned: policy, policyVersionAtCreate: 3,
       sectionRows: [{
         sectionId: 's6_2', sectionNumber: '6.2', sectionTitle: 'Inclusion Criteria',
         sectionTemplateRecordId: 'tpl-1',
-        templateFormatJson: {
-          font: { family: 'Times New Roman', size: 11 },
-          paragraph: { lineHeight: 1.15 },
-          list: { type: 'numbered', marker: '1.' },
-        },
+        templateFormatRules: snapshotRules,
       }],
     })
     const body = (await get(app, 's6_2')).json()
-    expect(body.renderedPromptBlock).toContain('SECTION TEMPLATE (s6_2)')
-    expect(body.renderedPromptBlock).toContain('Times New Roman')
-    expect(body.renderedPromptBlock).toContain('11pt')
-    expect(body.renderedPromptBlock).toContain('1.15 line-height')
-    expect(body.renderedPromptBlock).toContain('numbered list')
+    expect(body.renderedPromptBlock).toContain('SECTION TEMPLATE (s6_2) — follow these formatting rules')
+    // Rules pass through verbatim — no translation.
+    expect(body.renderedPromptBlock).toContain('Font: Times New Roman 11pt.')
+    expect(body.renderedPromptBlock).toContain('Lists: numbered, one item per line.')
   })
 
   it('falls back to the latest-approved SectionTemplate when the section has no snapshot', async () => {
@@ -215,12 +211,11 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
     }
     const { app } = await build({
       policyPinned: policy, policyVersionAtCreate: 3,
-      sectionTemplateApproved: { formatJson: { font: { family: 'Arial', size: 10 } } },
+      sectionTemplateApproved: { formatRules: 'Font: Arial 10pt.' },
     })
     const body = (await get(app, 's6_2')).json()
     expect(body.renderedPromptBlock).toContain('SECTION TEMPLATE (s6_2)')
-    expect(body.renderedPromptBlock).toContain('Arial')
-    expect(body.renderedPromptBlock).toContain('10pt')
+    expect(body.renderedPromptBlock).toContain('Font: Arial 10pt.')
   })
 
   it('omits SECTION TEMPLATE block when neither snapshot nor approved template exists', async () => {

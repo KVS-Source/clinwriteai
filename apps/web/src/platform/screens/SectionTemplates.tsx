@@ -1,24 +1,14 @@
-// Section Templates — admin screen (migration 90).
+// Section Templates — admin screen (migration 91).
 //
-// Per-section formatting JSON that flows into every AI call so Claude
-// preserves the authored styling (font, paragraph, list, table,
-// references) on every rewrite. Versioned per (docType, sectionKey)
-// with the same draft → approved → retired workflow as AiPromptRecord.
+// Per-section formatting rules authored in natural language — admins
+// write the same prose the AI sees on every draft + rewrite. No JSON
+// schema to understand, no translation step, no renderer parity to
+// guard.
 //
-// Admins:
-//   - List all approved rows grouped by docType.
-//   - Open a (docType, sectionKey) to see the current approved + any
-//     live draft side-by-side.
-//   - Start a new draft (net-new section OR new version of existing).
-//   - Edit draft JSON in place with inline schema help.
-//   - Approve a draft: the previously-approved row flips to retired +
-//     supersededBy = this row id, atomically on the server.
-//   - Retire a row (operator cleanup).
-//
-// The format JSON is edited as raw JSON here — server validates against
-// the full Zod schema (apps/api/.../section-template/schema.ts). A
-// starter format is provided for net-new drafts so admins aren't
-// staring at `{}`.
+// Lifecycle (mirror of AiPromptRecord): draft → approved → retired.
+// Documents snapshot the approved rules onto each section at create
+// time so later admin approvals don't retroactively restyle in-flight
+// sections.
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -27,20 +17,20 @@ import { ApiError } from '../../api/client'
 import {
   platformApi,
   type SectionTemplate,
-  type SectionTemplateFormat,
 } from '../api/platformApi'
 import { DOCUMENT_TYPE_KEY, documentTypeLabel } from '../../utils/documentLabels'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 
 const DOC_TYPES = Object.keys(DOCUMENT_TYPE_KEY)
 
-const STARTER_FORMAT: SectionTemplateFormat = {
-  font:       { family: 'Times New Roman', size: 11, color: '#000000' },
-  paragraph:  { alignment: 'justify', lineHeight: 1.15, spaceAfter: 6 },
-  list:       { type: 'numbered', marker: '1.' },
-  table:      { borderStyle: 'solid', borderWidth: 0.5, borderColor: '#000000', headerRow: { fill: '#E7E6E6', fontWeight: 'bold' }, cellPadding: 4 },
-  references: { style: 'superscript' },
-}
+// Starter prose seeded into the editor for net-new drafts. Shows the
+// shape the AI follows well (short, concrete, one rule per line) and
+// gives the admin something to edit rather than a blank textarea.
+const STARTER_RULES = `Font: Times New Roman, 11pt, black.
+Paragraphs: justified alignment, 1.15 line height, 6pt space after.
+Lists: numbered ("1."), one item per line.
+Tables: 0.5pt solid black borders, gray (#E7E6E6) bold header row, 4pt cell padding.
+References: superscript style, no separator.`
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -50,20 +40,6 @@ function errMessage(err: unknown, fallback = 'Request failed'): string {
     return `${err.status}`
   }
   return err instanceof Error ? err.message : fallback
-}
-
-function parseFormatJson(text: string): { ok: SectionTemplateFormat } | { err: string } {
-  const trimmed = text.trim()
-  if (trimmed.length === 0) return { ok: {} }
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { err: 'Must be a JSON object.' }
-    }
-    return { ok: parsed as SectionTemplateFormat }
-  } catch (err) {
-    return { err: `JSON parse: ${err instanceof Error ? err.message : String(err)}` }
-  }
 }
 
 export function SectionTemplates() {
@@ -109,8 +85,9 @@ export function SectionTemplates() {
       <MasterLibraryHeading>
         <h1 className="text-[20px] font-semibold text-slate-900">Section Templates</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
-          Per-section formatting rules (font, paragraph, list, table) AI sees on every draft
-          + rewrite. Documents snapshot the approved row at create time, so later approvals
+          Per-section formatting rules AI follows on every draft + rewrite. Write them in
+          plain English &mdash; what you author here is what the model sees verbatim.
+          Documents snapshot the approved rules at create time, so later approvals
           don&rsquo;t retroactively restyle in-flight sections.
         </p>
       </MasterLibraryHeading>
@@ -140,7 +117,7 @@ export function SectionTemplates() {
           <p className="text-[13px] text-slate-600">No approved section templates yet.</p>
           <p className="mt-1 text-[12px] text-slate-500">
             Start one for a (doc type, section) pair and approve it to begin flowing format
-            rules into AI calls. Sections without a template still work — AI just doesn&rsquo;t
+            rules into AI calls. Sections without a template still work &mdash; AI just doesn&rsquo;t
             see any formatting hints.
           </p>
         </div>
@@ -228,16 +205,15 @@ function NewTemplateForm(props: {
 }) {
   const [docType, setDocType] = useState<string>(DOC_TYPES[0] ?? '')
   const [sectionKey, setSectionKey] = useState('')
-  const [json, setJson] = useState(() => JSON.stringify(STARTER_FORMAT, null, 2))
-  const [jsonError, setJsonError] = useState<string | null>(null)
+  const [rules, setRules] = useState(STARTER_RULES)
 
   const createMut = useMutation({
-    mutationFn: async () => {
-      const parsed = parseFormatJson(json)
-      if ('err' in parsed) { setJsonError(parsed.err); throw new Error(parsed.err) }
-      setJsonError(null)
-      return platformApi.createSectionTemplateDraft({ docType, sectionKey: sectionKey.trim(), formatJson: parsed.ok })
-    },
+    mutationFn: () =>
+      platformApi.createSectionTemplateDraft({
+        docType,
+        sectionKey: sectionKey.trim(),
+        formatRules: rules,
+      }),
     onSuccess: (row) => props.onCreated(row.docType, row.sectionKey),
   })
 
@@ -274,19 +250,19 @@ function NewTemplateForm(props: {
       </div>
 
       <div>
-        <label className="block text-[12px] font-medium text-slate-700" htmlFor="st-json">Format JSON</label>
+        <label className="block text-[12px] font-medium text-slate-700" htmlFor="st-rules">Formatting rules (plain English)</label>
         <textarea
-          id="st-json"
-          value={json}
-          onChange={e => setJson(e.target.value)}
-          rows={18}
-          className="mt-1 w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 font-mono text-[12px]"
+          id="st-rules"
+          value={rules}
+          onChange={e => setRules(e.target.value)}
+          rows={16}
+          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-[12px]"
         />
-        {jsonError && <p className="mt-1 text-[11px] text-rose-700">{jsonError}</p>}
         <p className="mt-1 text-[11px] text-slate-500">
-          Top-level keys: <code>page</code>, <code>font</code>, <code>paragraph</code>, <code>heading</code>,
-          <code>list</code>, <code>table</code>, <code>references</code>, <code>numbering</code>, <code>notes</code>.
-          Every field optional. Server validates the shape.
+          Write short, concrete rules the AI should follow. One rule per line is easiest to
+          read &mdash; e.g. &ldquo;Font: Times New Roman 11pt, black.&rdquo; or
+          &ldquo;Lists: numbered, one item per line.&rdquo; This exact text is injected into
+          every AI call for this (doc type, section) pair.
         </p>
       </div>
 
@@ -332,12 +308,12 @@ function TemplateEditor(props: {
   const draft    = versions.find(v => v.status === 'draft') ?? null
   const approved = versions.find(v => v.status === 'approved') ?? null
 
-  const [json, setJson] = useState<string | null>(null)
+  const [rules, setRules] = useState<string | null>(null)
   const effectiveDraft = draft
-  const activeText = json
-    ?? (effectiveDraft ? JSON.stringify(effectiveDraft.formatJson, null, 2) : approved ? JSON.stringify(approved.formatJson, null, 2) : JSON.stringify({}, null, 2))
-
-  const [jsonError, setJsonError] = useState<string | null>(null)
+  const activeText = rules
+    ?? effectiveDraft?.formatRules
+    ?? approved?.formatRules
+    ?? ''
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['section-template-versions', props.docType, props.sectionKey] })
@@ -345,28 +321,20 @@ function TemplateEditor(props: {
   }
 
   const createDraftMut = useMutation({
-    mutationFn: async () => {
-      const parsed = parseFormatJson(activeText)
-      if ('err' in parsed) { setJsonError(parsed.err); throw new Error(parsed.err) }
-      setJsonError(null)
-      return platformApi.createSectionTemplateDraft({
-        docType:    props.docType,
-        sectionKey: props.sectionKey,
-        formatJson: parsed.ok,
-      })
-    },
-    onSuccess: () => { setJson(null); invalidate() },
+    mutationFn: () => platformApi.createSectionTemplateDraft({
+      docType:     props.docType,
+      sectionKey:  props.sectionKey,
+      formatRules: activeText,
+    }),
+    onSuccess: () => { setRules(null); invalidate() },
   })
 
   const saveDraftMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: () => {
       if (!effectiveDraft) throw new Error('no draft')
-      const parsed = parseFormatJson(activeText)
-      if ('err' in parsed) { setJsonError(parsed.err); throw new Error(parsed.err) }
-      setJsonError(null)
-      return platformApi.updateSectionTemplateDraft(effectiveDraft.id, { formatJson: parsed.ok })
+      return platformApi.updateSectionTemplateDraft(effectiveDraft.id, { formatRules: activeText })
     },
-    onSuccess: () => { setJson(null); invalidate() },
+    onSuccess: () => { setRules(null); invalidate() },
   })
 
   const approveMut = useMutation({
@@ -378,7 +346,7 @@ function TemplateEditor(props: {
   })
 
   const retireMut = useMutation({
-    mutationFn: async (reason: string) => {
+    mutationFn: (reason: string) => {
       const target = effectiveDraft ?? approved
       if (!target) throw new Error('nothing to retire')
       return platformApi.retireSectionTemplate(target.id, reason)
@@ -407,15 +375,18 @@ function TemplateEditor(props: {
       </div>
 
       <div>
-        <label className="block text-[12px] font-medium text-slate-700" htmlFor="st-edit-json">Format JSON</label>
+        <label className="block text-[12px] font-medium text-slate-700" htmlFor="st-edit-rules">Formatting rules</label>
         <textarea
-          id="st-edit-json"
+          id="st-edit-rules"
           value={activeText}
-          onChange={e => setJson(e.target.value)}
+          onChange={e => setRules(e.target.value)}
           rows={22}
-          className="mt-1 w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 font-mono text-[12px]"
+          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-[12px]"
         />
-        {jsonError && <p className="mt-1 text-[11px] text-rose-700">{jsonError}</p>}
+        <p className="mt-1 text-[11px] text-slate-500">
+          Plain English, one rule per line. Injected verbatim into every AI call for this
+          section.
+        </p>
       </div>
 
       {(createDraftMut.error || saveDraftMut.error || approveMut.error || retireMut.error) && (

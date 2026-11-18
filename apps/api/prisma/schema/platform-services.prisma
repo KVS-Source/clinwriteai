@@ -253,22 +253,21 @@ model BestPracticeRecord {
 }
 
 // --------------------------------------------------------------------------
-// SectionTemplate — per-section formatting JSON that flows into every
-// AI call so Claude preserves the styling (font, paragraph, list, table,
-// references) authored for that section.
+// SectionTemplate — per-section formatting rules (natural language)
+// that flow into every AI call so Claude preserves the authored styling
+// (font, paragraph, list, table, references) on every rewrite.
 //
 // Pattern mirrors AiPromptRecord / BestPracticeRecord (migrations 73 / 74):
 // versioned per (docType, sectionKey) with draft → approved → retired.
 // Documents snapshot both the pointer (section.sectionTemplateRecordId)
-// and the JSON (section.templateFormatJson) at create time — the snapshot
-// is what the resolver prefers to read so authored sections never drift
+// and the rules text (section.templateFormatRules) at create time — the
+// snapshot is what the resolver reads so authored sections never drift
 // when admins approve a newer SectionTemplate.
 //
-// Format JSON shape is validated by the Zod schema in
-// apps/api/src/modules/platform/section-template/schema.ts. Shipping
-// coverage: page, font, paragraph, heading, list, table, references,
-// numbering. Extensible toward full OOXML parity (headers, footers,
-// content controls) without migrations.
+// Storage shape is plain text / markdown (migration 91 flipped off the
+// structured JSON from migration 90). Admins write in the same prose the
+// AI reads — one source of truth, no schema to maintain, no renderer
+// parity to guard. See docs on format-rules authoring guidance.
 // --------------------------------------------------------------------------
 
 model SectionTemplate {
@@ -278,7 +277,7 @@ model SectionTemplate {
   version        Int                                                   // 1-based, unique per (docType, sectionKey)
   status         String    @default("draft")                           // 'draft' | 'approved' | 'retired'
 
-  formatJson     Json      @default("{}")
+  formatRules    String    @default("")                                // NL formatting rules — read verbatim by the AI
 
   // Chain pointer: on approve, the previously-approved row for the same
   // (docType, sectionKey) is set to status='retired' + supersededBy = new row id.

@@ -13,7 +13,6 @@
 
 import { createHash } from 'node:crypto'
 import type { PrismaClient } from '@prisma/client'
-import { Prisma } from '@prisma/client'
 import {
   isDbStage,
   isLaterStage,
@@ -119,25 +118,25 @@ export class DocumentService {
 
       if (sections.length > 0) {
         // Snapshot the latest-approved SectionTemplate for each sectionKey
-        // (migration 90). Both pointer + JSON are stored on the row so the
-        // AI resolver can serve from the snapshot — admin approvals of
+        // (migration 91 — NL rules). Both pointer + rules are stored so
+        // the AI resolver can serve from the snapshot — admin approvals of
         // newer templates don't retroactively rewrite in-flight documents.
         // Wrapped in try/catch so test mocks without sectionTemplate work.
         const docType = args.type.replace(/-/g, '_')
         const sectionKeys = sections.map(s => s.sectionId)
-        const tplBySection = new Map<string, { id: string; formatJson: unknown }>()
+        const tplBySection = new Map<string, { id: string; formatRules: string }>()
         if (sectionKeys.length > 0) {
           try {
             const templates = await tx.sectionTemplate.findMany({
               where:   { docType, sectionKey: { in: sectionKeys }, status: 'approved' },
               orderBy: { version: 'desc' },
-              select:  { id: true, sectionKey: true, formatJson: true },
+              select:  { id: true, sectionKey: true, formatRules: true },
             })
             // orderBy desc + first-write-wins picks the highest version
             // per sectionKey (belt-and-braces against concurrent approvals).
             for (const t of templates) {
               if (!tplBySection.has(t.sectionKey)) {
-                tplBySection.set(t.sectionKey, { id: t.id, formatJson: t.formatJson })
+                tplBySection.set(t.sectionKey, { id: t.id, formatRules: t.formatRules })
               }
             }
           } catch { /* model absent on test mocks or pre-migration — fine */ }
@@ -154,7 +153,7 @@ export class DocumentService {
               contentHtml: s.contentHtml,
               ichStatus: s.ichStatus ?? 'not_started',
               sectionTemplateRecordId: tpl?.id ?? null,
-              templateFormatJson:      (tpl?.formatJson as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+              templateFormatRules:     tpl?.formatRules ?? null,
             }
           }),
         })

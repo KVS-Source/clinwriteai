@@ -689,9 +689,9 @@ model PublicationSectionContent {
   aiConfidence           Int?       @map("ai_confidence")
   aiFlags                String[]   @default([]) @map("ai_flags")
 
-  // Section template pin (migration 90) — same semantics as SectionContent.
+  // Section template pin (migration 90, NL rules in 91) — same as SectionContent.
   sectionTemplateRecordId String?   @map("section_template_record_id")
-  templateFormatJson      Json?     @map("template_format_json")
+  templateFormatRules     String?   @map("template_format_rules")
 
   version                PublicationVersion @relation(fields: [publicationVersionId], references: [id], onDelete: Cascade)
 

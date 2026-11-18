@@ -5,8 +5,7 @@
 // creation; upsert section content on save; bump new version;
 // score aiConfidence + aiFlags (worker hook).
 
-import type { PrismaClient } from '@prisma/client'
-import { Prisma } from '@prisma/client'
+import type { Prisma, PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
 
 export interface RegulatoryDocumentSectionPayload {
@@ -56,8 +55,8 @@ export async function initialiseRegulatoryDocumentVersion(
     },
   })
   if (args.sections.length > 0) {
-    // SectionTemplate snapshot (migration 90) — same pattern as clinical.
-    const tplBySection = new Map<string, { id: string; formatJson: unknown }>()
+    // SectionTemplate snapshot (migration 91 — NL rules). Same pattern as clinical.
+    const tplBySection = new Map<string, { id: string; formatRules: string }>()
     if (args.docType) {
       const docType = args.docType.replace(/-/g, '_')
       const sectionKeys = args.sections.map(s => s.sectionId)
@@ -65,11 +64,11 @@ export async function initialiseRegulatoryDocumentVersion(
         const templates = await tx.sectionTemplate.findMany({
           where:   { docType, sectionKey: { in: sectionKeys }, status: 'approved' },
           orderBy: { version: 'desc' },
-          select:  { id: true, sectionKey: true, formatJson: true },
+          select:  { id: true, sectionKey: true, formatRules: true },
         })
         for (const t of templates) {
           if (!tplBySection.has(t.sectionKey)) {
-            tplBySection.set(t.sectionKey, { id: t.id, formatJson: t.formatJson })
+            tplBySection.set(t.sectionKey, { id: t.id, formatRules: t.formatRules })
           }
         }
       } catch { /* model absent on test mocks — fine */ }
@@ -85,7 +84,7 @@ export async function initialiseRegulatoryDocumentVersion(
           contentHtml:   s.contentHtml ?? '',
           wordCount:     wordsIn(s.contentHtml ?? ''),
           sectionTemplateRecordId: tpl?.id ?? null,
-          templateFormatJson:      (tpl?.formatJson as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+          templateFormatRules:     tpl?.formatRules ?? null,
         }
       }),
     })

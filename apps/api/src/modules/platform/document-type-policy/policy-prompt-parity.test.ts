@@ -16,7 +16,6 @@ import {
   SECTION_GROUNDING_RULES as WORKER_GROUNDING,
   type PolicyRowForAi as WorkerPolicy,
 } from '../../../../../worker/src/jobs/policy-prompt.js'
-import type { SectionTemplateFormat } from '../section-template/schema.js'
 
 const SAMPLE_POLICY = {
   id:        'pol-1',
@@ -94,65 +93,45 @@ describe('renderPolicyPromptBlock — API ↔ worker parity', () => {
   })
 })
 
-describe('renderSectionTemplateNL — API ↔ worker parity', () => {
-  // Representative format JSON touching every top-level axis so drift
-  // in any single branch of the renderer fails the test.
-  const FULL_FORMAT: SectionTemplateFormat = {
-    page: {
-      size: 'A4', orientation: 'portrait', columns: 1,
-      margins: { top: 72, right: 54, bottom: 72, left: 54 },
-      header:  { enabled: true,  text: 'Study XYZ — Protocol v2.1' },
-      footer:  { enabled: true,  pageNumber: true },
-    },
-    font:      { family: 'Times New Roman', size: 11, color: '#000000', weight: 'normal' },
-    paragraph: { alignment: 'justify', lineHeight: 1.15, spaceAfter: 6 },
-    heading:   { level: 2, font: { size: 13, weight: 'bold', color: '#003366' }, spaceAfter: 6, numbering: { format: '%1.%2' } },
-    list:      { type: 'numbered', marker: '1.' },
-    table: {
-      borderStyle: 'solid', borderWidth: 0.5, borderColor: '#000000',
-      headerRow:   { fill: '#E7E6E6', fontWeight: 'bold' },
-      cellPadding: 4,
-    },
-    references: { style: 'superscript' },
-    numbering:  { sections: true, format: '%1.%2', startAt: 6 },
-  }
+describe('renderSectionTemplateNL — API ↔ worker parity (migration 91: NL rules)', () => {
+  // Representative NL rules — same shape an admin would author in the UI.
+  const RULES = [
+    'Font: Times New Roman, 11pt, black.',
+    'Paragraphs: justified alignment, 1.15 line height, 6pt space after.',
+    'Lists: numbered ("1."), one item per line.',
+    'Tables: 0.5pt solid black borders, gray (#E7E6E6) bold header row, 4pt cell padding.',
+    'References: superscript style.',
+  ].join('\n')
 
-  it('renders character-identical output on API + worker (full format)', () => {
-    expect(workerRenderTemplate(FULL_FORMAT, 's6_2'))
-      .toBe(apiRenderTemplate(FULL_FORMAT, 's6_2'))
-  })
-
-  it('renders character-identical output for a minimal format (font only)', () => {
-    const minimal: SectionTemplateFormat = { font: { family: 'Arial', size: 10 } }
-    expect(workerRenderTemplate(minimal, 'methods'))
-      .toBe(apiRenderTemplate(minimal, 'methods'))
-  })
-
-  it('both return "" when the format has nothing renderable', () => {
-    expect(apiRenderTemplate({}, 's6_2')).toBe('')
-    expect(workerRenderTemplate({}, 's6_2')).toBe('')
-  })
-
-  it('includes the headline + font + paragraph + table bits users recognise', () => {
-    const out = apiRenderTemplate(FULL_FORMAT, 's6_2')
+  it('wraps the rules with the headline + returns character-identical output on API ↔ worker', () => {
+    const out = apiRenderTemplate(RULES, 's6_2')
+    expect(out).toBe(workerRenderTemplate(RULES, 's6_2'))
     expect(out).toContain('SECTION TEMPLATE (s6_2) — follow these formatting rules')
-    expect(out).toContain('Times New Roman')
-    expect(out).toContain('11pt')
-    expect(out).toContain('1.15 line-height')
-    expect(out).toContain('solid 0.5pt')
-    expect(out).toContain('header row fill #E7E6E6')
-    expect(out).toContain('superscript style')
+    // Rules pass through verbatim — no translation, no reformatting.
+    expect(out).toContain('Font: Times New Roman, 11pt, black.')
+    expect(out).toContain('References: superscript style.')
+  })
+
+  it('returns "" for empty / whitespace-only rules', () => {
+    expect(apiRenderTemplate('', 's6_2')).toBe('')
+    expect(workerRenderTemplate('   \n  \t\n', 's6_2')).toBe('')
+  })
+
+  it('trims surrounding whitespace so the block body is clean', () => {
+    const out = apiRenderTemplate('\n\n  Font: Arial 10pt.  \n\n', 'methods')
+    expect(out).toBe('SECTION TEMPLATE (methods) — follow these formatting rules\nFont: Arial 10pt.')
+    expect(workerRenderTemplate('\n\n  Font: Arial 10pt.  \n\n', 'methods')).toBe(out)
   })
 
   it('splices SECTION TEMPLATE into renderPolicyPromptBlock after SECTION RULES', () => {
     const policy = SAMPLE_POLICY satisfies ApiPolicy
-    const out = apiRender(policy, 's6_2', FULL_FORMAT)
+    const out = apiRender(policy, 's6_2', RULES)
     const ruleIdx = out.indexOf('SECTION RULES (s6_2)')
     const tplIdx  = out.indexOf('SECTION TEMPLATE (s6_2)')
     expect(ruleIdx).toBeGreaterThan(-1)
     expect(tplIdx).toBeGreaterThan(ruleIdx)
     // Worker parity on the composed output.
-    expect(workerRender(policy, 's6_2', FULL_FORMAT))
-      .toBe(apiRender(policy, 's6_2', FULL_FORMAT))
+    expect(workerRender(policy, 's6_2', RULES))
+      .toBe(apiRender(policy, 's6_2', RULES))
   })
 })

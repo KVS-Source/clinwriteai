@@ -246,4 +246,73 @@ export const regulatoryDocumentRoutes: FastifyPluginAsync = async (app) => {
     if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
     return documentShape(doc)
   })
+
+  // Phase M-D.3 — kick off the AI initial-draft worker. Mirror of
+  // med_content /ai-initial-draft. Idempotent on jobId; 409 when a
+  // chain is already in flight. aiInstructions (if sent) persists on
+  // the document.
+  const draftRequestSchema = z.object({
+    aiInstructions: z.string().max(2000).optional(),
+  })
+  app.post('/:regulatoryDocumentId/ai-initial-draft', { preHandler: writeGate }, async (request, reply) => {
+    const { regulatoryDocumentId } = request.params as { regulatoryDocumentId: string }
+    const parsed = draftRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const doc = await app.prisma.regulatoryDocument.findUnique({
+      where: { id: regulatoryDocumentId },
+      select: {
+        id: true, projectId: true, archivedAt: true,
+        aiDraftState: true, currentVersionId: true,
+      },
+    })
+    if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!doc.currentVersionId) {
+      return reply.code(409).send({
+        error:   'no_current_version',
+        message: 'Regulatory document has no current version. Create flow should have seeded v0.1.',
+      })
+    }
+    if (doc.aiDraftState === 'drafting' || doc.aiDraftState === 'validating') {
+      return reply.code(409).send({
+        error:   'already_running',
+        state:   doc.aiDraftState,
+        message: `AI draft chain is already ${doc.aiDraftState} for this document.`,
+      })
+    }
+
+    if (parsed.data.aiInstructions !== undefined) {
+      await app.prisma.regulatoryDocument.update({
+        where: { id: regulatoryDocumentId },
+        data:  {
+          aiInstructions: parsed.data.aiInstructions.trim() || null,
+          aiDraftState:   'idle',
+        },
+      })
+    }
+
+    const jobId = `reg-ai-initial-draft-${regulatoryDocumentId}`
+    try {
+      await app.queue.enqueue('regulatory.ai_initial_draft', {
+        regulatoryDocumentId,
+        projectId: doc.projectId,
+        actorId:   request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      request.log.warn({ err, regulatoryDocumentId }, 'reg ai-initial-draft: enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue the draft job.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'regulatory_document_ai_initial_draft_enqueued',
+      entityType: 'regulatory_document',
+      entityId:   regulatoryDocumentId,
+      details:    { jobId, hasAiInstructions: parsed.data.aiInstructions !== undefined },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({ jobId, regulatoryDocumentId, state: 'enqueued' })
+  })
 }

@@ -7,26 +7,27 @@
 // (TemplateLibrary, AiPrompts, DocumentTypePolicies, …) are reused
 // verbatim as the tab bodies — no duplicated UI.
 //
+// Tabs by role (SME decision, 2026-11-18): a Project Manager sees every tab; everyone else sees only Master
+// Documents and Best Practices (the two "library" tabs). Hidden tabs are left out of the strip with their counts,
+// their data is not fetched, and a deep link to one redirects to Master Documents. This is a UI rule only: the
+// read APIs behind those tabs stay open to every signed-in user because other screens (New Document, the editor,
+// AI features) read templates, prompts, checklists, frameworks and policies through them.
+//
 // Role model (ask: 2026-11-10):
 //   - IT Admin cannot reach these — the sidebar hides the entry and
 //     every tab's write-gated API route refuses with 503 / 403. Admin
 //     is a system operator, not a content owner.
 //   - PM is the content admin. Reads + writes everything here.
-//   - Contributor / author / auditor can read Master Documents + Best
-//     Practices (the two "library" tabs); the other tabs are gated
-//     server-side (PM-only writes) so a contributor opening them sees
-//     them in read mode only.
-//
-// If a user who shouldn't be here lands via deep link, the inner
-// screens' own error states take over (the gated APIs return 503 /
-// 403 and the empty-state renders).
+//   - Everyone else reads Master Documents + Best Practices only (see "Tabs by role" above).
+//     The other tabs' write routes are PM-only on the API as well.
 
 import { useMemo, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { platformApi } from '../api/platformApi'
 import { documentsApi } from '../../api/documents'
 import { MasterLibrarySlotContext } from '../components/MasterLibraryHeading'
+import { usePlatformStore } from '../store/platformStore'
 
 export interface Tab {
   slug:  string       // URL segment — '/master-library/<slug>'
@@ -58,6 +59,10 @@ export const MASTER_LIBRARY_TABS: Tab[] = [
   { slug: 'regulatory-policies',   label: 'Regulatory Policies' },
 ]
 
+// Tabs everyone can see; the rest are for the Project Manager only.
+export const LIBRARY_TAB_SLUGS = ['documents', 'best-practices']
+export const tabsFor = (isPm: boolean): Tab[] => (isPm ? MASTER_LIBRARY_TABS : MASTER_LIBRARY_TABS.filter(t => LIBRARY_TAB_SLUGS.includes(t.slug)))
+
 // Master Documents lists documents only (sections are pulled from inside them).
 export const MASTER_DOCUMENT_ITEM_TYPES = ['document']
 
@@ -69,8 +74,10 @@ export const MASTER_DOCUMENT_ITEM_TYPES = ['document']
 // count for that tab instead of throwing and taking the whole Master Library down.
 const countOf = (v: unknown): number | undefined => (Array.isArray(v) ? v.length : undefined)
 
-function useTabCounts(): Partial<Record<string, number>> {
+function useTabCounts(isPm: boolean): Partial<Record<string, number>> {
   const opts = { retry: false, staleTime: 30_000 } as const
+  // The PM-only tabs' lists are read (for the counts) only when the tab is shown.
+  const pmOpts = { ...opts, enabled: isPm } as const
   const documents = useQuery({
     queryKey: ['library', 'tab-count'],
     queryFn:  () => platformApi.countLibrary({ itemType: MASTER_DOCUMENT_ITEM_TYPES }),
@@ -79,13 +86,13 @@ function useTabCounts(): Partial<Record<string, number>> {
   const bestPractices = useQuery({ queryKey: ['best-practices'], queryFn: () => platformApi.listBestPractices(), ...opts })
   // The Best Practices page hides modules this tenant hasn't enabled (Platform items always show), so the count does too.
   const enabled = useQuery({ queryKey: ['library-enabled-modules'], queryFn: () => platformApi.getEnabledModules(), retry: false, staleTime: 5 * 60_000 })
-  const templates = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin(), ...opts })
-  const policies = useQuery({ queryKey: ['document-type-policies'], queryFn: () => platformApi.listDocumentTypePolicies(), ...opts })
-  const pubPolicies = useQuery({ queryKey: ['publication-type-policies'], queryFn: () => platformApi.listPublicationTypePolicies(), ...opts })
-  const medPolicies = useQuery({ queryKey: ['med-content-type-policies'], queryFn: () => platformApi.listMedContentTypePolicies(), ...opts })
-  const regPolicies = useQuery({ queryKey: ['regulatory-type-policies'], queryFn: () => platformApi.listRegulatoryTypePolicies(), ...opts })
-  const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...opts })
-  const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...opts })
+  const templates = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin(), ...pmOpts })
+  const policies = useQuery({ queryKey: ['document-type-policies'], queryFn: () => platformApi.listDocumentTypePolicies(), ...pmOpts })
+  const pubPolicies = useQuery({ queryKey: ['publication-type-policies'], queryFn: () => platformApi.listPublicationTypePolicies(), ...pmOpts })
+  const medPolicies = useQuery({ queryKey: ['med-content-type-policies'], queryFn: () => platformApi.listMedContentTypePolicies(), ...pmOpts })
+  const regPolicies = useQuery({ queryKey: ['regulatory-type-policies'], queryFn: () => platformApi.listRegulatoryTypePolicies(), ...pmOpts })
+  const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...pmOpts })
+  const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...pmOpts })
   return {
     documents:        typeof documents.data === 'number' ? documents.data : undefined,
     'best-practices': Array.isArray(bestPractices.data)
@@ -114,7 +121,14 @@ export function MasterLibraryShell() {
 
   // The header's heading slot: each page puts its own title + subtitle here (see MasterLibraryHeading).
   const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null)
-  const counts = useTabCounts()
+  // Until the signed-in user is known, show the two public tabs only and don't redirect anyone.
+  const user = usePlatformStore(s => s.currentUser)
+  const isPm = usePlatformStore(s => s.hasRole)(['pm'])
+  const tabs = tabsFor(isPm)
+  const counts = useTabCounts(isPm)
+
+  // A deep link to a tab this user doesn't have goes to Master Documents (no blank page, no error screen).
+  if (user && !isPm && !LIBRARY_TAB_SLUGS.includes(activeSlug)) return <Navigate to="/master-library/documents" replace />
 
   return (
     <MasterLibrarySlotContext.Provider value={headingSlot}>
@@ -128,7 +142,7 @@ export function MasterLibraryShell() {
           role="tablist"
           data-master-library-tabs
         >
-          {MASTER_LIBRARY_TABS.map(tab => (
+          {tabs.map(tab => (
             <NavLink
               key={tab.slug}
               to={`/master-library/${tab.slug}`}

@@ -117,10 +117,28 @@ describe('GET /library', () => {
     ['oldest',    [{ approvedAt: 'asc' }, { id: 'asc' }]],
     ['name-asc',  [{ title: 'asc' }, { id: 'asc' }]],
     ['name-desc', [{ title: 'desc' }, { id: 'asc' }]],
+    ['ta-asc',    [{ taTag: 'asc' }, { approvedAt: 'desc' }, { id: 'asc' }]],
+    ['ta-desc',   [{ taTag: 'desc' }, { approvedAt: 'desc' }, { id: 'asc' }]],
   ])('sorts by %s with an id tie-break', async (sort, orderBy) => {
     const { app, findMany } = await setup()
     await app.inject({ method: 'GET', url: `/library?sort=${sort}` })
     expect(findMany.mock.calls[0]![0]).toMatchObject({ orderBy })
+  })
+
+  it.each([['type-asc', ['a', 'b', 'c', 'd']], ['type-desc', ['c', 'b', 'a', 'd']]])('sorts by document type (%s): a tag, so ordered here; no type last', async (sort, ids) => {
+    const rows = [
+      section('d', { tags: ['module:A'] }),
+      section('b', { tags: ['module:A', 'doctype:Protocol'] }),
+      section('c', { tags: ['module:A', 'doctype:SmPC'] }),
+      section('a', { tags: ['module:A', 'doctype:CSR'] }),
+    ]
+    const { app } = await setup({ findManyBy: ({ where, select }) => {
+      const inIds = (where as { id?: { in: string[] } }).id?.in
+      return inIds ? rows.filter(r => inIds.includes(r.id)) : (select && 'tags' in select && !('title' in select) ? rows : [])
+    } })
+    const res = await app.inject({ method: 'GET', url: `/library?sort=${sort}` })
+    expect(res.statusCode).toBe(200)
+    expect((res.json() as Array<{ id: string }>).map(r => r.id)).toEqual(ids)
   })
 
   it('restricts non-super-admins to platform-wide + their own tenant', async () => {

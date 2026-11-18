@@ -1261,8 +1261,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { passNumber: 'asc' },
     })
 
-    // Last 50 ai-related audit events for this document. audit_events
+    // Last 50 AI + section audit events for this document. audit_events
     // lives in raw SQL (not Prisma) per ADR 0002, so we read directly.
+    // Includes:
+    //   - draft chain: enqueued / skipped / completed, validation passes
+    //   - section AI rewrite: ai_suggestion_requested, ai_prompt_undone
+    //   - section ops: section_marked_complete, section_reverted,
+    //     section_lock_* (acquired / stolen / force_released)
+    // Each row carries full `details` JSON so support can see model,
+    // intent, scope, promptSha256, promptChars for every section rewrite.
     const auditRows = await app.prisma.$queryRawUnsafe<Array<{
       id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown
     }>>(
@@ -1276,7 +1283,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             'ai_initial_draft_completed',
             'ai_validation_pass_completed',
             'ai_validation_pass_skipped',
-            'document_ai_suggestion_requested'
+            'ai_suggestion_requested',
+            'ai_prompt_undone',
+            'section_marked_complete',
+            'section_reverted',
+            'section_lock_acquired',
+            'section_lock_stolen',
+            'section_lock_force_released'
           )
         ORDER BY timestamp DESC
         LIMIT 50`,
@@ -1370,18 +1383,42 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         items:                sources,
       },
 
-      sections: sectionRows.map(s => ({
-        sectionId:      s.sectionId,
-        sectionNumber:  s.sectionNumber,
-        sectionTitle:   s.sectionTitle,
-        wordCount:      s.wordCount,
-        aiConfidence:   s.aiConfidence,
-        aiFlags:        s.aiFlags,
-        aiSpanCount:    s.aiSpanCount,
-        humanSpanCount: s.humanSpanCount,
-        lastEditedBy:   s.lastEditedBy,
-        lastEditedAt:   s.lastEditedAt?.toISOString() ?? null,
-      })),
+      sections: sectionRows.map(s => {
+        // Count how many AI rewrites touched this section — reads from
+        // the audit tail. Surfaces "which sections did authors touch
+        // with AI" without the debug panel having to parse auditTail.
+        let aiSuggestCount = 0
+        let lastAiModel: string | null = null
+        let lastAiAt: string | null    = null
+        let lastAiIntent: string | null = null
+        for (const a of auditRows) {
+          if (a.action !== 'ai_suggestion_requested') continue
+          const d = a.details as { sectionId?: string; aiModel?: string; intent?: string } | null
+          if (!d || d.sectionId !== s.sectionId) continue
+          aiSuggestCount++
+          if (!lastAiAt) {
+            lastAiAt     = a.timestamp.toISOString()
+            lastAiModel  = d.aiModel ?? null
+            lastAiIntent = d.intent ?? null
+          }
+        }
+        return {
+          sectionId:      s.sectionId,
+          sectionNumber:  s.sectionNumber,
+          sectionTitle:   s.sectionTitle,
+          wordCount:      s.wordCount,
+          aiConfidence:   s.aiConfidence,
+          aiFlags:        s.aiFlags,
+          aiSpanCount:    s.aiSpanCount,
+          humanSpanCount: s.humanSpanCount,
+          lastEditedBy:   s.lastEditedBy,
+          lastEditedAt:   s.lastEditedAt?.toISOString() ?? null,
+          aiSuggestCount,
+          lastAiAt,
+          lastAiModel,
+          lastAiIntent,
+        }
+      }),
 
       draftingPasses: passRows.map(p => ({
         passNumber:      p.passNumber,

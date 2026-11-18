@@ -64,6 +64,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
       document?:  { aiDraftState?: string | null; aiConfidenceOverall?: number | null }
       sources?:   { totalLinked?: number; usableByDrafter?: number; droppedByDrafter?: number; nonPdfDropped?: number }
       policy?:    { current?: { version?: number } | null; pinnedVersionAtCreate?: number | null }
+      sections?:  Array<{ aiSuggestCount?: number }>
       aiStubMode?: boolean
     }
     const parts: string[] = []
@@ -79,9 +80,26 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
       if (d.sources.nonPdfDropped) parts.push(`non-PDF=${d.sources.nonPdfDropped}`)
     }
     if (d.policy?.pinnedVersionAtCreate != null) parts.push(`policy=v${d.policy.pinnedVersionAtCreate}`)
+    if (Array.isArray(d.sections)) {
+      const totalSuggests = d.sections.reduce((s, sec) => s + (sec.aiSuggestCount ?? 0), 0)
+      if (totalSuggests > 0) parts.push(`AI rewrites=${totalSuggests}`)
+    }
     if (d.aiStubMode) parts.push('stub-mode')
     return parts.join(' · ')
   })()
+
+  // Compact table showing per-section AI usage. Renders above the JSON
+  // so the author sees the signal without scrolling.
+  type SectionRow = {
+    sectionId: string; sectionNumber: string; sectionTitle: string
+    aiConfidence: number | null; aiSpanCount: number; humanSpanCount: number
+    aiSuggestCount: number
+    lastAiAt: string | null; lastAiModel: string | null; lastAiIntent: string | null
+    lastEditedAt: string | null
+  }
+  const sections: SectionRow[] = Array.isArray((data as { sections?: unknown })?.sections)
+    ? ((data as { sections: SectionRow[] }).sections)
+    : []
 
   return (
     <div
@@ -162,6 +180,39 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
             <p className="p-5 font-mono text-[12px] text-rose-200">
               Could not load debug snapshot: {errMessage(error, 'request failed')}
             </p>
+          )}
+          {data && sections.length > 0 && (
+            <div className="border-b border-slate-700 bg-slate-800 px-5 py-3 text-slate-100" data-ai-debug-sections>
+              <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                Per-section AI activity
+              </p>
+              <table className="w-full font-mono text-[11px] leading-tight">
+                <thead className="text-slate-400">
+                  <tr>
+                    <th className="pr-2 py-0.5 text-left">§</th>
+                    <th className="pr-2 py-0.5 text-left">Title</th>
+                    <th className="pr-2 py-0.5 text-right">Conf</th>
+                    <th className="pr-2 py-0.5 text-right">Suggests</th>
+                    <th className="pr-2 py-0.5 text-left">Last AI</th>
+                    <th className="pr-2 py-0.5 text-left">Model</th>
+                    <th className="py-0.5 text-left">Intent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sections.map(s => (
+                    <tr key={s.sectionId} className="border-t border-slate-700/50">
+                      <td className="pr-2 py-0.5">{s.sectionNumber}</td>
+                      <td className="pr-2 py-0.5 truncate max-w-[140px]" title={s.sectionTitle}>{s.sectionTitle}</td>
+                      <td className="pr-2 py-0.5 text-right">{s.aiConfidence == null ? '—' : `${s.aiConfidence}%`}</td>
+                      <td className="pr-2 py-0.5 text-right">{s.aiSuggestCount || '—'}</td>
+                      <td className="pr-2 py-0.5">{s.lastAiAt ? new Date(s.lastAiAt).toLocaleString() : '—'}</td>
+                      <td className="pr-2 py-0.5 truncate max-w-[140px]" title={s.lastAiModel ?? ''}>{s.lastAiModel ?? '—'}</td>
+                      <td className="py-0.5">{s.lastAiIntent ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {data && (
             <pre

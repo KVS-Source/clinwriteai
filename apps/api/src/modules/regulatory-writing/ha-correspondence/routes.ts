@@ -278,6 +278,145 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
     return haCorrespondenceShape(corr, gateways.get(corr.submissionId) ?? 'fda-esg')
   })
 
+  // --- AI auto-draft (Phase M-D.7) ---------------------------------------
+  // Calls app.aiGateway.chat() with the HA question text + parent
+  // submission context and writes the result as a new HaResponseDraft
+  // row with aiFootprintPct=100. Deterministic stub when no AI key is
+  // set; 503 when AI isn't configured AND no stub allowed.
+  app.post('/ha-questions/:questionId/auto-draft', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { questionId } = request.params as { questionId: string }
+
+    const question = await app.prisma.haLoqQuestion.findUnique({
+      where: { id: questionId },
+      include: { correspondence: { select: { submissionId: true } } },
+    })
+    if (!question) return reply.code(404).send({ error: 'not_found' })
+    if (question.status === 'closed') {
+      return reply.code(409).send({ error: 'question_closed', message: 'Cannot draft against a closed question' })
+    }
+
+    const submission = await app.prisma.regulatorySubmission.findUnique({
+      where: { id: question.correspondence.submissionId },
+      select: { id: true, projectId: true, submissionType: true, ectdVersion: true },
+    })
+
+    const projectForTenant = submission?.projectId
+      ? await app.prisma.project.findUnique({ where: { id: submission.projectId }, select: { tenantId: true } })
+      : null
+
+    const latest = await app.prisma.haResponseDraft.findFirst({
+      where: { questionId },
+      orderBy: { versionNumber: 'desc' },
+      select: { versionNumber: true, draftText: true },
+    })
+    const nextVersion = (latest?.versionNumber ?? 0) + 1
+
+    const systemPrompt = [
+      'You are a regulatory-affairs writer preparing a formal response to a Health Authority List-of-Questions question.',
+      '',
+      'RULES',
+      '1. Respond in the first person plural ("We confirm…", "We have attached…").',
+      '2. Use calm, factual language. No marketing phrasing.',
+      '3. Structure the response in short paragraphs. Use a brief heading only when the question has multiple sub-parts.',
+      '4. Cite internal sources with plain refs like "CSR §14.2.1" or "Module 3.2.P.3" when the prompt gives them; do NOT invent references.',
+      '5. When data to answer the question is not available, write "[TBD: confirm with <role>]" rather than fabricating.',
+      '6. Do not acknowledge limitations of the response itself — the authority wants the answer, not a disclaimer.',
+    ].join('\n')
+
+    const userPrompt = [
+      `Submission type: ${submission?.submissionType ?? 'unknown'} · eCTD ${submission?.ectdVersion ?? 'n/a'}.`,
+      `Question ref: ${question.questionRef}${question.category ? ` (${question.category})` : ''}.`,
+      question.sourceModuleRef ? `Source module reference: ${question.sourceModuleRef}.` : '',
+      '',
+      'Question text:',
+      question.questionText,
+      '',
+      'Draft the formal response now.',
+    ].filter(Boolean).join('\n')
+
+    let responseText = ''
+    let aiModel = 'stub-reg-advisor-v1'
+    let aiCallRecordId: string | null = null
+    const engine = request.query as { engine?: string }
+    try {
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId ?? projectForTenant?.tenantId ?? 'unknown',
+        projectId: submission?.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'D',
+        intent:    'ha_response_auto_draft',
+        model:     engine.engine || 'claude-sonnet-4-5',
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 1500,
+      })
+      responseText = result.responseText.trim()
+      aiModel      = result.model
+      aiCallRecordId = result.recordId
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      // AI not configured + no stub → surface the setup error.
+      if (process.env.AI_ALLOW_STUB !== '1') {
+        request.log.warn({ err, questionId }, 'ha auto-draft: AI not configured — refusing stub')
+        return reply.code(503).send({
+          error:     'ai_not_configured',
+          message:   'AI is not set up — HA response auto-draft needs an AI engine. Ask an admin to configure one.',
+          setupPath: '/admin',
+        })
+      }
+      // Stub fallback for dev / demo.
+      responseText = [
+        `[AI stub — set ANTHROPIC_API_KEY to generate a real response.]`,
+        ``,
+        `We acknowledge receipt of ${question.questionRef}. We are preparing a detailed response addressing ${question.questionText.slice(0, 180)}${question.questionText.length > 180 ? '…' : ''}`,
+        ``,
+        `[TBD: fill in substantive response with CSR / Module 3 refs.]`,
+      ].join('\n')
+      aiModel = 'stub'
+    }
+
+    const draft = await app.prisma.$transaction(async (tx) => {
+      const d = await tx.haResponseDraft.create({
+        data: {
+          questionId,
+          versionNumber:  nextVersion,
+          draftText:      responseText,
+          sourceRefs:     [],
+          aiFootprintPct: 100,
+          createdBy:      request.user!.id,
+        },
+      })
+      await tx.haLoqQuestion.updateMany({
+        where: { id: questionId, status: 'open' },
+        data:  { status: 'drafting' },
+      })
+      return d
+    })
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ha_response_auto_drafted',
+      entityType: 'ha_question',
+      entityId:   questionId,
+      details:    { draftId: draft.id, versionNumber: nextVersion, aiModel, aiCallRecordId },
+      ipAddress:  request.ip ?? null,
+    })
+
+    await app.editHistory.recordEdit({
+      entityType: 'ha_response_draft',
+      entityId:   questionId,
+      subUnitId:  String(nextVersion),
+      actorId:    request.user!.id,
+      origin:     'ai',
+      beforeHtml: latest?.draftText ?? null,
+      afterHtml:  responseText,
+    }).catch(err => request.log.warn({ err, questionId }, 'ha auto-draft: edit history write failed'))
+
+    return reply.code(201).send({ ...draft, aiModel, aiCallRecordId })
+  })
+
   // --- Draft response for a question -------------------------------------
 
   app.post('/ha-questions/:questionId/drafts', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {

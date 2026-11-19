@@ -59,6 +59,32 @@ export class AiPromptService {
     })
   }
 
+  /** Visible rows for the admin list: the most meaningful row per
+   *  docType. Preference order:
+   *    1. approved (if the docType has one)
+   *    2. draft    (if no approved — makes brand-new drafts show up
+   *                 instead of "disappearing" between create + approve)
+   *  Retired rows are always hidden (they're audit snapshots, not
+   *  navigation). Returns one row per docType; UI shows the status
+   *  chip so admins can tell draft from approved at a glance. */
+  async listVisible() {
+    const rows = await this.prisma.aiPromptRecord.findMany({
+      where:   { status: { in: ['approved', 'draft'] } },
+      orderBy: [{ docType: 'asc' }, { version: 'desc' }],
+    })
+    const scoreOf = (s: string) => (s === 'approved' ? 2 : 1)
+    const byDocType = new Map<string, typeof rows[number]>()
+    for (const row of rows) {
+      const existing = byDocType.get(row.docType)
+      if (!existing || scoreOf(row.status) > scoreOf(existing.status)) {
+        byDocType.set(row.docType, row)
+      }
+    }
+    // Deterministic order: docType asc, same as listAllApproved so the
+    // UI doesn't jump around when a draft lands.
+    return Array.from(byDocType.values()).sort((a, b) => a.docType.localeCompare(b.docType))
+  }
+
   async findById(id: string) {
     return this.prisma.aiPromptRecord.findUnique({ where: { id } })
   }

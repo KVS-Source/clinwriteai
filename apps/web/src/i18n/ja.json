@@ -3776,8 +3776,15 @@
 
     "reports_analytics": {
       "savings_not_calculated": "市場価値の節約額はまだ計算されていません。",
+      "health_stats_measured": "完了率 {{completion}}% · 進行中 {{active}} 件 · 期限超過 {{overdue}} 件",
+      "cost_from_call_log": "{{from}} 以降（今回の請求期間）に、担当プロジェクトで行われた臨床ライティングの AI 呼び出し（AI 呼び出しログより）。",
+      "report_as_of_today": "管理している各プロジェクトの現在の状況です。このレポートには期間は適用されません。",
+      "report_loading": "レポートを読み込んでいます…",
+      "report_error": "このレポートを読み込めませんでした。もう一度お試しください。",
+      "report_empty": "この期間のデータはありません。",
+      "report_rows_shown": "{{total}} 行のうち最初の {{shown}} 行を表示しています。すべての行はレポートを生成して取得してください。",
       "title": "レポートと分析",
-      "user_byline": "{{name}} · 管理者",
+      "user_byline": "{{name}} · プロジェクトマネージャー",
       "nav_dashboard": "ダッシュボード",
       "date_range_label": "{{from}} → {{to}} · GenBioCa Sciences",
       "discipline_health": "分野別ヘルス",

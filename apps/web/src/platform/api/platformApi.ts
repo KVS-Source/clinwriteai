@@ -350,6 +350,14 @@ export const platformApi = {
     api.get<ReportDefinition[]>('/reports/available'),
   getHealthScores: () =>
     api.get<ModuleHealthScore[]>('/reports/health-scores'),
+  // One report on screen: headline figures + its rows (the same rows the download carries).
+  getReportPreview: (reportType: string, range: { dateFrom: string; dateTo: string }) =>
+    api.get<{ reportType: string; header: string[]; rows: unknown[][]; totalRows: number; summary: Array<{ label: string; value: string | number }> }>(
+      `/reports/${reportType}/preview?dateFrom=${range.dateFrom}&dateTo=${range.dateTo}`,
+    ),
+  // AI tokens + cost on the PM's projects this billing period (the Reports cost panel).
+  getReportCostSummary: () =>
+    api.get<{ periodStart: string; projects: number; tokensConsumed: number; estimatedSpend: number; tenantName: string | null }>('/reports/cost-summary'),
   generateReport: (reportType: string, body: GenerateReportBody) =>
     api.post<{ reportType: string; format: string; generatedAt: string; downloadUrl: string }>(
       `/reports/${reportType}/generate`, body,

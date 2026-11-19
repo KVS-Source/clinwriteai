@@ -1,14 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { ReportDefinition, ModuleHealthScore, Subscription } from '@platform/types'
+import type { ReportDefinition, ModuleHealthScore } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { apiConfig } from '../../api/client'
 import { usePlatformStore } from '../store'
 import { useTopNavSection } from '../../components/layout/topNavSection'
-
-const DEMO_ADMIN_EMAIL = 'j.hartley@genbioca.com'
 
 function formatUSD(amount: number): string {
   return `$${amount.toLocaleString('en-US')}`
@@ -30,7 +28,8 @@ export function ReportsAnalytics() {
 
   const { data: reports = [] }  = useQuery<ReportDefinition[]>({  queryKey: ['reports'],          queryFn: () => platformApi.listReports() })
   const { data: scores = [] }   = useQuery<ModuleHealthScore[]>({ queryKey: ['health-scores'],   queryFn: () => platformApi.getHealthScores() })
-  const { data: sub }           = useQuery<Subscription>({        queryKey: ['services-dashboard'], queryFn: () => platformApi.getServicesDashboard() })
+  // AI use on the PM's projects this billing period (not the tenant's whole subscription).
+  const { data: cost }          = useQuery({ queryKey: ['reports', 'cost-summary'], queryFn: () => platformApi.getReportCostSummary() })
 
   const [activeNav,   setActiveNav]   = useState<string>('dashboard')
   const [reportType,  setReportType]  = useState<string>('project-summary')
@@ -44,24 +43,21 @@ export function ReportsAnalytics() {
     () => [{ id: 'dashboard', label: t('page.reports_analytics.nav_dashboard') }, ...reports.map(r => ({ id: r.type, label: r.label }))],
     [reports, t],
   )
+  // The left menu and the Report type dropdown pick the same thing: a report chosen in one shows in the other,
+  // and its name heads the page. A download made earlier is cleared, so the link always matches the report shown.
+  // Dashboard keeps the last report in the dropdown.
+  const activeReport = reports.find(r => r.type === activeNav) ?? null
+  const pickNav = (id: string) => {
+    setActiveNav(id)
+    if (id !== 'dashboard') setReportType(id)
+    setGenerateResult(null)
+  }
+
   // The top bar reads "Reports / <this report>".
   useTopNavSection('/reports', navItems.find(n => n.id === activeNav)?.label ?? t('page.reports_analytics.nav_dashboard'))
 
-  const dateSpanDays = useMemo(() => {
-    if (!dateFrom || !dateTo) return 0
-    return Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86_400_000)
-  }, [dateFrom, dateTo])
-
-  const isLargeDataset = dateSpanDays > 30
-  const generateLabel  = isLargeDataset
-    ? t('page.reports_analytics.queue_report')
-    : t('page.reports_analytics.generate_format', { format: format.toUpperCase() })
-
-
-  const savings = sub?.marketValueSavings ?? null
-  const effectiveMultiple = savings && sub && sub.currentPeriod.estimatedSpend > 0
-    ? (savings.total / sub.currentPeriod.estimatedSpend).toFixed(1) + '×'
-    : '—'
+  // Every report downloads straight away. (Nothing queues or emails a large report, so the page doesn't say it does.)
+  const generateLabel = t('page.reports_analytics.generate_format', { format: format.toUpperCase() })
 
   const [generateError, setGenerateError] = useState<string | null>(null)
   const handleGenerate = async () => {
@@ -82,7 +78,9 @@ export function ReportsAnalytics() {
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.reports_analytics.title')}</h1>
+            {/* The heading names the report picked on the left (sPM16 design: heading = active nav item). */}
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }} data-report-heading>{activeReport?.label ?? t('page.reports_analytics.title')}</h1>
+            {activeReport && <p className="mt-1 text-[13px] text-slate-600" data-report-description>{activeReport.description}</p>}
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.reports_analytics.user_byline', { name: currentUser.name })}</p>
           </div>
         </div>
@@ -95,7 +93,7 @@ export function ReportsAnalytics() {
               const isActive = n.id === activeNav
               return (
                 <button
-                  key={n.id} type="button" onClick={() => setActiveNav(n.id)}
+                  key={n.id} type="button" onClick={() => pickNav(n.id)}
                   data-nav-item={n.id} data-active={isActive || undefined}
                   className="rounded-md px-3 py-2 text-left text-[13px] font-semibold"
                   style={{
@@ -111,9 +109,17 @@ export function ReportsAnalytics() {
           <section className="flex flex-col gap-5">
 
             <p className="font-mono text-[11px] text-slate-500" data-date-range-label>
-              {t('page.reports_analytics.date_range_label', { from: formatDay(dateFrom), to: formatDay(dateTo) })}
+              {/* The real organisation name when the user belongs to one (not a fixed client name). */}
+              {formatDay(dateFrom)} → {formatDay(dateTo)}{cost?.tenantName ? ` · ${cost.tenantName}` : ''}
             </p>
 
+            {/* A report picked on the left: its own figures and rows (sPM16 report types). */}
+            {activeReport && (
+              <ReportView type={activeReport.type} dateFrom={dateFrom} dateTo={dateTo} />
+            )}
+
+            {/* Dashboard (PRD sPM16 "Dashboard landing"): discipline health + cost and productivity. */}
+            {!activeReport && (<>
             {/* Discipline health */}
             <div className="rounded-lg border border-slate-200 bg-white p-5" data-health-scores>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.discipline_health')}</p>
@@ -127,7 +133,8 @@ export function ReportsAnalytics() {
                     <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-health-score>{s.healthScore}</p>
                     <p className="font-mono text-[10px] text-slate-500">{t('page.reports_analytics.health_score_label')}</p>
                     <p className="mt-2 font-mono text-[11px] text-slate-500">
-                      {t('page.reports_analytics.health_stats', { completion: s.completionRate, pass: s.reviewPassRate, days: s.avgStageDays })}
+                      {/* Only what is measured: review pass rate and stage time aren't recorded, so they aren't shown as 0. */}
+                      {t('page.reports_analytics.health_stats_measured', { completion: s.completionRate, active: s.activeDocuments, overdue: s.overdueDocuments })}
                     </p>
                   </div>
                 ))}
@@ -135,52 +142,24 @@ export function ReportsAnalytics() {
             </div>
 
             {/* Cost + productivity panel */}
-            {sub && (
+            {cost && (
               <div className="rounded-lg border border-slate-200 bg-white p-5" data-cost-panel>
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.cost_productivity')}</p>
-                <p className="mt-1 text-[12px] text-slate-600">{t('page.reports_analytics.cost_productivity_hint')}</p>
+                <p className="mt-1 text-[12px] text-slate-600" data-cost-hint>{t('page.reports_analytics.cost_from_call_log', { from: formatDay(cost.periodStart) })}</p>
 
                 <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
                   <div>
                     <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.tokens_consumed')}</p>
-                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-tokens>{sub.currentPeriod.tokensConsumed.toLocaleString()}</p>
+                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-tokens>{cost.tokensConsumed.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.platform_cost')}</p>
-                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-cost>{formatUSD(sub.currentPeriod.estimatedSpend)}</p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.market_value_saving')}</p>
-                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-saving>{savings ? formatUSD(savings.total) : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.effective_multiple')}</p>
-                    <p className="mt-1 text-[20px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-effective-multiple>{effectiveMultiple}</p>
+                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-cost>{formatUSD(cost.estimatedSpend)}</p>
                   </div>
                 </div>
-
-                {savings ? (
-                  <>
-                    <p className="mt-3 font-mono text-[11px] text-slate-500" data-rate-attribution>
-                      {t('page.reports_analytics.rate_attribution', {
-                        version: savings.rateCardVersion,
-                        setBy:   savings.rateCardSetBy,
-                        date:    formatDay(savings.rateCardEffectiveDate),
-                      })}
-                    </p>
-                    <p className="mt-1 rounded-md p-2 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-savings-footnote>
-                      {t('page.reports_analytics.savings_footnote', {
-                        version: savings.rateCardVersion,
-                        setBy:   savings.rateCardSetBy,
-                        date:    formatDay(savings.rateCardEffectiveDate),
-                      })}
-                    </p>
-                  </>
-                ) : (
-                  <p className="mt-3 font-mono text-[11px] text-slate-500" data-savings-not-calculated>{t('page.reports_analytics.savings_not_calculated')}</p>
-                )}
               </div>
             )}
+            </>)}
 
             {/* Generate report panel */}
             <div className="rounded-lg border border-slate-200 bg-white p-5" data-generate-panel>
@@ -189,7 +168,7 @@ export function ReportsAnalytics() {
               <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                 <label className="flex flex-col gap-1">
                   <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.report_type')}</span>
-                  <select value={reportType} onChange={(e) => setReportType(e.currentTarget.value)}
+                  <select value={reportType} onChange={(e) => pickNav(e.currentTarget.value)}
                     data-report-type
                     className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
                     {reports.map(r => <option key={r.id} value={r.type}>{r.label}</option>)}
@@ -222,16 +201,9 @@ export function ReportsAnalytics() {
 
               <button type="button" onClick={handleGenerate}
                 data-generate-report
-                data-large-dataset={isLargeDataset || undefined}
                 className="mt-3 h-9 rounded-md px-4 text-[13px] font-semibold text-white"
                 style={{ backgroundColor: PLATFORM_ACCENT.primary }}
               >{generateLabel}</button>
-
-              {isLargeDataset && (
-                <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-email-delivery-note>
-                  {t('page.reports_analytics.email_delivery_prefix')} <strong>{DEMO_ADMIN_EMAIL}</strong>{t('page.reports_analytics.email_delivery_suffix')}
-                </p>
-              )}
 
               {generateResult && (
                 <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-generate-result>
@@ -247,6 +219,63 @@ export function ReportsAnalytics() {
           </section>
         </div>
       </div>
+    </div>
+  )
+}
+
+// A cell from the report API: ISO times as a date + time, status codes in words.
+function formatCell(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return `${formatDay(v)} ${v.slice(11, 16)}`
+  if (typeof v === 'number') return v.toLocaleString('en-US')
+  return String(v).replace(/_/g, ' ')
+}
+
+/** One report on screen: its headline figures and the rows the PDF / CSV download carries. */
+function ReportView({ type, dateFrom, dateTo }: { type: string; dateFrom: string; dateTo: string }) {
+  const { t } = useTranslation()
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['reports', 'preview', type, dateFrom, dateTo],
+    queryFn:  () => platformApi.getReportPreview(type, { dateFrom, dateTo }),
+  })
+  return (
+    <div className="flex flex-col gap-4" data-report-view={type}>
+      {type === 'project-summary' && (
+        <p className="text-[12px] text-slate-500" data-report-as-of>{t('page.reports_analytics.report_as_of_today')}</p>
+      )}
+      {isLoading && <p className="text-[13px] text-slate-500">{t('page.reports_analytics.report_loading')}</p>}
+      {isError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800">{t('page.reports_analytics.report_error')}</p>}
+      {data && (<>
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }} data-report-summary>
+          {data.summary.map(s => (
+            <div key={s.label} className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{s.label}</p>
+              <p className="mt-1 text-[20px] font-bold text-slate-900" style={{ overflowWrap: 'anywhere' }}>{typeof s.value === 'number' ? s.value.toLocaleString('en-US') : s.value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white" data-report-table>
+          {data.rows.length === 0 ? (
+            <p className="p-5 text-[13px] text-slate-500" data-report-empty>{t('page.reports_analytics.report_empty')}</p>
+          ) : (
+            <table className="w-full text-left text-[12px]">
+              <thead className="bg-slate-50">
+                <tr>{data.header.map(h => <th key={h} className="whitespace-nowrap px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {data.rows.map((r, i) => (
+                  <tr key={i} className="border-t border-slate-100" data-report-row>
+                    {r.map((c, j) => <td key={j} className="px-3 py-2 text-slate-700">{formatCell(c)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {data.totalRows > data.rows.length && (
+          <p className="text-[12px] text-slate-500">{t('page.reports_analytics.report_rows_shown', { shown: data.rows.length, total: data.totalRows })}</p>
+        )}
+      </>)}
     </div>
   )
 }

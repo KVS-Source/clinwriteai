@@ -43,7 +43,6 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.platform_notifications',        href: '/notifications',             roles: ['admin'] as const, icon: <BellIcon /> },
   { labelKey: 'component.sidebar.platform_services',             href: '/services',                  roles: ['admin'] as const, icon: <LayersIcon /> },
   { labelKey: 'component.sidebar.platform_subscription',         href: '/admin/subscription',        roles: ['admin'] as const, icon: <CardIcon /> },
-  { labelKey: 'component.sidebar.platform_reports',              href: '/reports',                   roles: ['admin'] as const, icon: <ChartIcon /> },
 ]
 // Master Library — single entry for non-admin users (PM = content
 // admin, contributor / author / auditor = readers). Replaces the old
@@ -58,6 +57,8 @@ const MASTER_LIBRARY_NAV: { labelKey: string; href: string; icon: ReactNode }[] 
 const PM_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
   { labelKey: 'component.sidebar.platform_audit_trail', href: '/admin/audit', icon: <ClipboardIcon /> },
   { labelKey: 'component.sidebar.platform_ta_tags',     href: '/admin/taxonomy', icon: <TagIcon /> },
+  // Reports cover the projects the PM manages (moved off the IT Admin nav).
+  { labelKey: 'component.sidebar.platform_reports',     href: '/reports',        icon: <ChartIcon /> },
 ]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.super_admin_panel',       href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },

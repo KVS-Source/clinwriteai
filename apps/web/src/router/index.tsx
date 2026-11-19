@@ -206,7 +206,8 @@ export const router = createBrowserRouter([
       { path: 'services',               element: <AdminGuard><ServicesDashboard /></AdminGuard> },
       { path: 'super-admin/rate-card',  element: <SuperAdminGuard><RateCardAdmin /></SuperAdminGuard> },
       { path: 'admin/subscription',     element: <AdminGuard><SubscriptionPayment /></AdminGuard> },
-      { path: 'reports',                element: <AdminGuard><ReportsAnalytics /></AdminGuard> },
+      // Reports are the PM's (moved off the IT Admin), covering the projects they manage.
+      { path: 'reports',                element: <PmGuard><ReportsAnalytics /></PmGuard> },
       {
         path: 'projects/:projectId',
         // Admins never view projects — this covers every module and document

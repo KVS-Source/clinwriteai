@@ -286,13 +286,10 @@ async function buildServer() {
   const { bestPracticeRoutes } = await import('./modules/platform/best-practice/routes.js')
   await app.register(bestPracticeRoutes, { prefix: '/best-practice-records' })
 
-  // Section Template — per-section formatting JSON (migration 90). Admin
-  // authors font/paragraph/list/table rules per (docType, sectionKey);
-  // document creation snapshots the approved row onto each section so
-  // AI rewrites preserve the styling. Replaces BP's role as the vehicle
-  // for AI-steering formatting hints (BP is now author-guidance only).
-  const { sectionTemplateRoutes } = await import('./modules/platform/section-template/routes.js')
-  await app.register(sectionTemplateRoutes, { prefix: '/section-templates' })
+  // Section Templates retired in migration 94 — per-section formatting
+  // rules now live inside DocumentTemplate.sections[].formatRules and
+  // flow to each document's SectionContent snapshot at create time.
+  // No standalone entity, no admin tab.
 
   // Licensing (migration 92) — per-install signed-JWT licence. IT admin
   // imports the token on Settings → Licensing; the verifier re-reads

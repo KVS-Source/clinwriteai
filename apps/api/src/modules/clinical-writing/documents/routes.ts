@@ -691,7 +691,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       select: {
-        id: true, type: true, aiInstructions: true, policyVersionAtCreate: true,
+        id: true, type: true, templateId: true, aiInstructions: true, policyVersionAtCreate: true,
         aiPromptRecordId: true, bestPracticeRecordId: true, deletedAt: true,
         currentVersion: {
           select: {
@@ -699,7 +699,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
               where:  { OR: [{ sectionId }, { id: sectionId }] },
               select: {
                 sectionId: true, sectionNumber: true, sectionTitle: true,
-                sectionTemplateRecordId: true, templateFormatRules: true,
+                templateFormatRules: true,
               },
             },
           },
@@ -721,20 +721,27 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return null
     })
 
-    // Section template (migration 91). Prefer the NL snapshot pinned on
-    // the section at create-time; fall back to the currently-approved
-    // template for sections authored before the snapshot existed.
-    // Wrapped in try/catch so test mocks without sectionTemplate still work.
+    // Section template formatRules — prefer the snapshot pinned on the
+    // section at create time (migration 94). Fall back to reading the
+    // live template's matching section for documents created before
+    // the snapshot column was populated. Wrapped in try/catch so
+    // test mocks without documentTemplate still pass.
     let sectionTemplateFormatRules: string | null = section.templateFormatRules ?? null
-    if (!sectionTemplateFormatRules) {
+    if (!sectionTemplateFormatRules && doc.templateId) {
       try {
-        const approved = await app.prisma.sectionTemplate.findFirst({
-          where:   { docType: doc.type.replace(/-/g, '_'), sectionKey: section.sectionId, status: 'approved' },
-          orderBy: { version: 'desc' },
-          select:  { formatRules: true },
+        const tpl = await app.prisma.documentTemplate.findUnique({
+          where:  { id: doc.templateId },
+          select: { sections: true },
         })
-        sectionTemplateFormatRules = approved?.formatRules ?? null
-      } catch { /* model absent on test mocks or pre-migration — fine */ }
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          const match = (tpl.sections as Array<Record<string, unknown>>).find(
+            s => typeof s.id === 'string' && s.id === section.sectionId,
+          )
+          if (match && typeof match.formatRules === 'string' && match.formatRules.trim().length > 0) {
+            sectionTemplateFormatRules = match.formatRules.trim()
+          }
+        }
+      } catch { /* template missing or test mock — fine */ }
     }
 
     const renderedPromptBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
@@ -2610,20 +2617,26 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       app.log.warn({ err, documentId }, 'policy resolve failed — falling back to no-policy prompt')
       return null
     })
-    // Section template (migration 91). Snapshot pinned on the section
-    // wins; else the latest approved SectionTemplate for (docType, key).
-    // Wrapped in try/catch so test mocks without sectionTemplate still work.
+    // Section template formatRules — snapshot pinned on the section at
+    // create time (migration 94) wins; otherwise fall back to the live
+    // template's matching section. try/catch keeps test mocks working.
     let sectionTemplateFormatRules: string | null =
       ((section as { templateFormatRules?: string | null }).templateFormatRules) ?? null
-    if (!sectionTemplateFormatRules) {
+    if (!sectionTemplateFormatRules && doc.templateId) {
       try {
-        const approved = await app.prisma.sectionTemplate.findFirst({
-          where:   { docType: doc.type.replace(/-/g, '_'), sectionKey: section.sectionId, status: 'approved' },
-          orderBy: { version: 'desc' },
-          select:  { formatRules: true },
+        const tpl = await app.prisma.documentTemplate.findUnique({
+          where:  { id: doc.templateId },
+          select: { sections: true },
         })
-        sectionTemplateFormatRules = approved?.formatRules ?? null
-      } catch { /* model absent on test mocks or pre-migration — fine */ }
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          const match = (tpl.sections as Array<Record<string, unknown>>).find(
+            s => typeof s.id === 'string' && s.id === section.sectionId,
+          )
+          if (match && typeof match.formatRules === 'string' && match.formatRules.trim().length > 0) {
+            sectionTemplateFormatRules = match.formatRules.trim()
+          }
+        }
+      } catch { /* template missing or test mock — fine */ }
     }
     const policyBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
 

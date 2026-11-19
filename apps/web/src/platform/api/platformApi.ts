@@ -556,34 +556,9 @@ export const platformApi = {
   updateLocalisation: (body: Partial<LocalisationSettings>) =>
     api.patch<PlatformSettingsView>(`/platform-settings/localisation`, body),
 
-  // --- SectionTemplate (migration 90) ----------------------------------
-  // Per-section formatting JSON that flows into every AI call so Claude
-  // preserves authored styling. Versioned per (docType, sectionKey) with
-  // draft → approved → retired lifecycle. Document creation snapshots
-  // the approved row onto each section — admin approvals of newer
-  // templates don't retroactively rewrite in-flight documents.
-  listSectionTemplates: () =>
-    api.get<{ templates: SectionTemplate[] }>(`/section-templates`),
-  listSectionTemplatesForDocType: (docType: string) =>
-    api.get<{ templates: SectionTemplate[] }>(`/section-templates/${encodeURIComponent(docType)}`),
-  getSectionTemplate: async (docType: string, sectionKey: string): Promise<SectionTemplate | null> => {
-    try {
-      return await api.get<SectionTemplate>(`/section-templates/${encodeURIComponent(docType)}/${encodeURIComponent(sectionKey)}`)
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return null
-      throw err
-    }
-  },
-  listSectionTemplateVersions: (docType: string, sectionKey: string) =>
-    api.get<{ versions: SectionTemplate[] }>(`/section-templates/${encodeURIComponent(docType)}/${encodeURIComponent(sectionKey)}/versions`),
-  createSectionTemplateDraft: (body: SectionTemplateCreateBody) =>
-    api.post<SectionTemplate>(`/section-templates`, body),
-  updateSectionTemplateDraft: (id: string, body: SectionTemplatePatchBody) =>
-    api.patch<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}`, body),
-  approveSectionTemplate: (id: string) =>
-    api.post<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}/approve`, {}),
-  retireSectionTemplate: (id: string, reason: string) =>
-    api.post<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}/retire`, { reason }),
+  // SectionTemplate methods retired in migration 94 — per-section
+  // formatRules live inside DocumentTemplate.sections[] now; use the
+  // existing template endpoints to read/edit them.
 
   // --- BestPracticeRecord (Phase-2 pointer refactor, migration 74) ------
   // BP digest is its own versioned entity. The distill worker writes to
@@ -1142,40 +1117,9 @@ export interface PlatformSettingsView {
   updatedAt:    string
 }
 
-// --- SectionTemplate (platform/section-template, migration 91) ----------
-// Per-section formatting rules authored as natural language. The admin
-// writes the exact text the AI reads on every draft + rewrite — no
-// translation step.
-export type SectionTemplateStatus = 'draft' | 'approved' | 'retired'
-
-export interface SectionTemplate {
-  id:            string
-  docType:       string
-  sectionKey:    string
-  version:       number
-  status:        SectionTemplateStatus
-  formatRules:   string
-  supersededBy:  string | null
-  effectiveDate: string | null
-  retiredAt:     string | null
-  retireReason:  string | null
-  approvedBy:    string | null
-  approvedAt:    string | null
-  createdBy:     string
-  updatedBy:     string
-  createdAt:     string
-  updatedAt:     string
-}
-
-export interface SectionTemplateCreateBody {
-  docType:     string
-  sectionKey:  string
-  formatRules: string
-}
-
-export interface SectionTemplatePatchBody {
-  formatRules: string
-}
+// SectionTemplate types retired in migration 94 — per-section formatting
+// rules now live inside DocumentTemplate.sections[] (see the Templates
+// tab) with the shape `{ id, number, title, formatRules?, ... }`.
 
 // --- BestPracticeRecord (platform/best-practice) --------------------------
 // Phase-2 pointer refactor (migration 74): BP digest becomes its own

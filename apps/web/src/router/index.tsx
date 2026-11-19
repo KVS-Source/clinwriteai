@@ -101,7 +101,6 @@ import { ReportsAnalytics }              from '../platform/screens/ReportsAnalyt
 import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
 import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePolicies'
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
-import { SectionTemplates }             from '../platform/screens/SectionTemplates'
 import { PublicationPolicies }          from '../platform/screens/PublicationPolicies'
 import { MedContentPolicies }           from '../platform/screens/MedContentPolicies'
 import { RegulatoryPolicies }           from '../platform/screens/RegulatoryPolicies'
@@ -192,7 +191,10 @@ export const router = createBrowserRouter([
           { path: 'best-practices',      element: <BestPracticesLibrary /> },
           { path: 'templates',           element: <TemplateLibrary /> },
           { path: 'ai-prompts',          element: <AiPrompts /> },
-          { path: 'section-templates',   element: <SectionTemplates /> },
+          // section-templates tab retired in migration 94 — per-section
+          // formatRules live inside the template now. Redirect for old
+          // bookmarks.
+          { path: 'section-templates',   element: <Navigate to="/master-library/templates" replace /> },
           { path: 'checklists',          element: <ChecklistTemplatesAdmin /> },
           { path: 'ich-frameworks',      element: <RegulatoryFrameworkAdmin /> },
           { path: 'policies',            element: <DocumentTypePolicies /> },

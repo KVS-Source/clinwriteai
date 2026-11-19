@@ -117,45 +117,38 @@ export class DocumentService {
       })
 
       if (sections.length > 0) {
-        // Snapshot the latest-approved SectionTemplate for each sectionKey
-        // (migration 91 — NL rules). Both pointer + rules are stored so
-        // the AI resolver can serve from the snapshot — admin approvals of
-        // newer templates don't retroactively rewrite in-flight documents.
-        // Wrapped in try/catch so test mocks without sectionTemplate work.
-        const docType = args.type.replace(/-/g, '_')
-        const sectionKeys = sections.map(s => s.sectionId)
-        const tplBySection = new Map<string, { id: string; formatRules: string }>()
-        if (sectionKeys.length > 0) {
+        // Snapshot per-section formatRules from the DocumentTemplate at
+        // document-create time (migration 94 made the template the
+        // single source of truth — no more standalone SectionTemplate).
+        // The snapshot is what the AI resolver reads so admin approvals
+        // of a new template don't retroactively restyle in-flight docs.
+        const rulesBySection = new Map<string, string>()
+        if (args.templateId) {
           try {
-            const templates = await tx.sectionTemplate.findMany({
-              where:   { docType, sectionKey: { in: sectionKeys }, status: 'approved' },
-              orderBy: { version: 'desc' },
-              select:  { id: true, sectionKey: true, formatRules: true },
+            const tpl = await tx.documentTemplate.findUnique({
+              where:  { id: args.templateId },
+              select: { sections: true },
             })
-            // orderBy desc + first-write-wins picks the highest version
-            // per sectionKey (belt-and-braces against concurrent approvals).
-            for (const t of templates) {
-              if (!tplBySection.has(t.sectionKey)) {
-                tplBySection.set(t.sectionKey, { id: t.id, formatRules: t.formatRules })
+            if (tpl?.sections && Array.isArray(tpl.sections)) {
+              for (const raw of tpl.sections as Array<Record<string, unknown>>) {
+                const id    = typeof raw.id === 'string' ? raw.id : null
+                const rules = typeof raw.formatRules === 'string' ? raw.formatRules.trim() : ''
+                if (id && rules.length > 0) rulesBySection.set(id, rules)
               }
             }
-          } catch { /* model absent on test mocks or pre-migration — fine */ }
+          } catch { /* template missing or test mock without documentTemplate — fine */ }
         }
 
         await tx.sectionContent.createMany({
-          data: sections.map(s => {
-            const tpl = tplBySection.get(s.sectionId)
-            return {
-              documentVersionId: version.id,
-              sectionId: s.sectionId,
-              sectionNumber: s.sectionNumber,
-              sectionTitle: s.sectionTitle,
-              contentHtml: s.contentHtml,
-              ichStatus: s.ichStatus ?? 'not_started',
-              sectionTemplateRecordId: tpl?.id ?? null,
-              templateFormatRules:     tpl?.formatRules ?? null,
-            }
-          }),
+          data: sections.map(s => ({
+            documentVersionId: version.id,
+            sectionId: s.sectionId,
+            sectionNumber: s.sectionNumber,
+            sectionTitle: s.sectionTitle,
+            contentHtml: s.contentHtml,
+            ichStatus: s.ichStatus ?? 'not_started',
+            templateFormatRules: rulesBySection.get(s.sectionId) ?? null,
+          })),
         })
       }
 

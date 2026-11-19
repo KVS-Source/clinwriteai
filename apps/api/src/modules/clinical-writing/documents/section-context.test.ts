@@ -36,11 +36,13 @@ async function build(opts: {
   policyVersionAtCreate?: number | null
   sectionRows?: Array<{
     sectionId: string; sectionNumber: string; sectionTitle: string
-    sectionTemplateRecordId?: string | null
     templateFormatRules?:     string | null
   }>
   aiInstructions?: string | null
-  sectionTemplateApproved?: { formatRules: string } | null
+  /** Live-template fallback for sections without a pinned snapshot
+   *  (migration 94: formatRules live inside DocumentTemplate.sections[]). */
+  templateSectionsForFallback?: Array<{ id: string; formatRules?: string }> | null
+  templateIdOnDoc?: string | null
 }) {
   const sections = opts.sectionRows ?? [
     { sectionId: 's6_2', sectionNumber: '6.2', sectionTitle: 'Inclusion Criteria' },
@@ -50,6 +52,7 @@ async function build(opts: {
     document: {
       findUnique: vi.fn(async () => ({
         id: 'DOC-1', projectId: 'proj-1', type: 'protocol',
+        templateId:            opts.templateIdOnDoc ?? null,
         policyVersionAtCreate: opts.policyVersionAtCreate ?? null,
         aiPromptRecordId:      null,
         bestPracticeRecordId:  null,
@@ -70,27 +73,22 @@ async function build(opts: {
       findUnique: vi.fn(async () => opts.policyPinned ?? null),
       findFirst:  vi.fn(async () => opts.policyCurrent ?? null),
     },
-    // Phase-1 pointer refactor (migration 73): resolver reads
-    // AiPromptRecord first. Tests here exercise the policy fallback so
-    // both lookups return null — the resolver falls through to the
-    // policy row.
     aiPromptRecord: {
       findUnique: vi.fn(async () => null),
       findFirst:  vi.fn(async () => null),
     },
-    // Phase-2 pointer refactor (migration 74): resolver also reads
-    // BestPracticeRecord. Same approach — null forces the policy
-    // fallback so these tests continue to assert the digest shape.
     bestPracticeRecord: {
       findUnique: vi.fn(async () => null),
       findFirst:  vi.fn(async () => null),
     },
-    // Migration 91: section-context endpoint falls back to the
-    // latest-approved SectionTemplate when the section has no
-    // snapshot pinned. Tests pass `sectionTemplateApproved: null`
-    // (default) to exercise the "no template" path.
-    sectionTemplate: {
-      findFirst: vi.fn(async () => opts.sectionTemplateApproved ?? null),
+    // Migration 94: section-context endpoint falls back to the live
+    // template's matching section for formatRules when no snapshot
+    // exists. Tests pass templateSectionsForFallback to exercise this.
+    documentTemplate: {
+      findUnique: vi.fn(async () => opts.templateSectionsForFallback
+        ? { sections: opts.templateSectionsForFallback }
+        : null,
+      ),
     },
   } as never)
   app.decorate('audit', { append: vi.fn() } as never)
@@ -191,7 +189,6 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
       policyPinned: policy, policyVersionAtCreate: 3,
       sectionRows: [{
         sectionId: 's6_2', sectionNumber: '6.2', sectionTitle: 'Inclusion Criteria',
-        sectionTemplateRecordId: 'tpl-1',
         templateFormatRules: snapshotRules,
       }],
     })
@@ -202,7 +199,7 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
     expect(body.renderedPromptBlock).toContain('Lists: numbered, one item per line.')
   })
 
-  it('falls back to the latest-approved SectionTemplate when the section has no snapshot', async () => {
+  it('falls back to the live template\'s matching section when no snapshot is pinned', async () => {
     const policy: PolicyRow = {
       id: 'pol-1', docType: 'protocol', version: 3,
       smePrompt: 'You are a Clinical Protocol subject-matter expert.',
@@ -211,7 +208,10 @@ describe('GET /documents/:id/sections/:sectionId/context', () => {
     }
     const { app } = await build({
       policyPinned: policy, policyVersionAtCreate: 3,
-      sectionTemplateApproved: { formatRules: 'Font: Arial 10pt.' },
+      templateIdOnDoc: 'tpl-live',
+      templateSectionsForFallback: [
+        { id: 's6_2', formatRules: 'Font: Arial 10pt.' },
+      ],
     })
     const body = (await get(app, 's6_2')).json()
     expect(body.renderedPromptBlock).toContain('SECTION TEMPLATE (s6_2)')

@@ -37,22 +37,26 @@ interface DistillTemplatePayload {
 }
 
 interface ParsedSection {
-  id:      string     // stable key — safe id, slugified from number if the model doesn't supply one
-  number:  string     // '1', '1.1', '§6.2', …
-  title:   string
-  usOnly?: boolean    // some sections are US-only (ICH E3 §16.4)
+  id:           string     // stable key — safe id, slugified from number if the model doesn't supply one
+  number:       string     // '1', '1.1', '§6.2', …
+  title:        string
+  usOnly?:      boolean    // some sections are US-only (ICH E3 §16.4)
+  // Per-section NL formatting rules — populated by the format-extraction
+  // phase that runs after structural extraction. Written back into
+  // DocumentTemplate.sections[] so the template is the single source of
+  // truth (migration 94 retired the standalone SectionTemplate entity).
+  formatRules?: string
 }
 
 interface Report {
   status:        'ok' | 'failed'
   reason?:       string
   sectionsIn?:   number
-  // Format-rule extraction breadcrumbs (M-F.2). Absent when the phase
-  // is skipped (AI not configured, no sections, etc.).
+  // Format-rule extraction breadcrumbs — absent when the phase is
+  // skipped (AI not configured, no sections, etc.).
   formatRules?: {
     extracted:   number           // sections that got a non-empty rule block
-    created:     number           // new draft SectionTemplate rows written
-    updated:     number           // existing draft rows refreshed
+    merged:      number           // sections written back into the template
     iterations:  number           // passes run through the 85% loop
     belowTarget: number           // sections still below 85 after the final pass
   }
@@ -528,52 +532,24 @@ async function runFormatValidationLoop(args: {
   return { rules, scores, iterations: iteration, belowTarget }
 }
 
-/** Write draft SectionTemplate rows for every section that has rules.
- *  Upsert semantics: if a draft already exists for (docType, sectionKey),
- *  refresh its formatRules + updatedBy; else create a new row at
- *  (max version + 1). Approved + retired rows are never touched. */
-async function writeDraftSectionTemplates(
-  prisma: unknown,
-  args: { docType: string; rules: Record<string, string>; actorId: string },
-): Promise<{ created: number; updated: number }> {
-  const db = prisma as {
-    sectionTemplate: {
-      findFirst(a: { where: Record<string, unknown>; orderBy?: unknown; select?: unknown }): Promise<{ id: string; version: number } | null>
-      update(a: { where: { id: string }; data: Record<string, unknown> }): Promise<unknown>
-      create(a: { data: Record<string, unknown> }): Promise<unknown>
-    }
-  }
-  let created = 0, updated = 0
-  const docType = args.docType.replace(/-/g, '_')
-  for (const [sectionKey, raw] of Object.entries(args.rules)) {
-    const formatRules = raw.trim()
-    if (!formatRules) continue
-    const existingDraft = await db.sectionTemplate.findFirst({
-      where: { docType, sectionKey, status: 'draft' },
-    })
-    if (existingDraft) {
-      await db.sectionTemplate.update({
-        where: { id: existingDraft.id },
-        data:  { formatRules, updatedBy: args.actorId },
-      })
-      updated += 1
-      continue
-    }
-    const latest = await db.sectionTemplate.findFirst({
-      where: { docType, sectionKey },
-      orderBy: { version: 'desc' },
-      select: { version: true },
-    })
-    const nextVersion = (latest?.version ?? 0) + 1
-    await db.sectionTemplate.create({
-      data: {
-        docType, sectionKey, version: nextVersion, status: 'draft',
-        formatRules, createdBy: args.actorId, updatedBy: args.actorId,
-      },
-    })
-    created += 1
-  }
-  return { created, updated }
+/** Merge per-section formatRules into the DocumentTemplate.sections[]
+ *  JSON — the single source of truth after migration 94. Returns the
+ *  merged sections[] (caller persists it with the structural update).
+ *  Sections without extracted rules are left as-is (no `formatRules` key
+ *  rather than an empty string, so the shape stays clean). */
+export function mergeFormatRulesIntoSections(
+  sections: ParsedSection[],
+  rules:    Record<string, string>,
+): { sections: ParsedSection[]; merged: number } {
+  let merged = 0
+  const out = sections.map(sec => {
+    const raw = rules[sec.id]
+    const trimmed = raw?.trim() ?? ''
+    if (trimmed.length === 0) return sec
+    merged += 1
+    return { ...sec, formatRules: trimmed }
+  })
+  return { sections: out, merged }
 }
 
 export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> = async (job, { prisma, log }) => {
@@ -639,13 +615,14 @@ export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> =
   })
   log.info({ templateId, sectionCount: sections.length, model, actorId }, 'template parse: sections written')
 
-  // 6. Format-rule extraction (M-F.2). Runs the 85% confidence loop over
-  // the same PDF, section-by-section, and persists each refined block as
-  // a draft SectionTemplate row. Isolated in its own try so a failure
-  // here doesn't erase the structural result the admin can still use.
-  // Skipped when AI is not configured (worker is stub-only) because the
-  // stub section outline carries no usable formatting signal — admins
-  // author section templates by hand in that mode.
+  // 6. Format-rule extraction. Runs the 85% confidence loop over the
+  // same PDF, section-by-section, then merges each refined rule block
+  // back into the template.sections[] JSON (migration 94 made the
+  // template the single source of truth). Isolated in its own try so a
+  // failure here doesn't erase the structural result the admin can
+  // still use. Skipped when AI is not configured — the stub section
+  // outline carries no usable formatting signal and admins author per-
+  // section rules by hand in that mode (via the template JSON editor).
   let formatSummary: Report['formatRules']
   if (apiKey && sections.length > 0) {
     try {
@@ -655,22 +632,21 @@ export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> =
         framework: template.framework ?? null,
         log,
       })
-      const written = await writeDraftSectionTemplates(prisma, {
-        docType: template.type,
-        rules:   loop.rules,
-        actorId,
+      const { sections: mergedSections, merged } = mergeFormatRulesIntoSections(sections, loop.rules)
+      await prisma.documentTemplate.update({
+        where: { id: templateId },
+        data:  { sections: mergedSections as unknown as object },
       })
       const extracted = Object.values(loop.rules).filter(r => r.trim().length > 0).length
       formatSummary = {
         extracted,
-        created:     written.created,
-        updated:     written.updated,
+        merged,
         iterations:  loop.iterations,
         belowTarget: loop.belowTarget,
       }
       log.info(
         { templateId, model, actorId, ...formatSummary },
-        'template parse: format rules extracted + drafts written',
+        'template parse: format rules extracted + merged into template.sections',
       )
     } catch (err) {
       // Non-fatal: structural result is already persisted; admins can
@@ -689,6 +665,7 @@ export const __test__ = {
   stripJsonFence,
   slugify,
   parseFormatRulesResponse,
+  mergeFormatRulesIntoSections,
   FORMAT_CONFIDENCE_TARGET,
   FORMAT_MIN_ITERATIONS,
   FORMAT_MAX_ITERATIONS,

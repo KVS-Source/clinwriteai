@@ -11,6 +11,8 @@ import { LicensingTab } from './LicensingTab'
 import { BrandingTab } from './BrandingTab'
 import { LocalisationTab } from './LocalisationTab'
 import { SsoTab } from './SsoTab'
+import { AiEngineKeyRows } from './AiEngineKeyRows'
+import { VoiceTab } from './VoiceTab'
 
 type TabKey =
   | 'ai-engine' | 'voice' | 'ectd' | 'external-apis' | 'licensing'
@@ -157,6 +159,8 @@ function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft
         })}
       </div>
 
+      <AiEngineKeyRows engines={engines} />
+
       <label className="block rounded-lg border border-slate-200 bg-white p-4" data-fallback-row>
         <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.fallback_engine')}</span>
         <select
@@ -270,80 +274,6 @@ function ConnectionTest({ config }: { config: PlatformConfig }) {
           className="h-9 rounded-md px-3 text-[13px] font-semibold text-white disabled:cursor-wait disabled:opacity-60"
           style={{ backgroundColor: PLATFORM_ACCENT.primary }}
         >{test.isPending ? t('page.admin_panel.testing') : t('page.admin_panel.test_connection')}</button>
-      </div>
-    </div>
-  )
-}
-
-function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
-  const { t } = useTranslation()
-  return (
-    <div className="flex flex-col gap-5" data-tab-panel="voice">
-      <SectionHeader
-        eyebrow={t('page.admin_panel.tab_voice')}
-        title={t('page.admin_panel.voice_section_title')}
-        subtitle={t('page.admin_panel.voice_section_subtitle')}
-      />
-
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-voice-grid>
-        {config.voiceTranscription.availableEngines.map(e => {
-          const active = e.id === config.voiceTranscription.engine
-          return (
-            <div
-              key={e.id}
-              className="rounded-lg bg-white p-4"
-              style={{
-                border: `${active ? 2 : 1}px solid ${active ? PLATFORM_ACCENT.primary : '#E2E8F0'}`,
-                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-              }}
-              data-voice-engine={e.id}
-              data-voice-active={active || undefined}
-            >
-              <p className="text-[14px] font-semibold text-slate-900">{e.label}</p>
-              <div className="mt-2">
-                {active
-                  ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_active')}`} />
-                  : <StatusChip status="off" label={`○ ${t('page.admin_panel.chip_available')}`} />}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white p-4" data-gdpr>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.gdpr_posture')}</p>
-        <div className="mt-2 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.jurisdiction')}</p>
-            <select
-              onChange={onChange}
-              defaultValue={config.voiceTranscription.gdprJurisdiction}
-              data-jurisdiction-select
-              data-jurisdiction-value={config.voiceTranscription.gdprJurisdiction}
-              className="mt-1 h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
-            >
-              <option value="EU">EU</option>
-              <option value="UK">UK</option>
-              <option value="US">US</option>
-              <option value="APAC">APAC</option>
-            </select>
-          </div>
-          <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.audio_retention')}</p>
-            <p className="mt-2 text-[13px] font-semibold text-slate-900" data-audio-retention>
-              {config.voiceTranscription.audioRetentionPolicy === 'delete-immediately'
-                ? t('page.admin_panel.audio_delete_immediately')
-                : config.voiceTranscription.audioRetentionPolicy}
-            </p>
-          </div>
-        </div>
-        <p
-          className="mt-3 rounded-md p-3 text-[12px]"
-          style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-          data-gdpr-note
-        >
-          {t('page.admin_panel.audio_gdpr_note')}
-        </p>
       </div>
     </div>
   )
@@ -828,7 +758,7 @@ export function AdminPanel() {
               </div>
             )}
             {config && aiDraftEffective && activeTab === 'ai-engine' && <AIEngineTab config={config} draft={aiDraftEffective} onDraft={d => { setSaveNote(null); setAiDraft(d) }} />}
-            {config && activeTab === 'voice'              && <VoiceTab             config={config} onChange={markUnsaved} />}
+            {config && activeTab === 'voice'              && <VoiceTab             config={config} />}
             {config && activeTab === 'ectd'               && <EctdTab              config={config} />}
             {config && activeTab === 'external-apis'      && <ExternalApisTab      config={config} onChange={markUnsaved} />}
             {activeTab === 'licensing'                     && <LicensingTab />}

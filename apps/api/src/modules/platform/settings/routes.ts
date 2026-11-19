@@ -6,7 +6,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
 import { PlatformSettingsService } from './service.js'
-import { updateBrandingSchema, updateLocalisationSchema } from './schema.js'
+import { updateBrandingSchema, updateLocalisationSchema, updateVoiceSchema, updateSsoSchema } from './schema.js'
 
 const readGate  = requireAuth({})
 const writeGate = requireAuth({ roles: ['admin'] })
@@ -45,6 +45,45 @@ export const platformSettingsRoutes: FastifyPluginAsync = async (app) => {
       entityType: 'platform_settings',
       entityId:   'default',
       details:    { changedKeys: Object.keys(parsed.data) },
+      ipAddress:  request.ip ?? null,
+    })
+    return view
+  })
+
+  app.patch('/voice', { preHandler: writeGate }, async (request, reply) => {
+    const parsed = updateVoiceSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const view = await svc.updateVoice(parsed.data, request.user!.id)
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'platform_settings.voice_updated',
+      entityType: 'platform_settings',
+      entityId:   'default',
+      details:    { changedKeys: Object.keys(parsed.data) },
+      ipAddress:  request.ip ?? null,
+    })
+    return view
+  })
+
+  app.patch('/sso', { preHandler: writeGate }, async (request, reply) => {
+    const parsed = updateSsoSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const view = await svc.updateSso(parsed.data, request.user!.id)
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'platform_settings.sso_updated',
+      entityType: 'platform_settings',
+      entityId:   'default',
+      details:    {
+        changedKeys: Object.keys(parsed.data),
+        // Enable-state transitions are security-relevant — record them as
+        // explicit facts so audit review doesn't have to diff the whole
+        // JSONB blob to find them.
+        enabled:  parsed.data.enabled ?? null,
+        protocol: parsed.data.protocol ?? null,
+      },
       ipAddress:  request.ip ?? null,
     })
     return view

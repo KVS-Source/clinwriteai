@@ -560,6 +560,10 @@ export const platformApi = {
     api.patch<PlatformSettingsView>(`/platform-settings/branding`, body),
   updateLocalisation: (body: Partial<LocalisationSettings>) =>
     api.patch<PlatformSettingsView>(`/platform-settings/localisation`, body),
+  updateVoiceSettings: (body: Partial<VoiceSettings>) =>
+    api.patch<PlatformSettingsView>(`/platform-settings/voice`, body),
+  updateSsoSettings: (body: Partial<SsoSettings>) =>
+    api.patch<PlatformSettingsView>(`/platform-settings/sso`, body),
 
   // SectionTemplate methods retired in migration 94 — per-section
   // formatRules live inside DocumentTemplate.sections[] now; use the
@@ -1123,9 +1127,39 @@ export interface LocalisationSettings {
   currency?:   string                     // ISO-4217
 }
 
+// Migration 96: voice + sso sections. API keys for voice providers and
+// the OIDC client secret live on ExternalApiCredential rows — these
+// JSONB blobs hold the non-secret config only.
+
+export interface VoiceSettings {
+  engine?:               string            // e.g. 'whisper', 'assemblyai', 'azure-speech'
+  gdprJurisdiction?:     'EU' | 'UK' | 'US' | 'APAC'
+  audioRetentionPolicy?: 'delete-immediately' | 'retain-30d' | 'retain-90d'
+}
+
+export interface SsoOidcSettings {
+  issuerUrl: string
+  clientId:  string
+  scopes?:   string[]
+}
+export interface SsoSamlSettings {
+  entityId:    string
+  metadataUrl?: string
+  acsUrl?:     string
+}
+export interface SsoSettings {
+  enabled?:      boolean
+  protocol?:     'oidc' | 'saml' | null
+  emailDomains?: string[]
+  oidc?:         SsoOidcSettings | null
+  saml?:         SsoSamlSettings | null
+}
+
 export interface PlatformSettingsView {
   branding:     BrandingSettings
   localisation: LocalisationSettings
+  voice:        VoiceSettings
+  sso:          SsoSettings
   updatedBy:    string | null
   updatedAt:    string
 }

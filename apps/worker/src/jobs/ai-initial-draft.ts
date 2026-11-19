@@ -432,6 +432,20 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   const report: Report = { drafted: 0, skipped: 0, errored: [] }
 
   for (const sec of sections) {
+    // Co-operative cancellation check — writer hit Stop on the toast
+    // (POST /ai-draft/stop flipped aiDraftState → 'cancelled'). Bail
+    // without starting another section; already-drafted sections stay
+    // intact. We skip chaining validation too (early return after the
+    // loop checks for this state).
+    const stateCheck = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { aiDraftState: true },
+    }).catch(() => null)
+    if (stateCheck?.aiDraftState === 'cancelled') {
+      log.info({ documentId, draftedBeforeStop: report.drafted }, 'ai_initial_draft: cancelled by writer — exiting loop')
+      return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
+    }
+
     const row = existingBySection.get(sec.id)
     if (!row) {
       log.warn({ documentId, versionId, sectionId: sec.id }, 'ai_initial_draft: section row missing — skipping')

@@ -1130,6 +1130,51 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // --- POST /:documentId/ai-draft/stop -----------------------------------
+  //
+  // Cancel an in-flight draft / validation chain. Flips the document's
+  // aiDraftState to 'cancelled' so the worker exits at the next section
+  // boundary (checked between sections in ai-initial-draft.ts). Already-
+  // drafted sections are left intact — this is a soft stop, not a wipe.
+  //
+  // Access: author (RACI Responsible), PM on the project, or admin. Same
+  // gate as the write side of the editor.
+  app.post('/:documentId/ai-draft/stop', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, aiDraftState: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const inFlight = doc.aiDraftState === 'pending'
+                  || doc.aiDraftState === 'drafting'
+                  || doc.aiDraftState === 'validating'
+    if (!inFlight) {
+      // No-op: nothing to stop. Return current state so the client
+      // can resync without surfacing an error.
+      return { state: doc.aiDraftState, cancelled: false }
+    }
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'cancelled' },
+    })
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_cancelled',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { previousState: doc.aiDraftState },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'cancelled', cancelled: true }
+  })
+
   // --- GET /:documentId/ai-debug ------------------------------------------
   //
   // Verbose provenance dump for a single document — intended for support +

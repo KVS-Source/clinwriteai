@@ -44,21 +44,18 @@ interface DebugSource {
 }
 
 interface DebugPass {
-  id: string
   passNumber?: number
-  passKind?: string
   startedAt?: string | null
-  endedAt?: string | null
-  overallConfidence?: number | null
-  sectionsFailing?: number | null
-  outcome?: string | null
-  reason?: string | null
+  finishedAt?: string | null
+  sectionsFlagged?: number | null
+  confidenceAfter?: number | null
+  modelUsed?: string | null
 }
 
 interface DebugAudit {
-  id?: string | number | bigint
+  auditId?:  string
   action:    string
-  actor_id?: string
+  actorId?:  string
   timestamp: string
   details?:  Record<string, unknown>
 }
@@ -87,10 +84,16 @@ interface DebugData {
   aiPromptRecord?:    { version?: number; status?: string; smePromptChars?: number } | null
   bestPracticeRecord?: { version?: number; status?: string; principleCount?: number } | null
   template?:          { label?: string; type?: string; sectionCount?: number } | null
-  sources?:           DebugSource[]
-  pdfSourceCount?:    number
-  droppedSourceCount?: number
-  nonPdfSourceCount?: number
+  // Server wraps the source items inside a sources object with counters —
+  // NOT a plain array. The field we want to filter + render is
+  // `data.sources.items`.
+  sources?: {
+    totalLinked?:      number
+    usableByDrafter?:  number
+    droppedByDrafter?: number
+    nonPdfDropped?:    number
+    items?:            DebugSource[]
+  }
   sections?:          DebugSection[]
   draftingPasses?:    DebugPass[]
   auditTail?:         DebugAudit[]
@@ -253,11 +256,26 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
     }
   }
 
-  // Computed views over the raw data.
-  const sections = useMemo<DebugSection[]>(() => data?.sections ?? [], [data])
-  const sources  = useMemo<DebugSource[]>(() => data?.sources  ?? [], [data])
-  const passes   = useMemo<DebugPass[]>(() => data?.draftingPasses ?? [], [data])
-  const audits   = useMemo<DebugAudit[]>(() => data?.auditTail ?? [], [data])
+  // Computed views over the raw data. Array.isArray guards are belt-and-
+  // braces: if the server ever reshapes any of these into a non-array
+  // (as `sources` is today — it's an object wrapper with items[]), a
+  // plain `?? []` fallback does nothing and the first `.filter` throws
+  // "h.filter is not a function".
+  const sections = useMemo<DebugSection[]>(
+    () => (Array.isArray(data?.sections) ? data.sections : []),
+    [data],
+  )
+  const sources = useMemo<DebugSource[]>(
+    () => (Array.isArray(data?.sources?.items) ? data.sources.items : []),
+    [data],
+  )
+  // passes (DebugPass[]) is in the response but not rendered yet — the
+  // timeline derives everything from auditTail today. Kept as a type
+  // for forward compatibility; drop the useMemo until a consumer needs it.
+  const audits = useMemo<DebugAudit[]>(
+    () => (Array.isArray(data?.auditTail) ? data.auditTail : []),
+    [data],
+  )
 
   const sectionsBelow = useMemo(
     () => sections.filter(s => typeof s.aiConfidence === 'number' && s.aiConfidence < 85)
@@ -337,7 +355,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
               {/* TIMELINE */}
               <Section title="Timeline (newest first)">
-                {audits.length === 0 && passes.length === 0 && (
+                {audits.length === 0 && (
                   <p className="text-[12px] text-slate-500">No AI activity recorded yet.</p>
                 )}
                 {audits.length > 0 && (
@@ -345,7 +363,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                     {audits.map((e, i) => {
                       const { line, detail } = narrateAudit(e)
                       return (
-                        <li key={String(e.id ?? i)} className="flex items-start gap-3 text-[12px]" title={e.timestamp}>
+                        <li key={e.auditId ?? String(i)} className="flex items-start gap-3 text-[12px]" title={e.timestamp}>
                           <span className="mt-0.5 flex-none font-mono text-[10px] text-slate-500 w-[72px]">
                             {relative(e.timestamp)}
                           </span>
@@ -466,9 +484,9 @@ function SetupList({ data, droppedSources }: { data: DebugData; droppedSources: 
   const bpPrinciples   = data.bestPracticeRecord?.principleCount
   const templateLabel  = data.template?.label ?? data.template?.type
   const templateCount  = data.template?.sectionCount
-  const totalSources   = (data.sources?.length ?? 0)
-  const usableSources  = (data.pdfSourceCount ?? 0)
-  const droppedCount   = droppedSources.length
+  const totalSources   = data.sources?.totalLinked ?? data.sources?.items?.length ?? 0
+  const usableSources  = data.sources?.usableByDrafter ?? 0
+  const droppedCount   = data.sources?.droppedByDrafter ?? droppedSources.length
   return (
     <ul className="flex flex-col gap-1.5 text-[12px] text-slate-700">
       {policyVersion !== undefined && (

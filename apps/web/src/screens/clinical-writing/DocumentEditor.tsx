@@ -1506,7 +1506,7 @@ export function DocumentEditor() {
       {/* Floating AI progress toast — bottom-right, non-blocking. Hides
           itself when the chain settles (complete / failed) or when the
           user dismisses. See AiDraftingProgressToast. */}
-      <AiDraftingProgressToast state={aiState} summary={aiDraft.summary} />
+      {documentId && <AiDraftingProgressToast state={aiState} summary={aiDraft.summary} documentId={documentId} />}
 
       {/* Verbose AI provenance panel — opens from the header's AI debug
           button. Read-only JSON dump with a Copy button for support. */}

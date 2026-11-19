@@ -278,8 +278,20 @@ export function UserManagementLive() {
           </div>
         )}
 
-        {/* Filter bar: status, role, search (by name), clear. */}
+        {/* Filter bar: search (by name), status, role, clear. */}
         <div className="flex flex-wrap items-center gap-3" data-section="user-filters">
+          <div className="flex h-9 min-w-[240px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 focus-within:border-slate-800">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" strokeLinecap="round" /></svg>
+            <input
+              type="search"
+              value={search}
+              onChange={e => setSearch(e.currentTarget.value)}
+              placeholder={t('page.user_management_live.search_placeholder')}
+              aria-label={t('page.user_management_live.search_aria')}
+              data-filter="search"
+              className="w-full border-none bg-transparent font-mono text-[12px] text-slate-900 outline-none placeholder:text-slate-400"
+            />
+          </div>
           {/* With no filter chosen, each box shows a grey placeholder ("All Status"), like the search box. The
               placeholder is a hidden option (value ""), so the list itself offers "All …" and every value; choosing
               "All …" clears the filter and the placeholder shows again. */}
@@ -305,18 +317,6 @@ export function UserManagementLive() {
             <option value="all" className="text-slate-900">{t('page.user_management_live.filter_all_roles')}</option>
             {roleOptions.map(r => <option key={r} value={r} className="text-slate-900">{roleLabelOf(r, t)}</option>)}
           </select>
-          <div className="flex h-9 min-w-[240px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 focus-within:border-slate-800">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" strokeLinecap="round" /></svg>
-            <input
-              type="search"
-              value={search}
-              onChange={e => setSearch(e.currentTarget.value)}
-              placeholder={t('page.user_management_live.search_placeholder')}
-              aria-label={t('page.user_management_live.search_aria')}
-              data-filter="search"
-              className="w-full border-none bg-transparent font-mono text-[12px] text-slate-900 outline-none placeholder:text-slate-400"
-            />
-          </div>
           <button
             type="button"
             onClick={clearFilters}

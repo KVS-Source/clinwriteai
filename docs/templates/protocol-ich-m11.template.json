@@ -475,6 +475,254 @@
   ],
   "sections": [
     {
+      "id": "m11-fm-1",
+      "number": "i",
+      "title": "Title page",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Complete the document details: full study title, short title or acronym, protocol identifier, version and date, sponsor, investigational product, phase and therapeutic area, trial registration identifier(s) and the jurisdictions the study applies to. Keep the status line until the protocol is approved.",
+      "hasSubsections": false,
+      "frontMatter": true,
+      "seedContent": true,
+      "titleLines": {
+        "title": "CLINICAL STUDY PROTOCOL",
+        "subtitle": "ICH M11-aligned working template | Interventional clinical trials of medicinal products",
+        "documentStatus": "DOCUMENT STATUS: DRAFT – NOT APPROVED FOR STUDY CONDUCT"
+      },
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Document metadata",
+              "widthIn": 3
+            },
+            {
+              "header": "Enter information",
+              "widthIn": 3
+            }
+          ],
+          "headerRow": [
+            "Document metadata",
+            "Enter information"
+          ],
+          "rows": [
+            [
+              "Full study title",
+              "[Information Required]"
+            ],
+            [
+              "Short title / acronym",
+              "[Information Required]"
+            ],
+            [
+              "Protocol identifier",
+              "[Information Required]"
+            ],
+            [
+              "Version / date",
+              "[Information Required]"
+            ],
+            [
+              "Sponsor / legal entity",
+              "[Information Required]"
+            ],
+            [
+              "Investigational product",
+              "[Information Required]"
+            ],
+            [
+              "Phase / therapeutic area",
+              "[Information Required]"
+            ],
+            [
+              "Trial registration identifier(s)",
+              "[Information Required]"
+            ],
+            [
+              "Applicable jurisdictions",
+              "[Information Required]"
+            ]
+          ],
+          "role": "metadata"
+        }
+      ],
+      "defaultContentHtml": "<p><strong>CLINICAL STUDY PROTOCOL</strong></p><p>ICH M11-aligned working template | Interventional clinical trials of medicinal products</p><p><strong>DOCUMENT STATUS: DRAFT – NOT APPROVED FOR STUDY CONDUCT</strong></p><table><tbody><tr><th><p>Document metadata</p></th><th><p>Enter information</p></th></tr><tr><td><p>Full study title</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Short title / acronym</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Protocol identifier</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Version / date</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Sponsor / legal entity</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Investigational product</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Phase / therapeutic area</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Trial registration identifier(s)</p></td><td><p>[Information Required]</p></td></tr><tr><td><p>Applicable jurisdictions</p></td><td><p>[Information Required]</p></td></tr></tbody></table>",
+      "formatRules": "Title page: the title \"CLINICAL STUDY PROTOCOL\" in the Title style (Aptos Display 20 pt, bold, colour #143453), with a thin bottom border in #4F81BD.\nUnder it, in Aptos 9 pt, the line \"ICH M11-aligned working template | Interventional clinical trials of medicinal products\" and then the status line \"DOCUMENT STATUS: DRAFT – NOT APPROVED FOR STUDY CONDUCT\"; keep the status line until the protocol is approved.\nWhat to write: Complete the document details: full study title, short title or acronym, protocol identifier, version and date, sponsor, investigational product, phase and therapeutic area, trial registration identifier(s) and the jurisdictions the study applies to. Keep the status line until the protocol is approved.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nTable \"Document metadata\": use a table with the columns Document metadata, Enter information. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Document metadata\": the rows start with Full study title, Short title / acronym, Protocol identifier, Version / date, Sponsor / legal entity, Investigational product, Phase / therapeutic area, Trial registration identifier(s), Applicable jurisdictions; add rows as needed and fill the other cells."
+    },
+    {
+      "id": "m11-fm-2",
+      "number": "ii",
+      "title": "Document approval and version history",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Name who approves this protocol (sponsor, clinical or medical, and biostatistics) and keep the version history up to date, with each version's date and a summary of what changed. Investigator agreement, ethics approval and sponsor approvals must be documented as required by applicable rules and your SOPs; the table is illustrative.",
+      "hasSubsections": false,
+      "frontMatter": true,
+      "seedContent": true,
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Function / signatory",
+              "widthIn": 2
+            },
+            {
+              "header": "Name / title",
+              "widthIn": 2
+            },
+            {
+              "header": "Signature / date",
+              "widthIn": 2
+            }
+          ],
+          "headerRow": [
+            "Function / signatory",
+            "Name / title",
+            "Signature / date"
+          ],
+          "rows": [
+            [
+              "Sponsor-authorized approver",
+              "[To be designated]",
+              "[Pending]"
+            ],
+            [
+              "Clinical / medical approver",
+              "[Per sponsor SOP]",
+              "[Pending]"
+            ],
+            [
+              "Biostatistics approver",
+              "[Per sponsor SOP]",
+              "[Pending]"
+            ]
+          ],
+          "role": "approvalSignatories"
+        },
+        {
+          "columns": [
+            {
+              "header": "Version",
+              "widthIn": 2
+            },
+            {
+              "header": "Date",
+              "widthIn": 2
+            },
+            {
+              "header": "Summary of changes",
+              "widthIn": 2
+            }
+          ],
+          "headerRow": [
+            "Version",
+            "Date",
+            "Summary of changes"
+          ],
+          "rows": [
+            [
+              "0.1",
+              "[Date]",
+              "Initial draft"
+            ]
+          ],
+          "role": "versionHistory"
+        }
+      ],
+      "note": "Investigator agreement, ethics approval, and sponsor approvals must be documented as required by applicable rules and SOPs; this page is illustrative.",
+      "defaultContentHtml": "<table><tbody><tr><th><p>Function / signatory</p></th><th><p>Name / title</p></th><th><p>Signature / date</p></th></tr><tr><td><p>Sponsor-authorized approver</p></td><td><p>[To be designated]</p></td><td><p>[Pending]</p></td></tr><tr><td><p>Clinical / medical approver</p></td><td><p>[Per sponsor SOP]</p></td><td><p>[Pending]</p></td></tr><tr><td><p>Biostatistics approver</p></td><td><p>[Per sponsor SOP]</p></td><td><p>[Pending]</p></td></tr></tbody></table><table><tbody><tr><th><p>Version</p></th><th><p>Date</p></th><th><p>Summary of changes</p></th></tr><tr><td><p>0.1</p></td><td><p>[Date]</p></td><td><p>Initial draft</p></td></tr></tbody></table><p>Investigator agreement, ethics approval, and sponsor approvals must be documented as required by applicable rules and SOPs; this page is illustrative.</p>",
+      "formatRules": "Heading: \"Document approval and version history\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). Front-matter headings carry no number.\nWhat to write: Name who approves this protocol (sponsor, clinical or medical, and biostatistics) and keep the version history up to date, with each version's date and a summary of what changed. Investigator agreement, ethics approval and sponsor approvals must be documented as required by applicable rules and your SOPs; the table is illustrative.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nTable \"Approval signatories\": use a table with the columns Function / signatory, Name / title, Signature / date. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Approval signatories\": the rows start with Sponsor-authorized approver, Clinical / medical approver, Biostatistics approver; add rows as needed and fill the other cells.\nTable \"Version history\": use a table with the columns Version, Date, Summary of changes. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Version history\": the rows start with 0.1; add rows as needed and fill the other cells.\nKeep the note under the tables: \"Investigator agreement, ethics approval, and sponsor approvals must be documented as required by applicable rules and SOPs; this page is illustrative.\"\nStart the next page (the Table of Contents) on a new page after this section."
+    },
+    {
+      "id": "m11-fm-3",
+      "number": "iii",
+      "title": "Table of Contents",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Nothing to write here. The table of contents is built automatically from the section headings when the document is exported.",
+      "hasSubsections": false,
+      "frontMatter": true,
+      "seedContent": true,
+      "autoGenerated": true,
+      "wordInstruction": "In Microsoft Word: References → Table of Contents → Automatic Table. Update all fields after editing.",
+      "defaultContentHtml": "<p>The table of contents is generated automatically from the section headings when the document is exported.</p>",
+      "formatRules": "Heading: \"Table of Contents\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). Front-matter headings carry no number.\nWhat to write: Nothing to write here. The table of contents is built automatically from the section headings when the document is exported.\nDo not type anything into this section by hand. It is built automatically from the document's headings and captions when the document is exported, so leave the generated text as it is."
+    },
+    {
+      "id": "m11-fm-4",
+      "number": "iv",
+      "title": "List of Tables, Figures and Appendices",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Nothing to write here. The list is built automatically from the table and figure captions and the appendix headings when the document is exported.",
+      "hasSubsections": false,
+      "frontMatter": true,
+      "seedContent": true,
+      "autoGenerated": true,
+      "wordInstruction": "[Generate from captions and appendix headings; update after final pagination.]",
+      "defaultContentHtml": "<p>The list of tables, figures and appendices is generated automatically from their captions and headings when the document is exported.</p>",
+      "formatRules": "Heading: \"List of Tables, Figures and Appendices\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). Front-matter headings carry no number.\nWhat to write: Nothing to write here. The list is built automatically from the table and figure captions and the appendix headings when the document is exported.\nDo not type anything into this section by hand. It is built automatically from the document's headings and captions when the document is exported, so leave the generated text as it is."
+    },
+    {
+      "id": "m11-fm-5",
+      "number": "v",
+      "title": "Abbreviations and Definitions",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "List every abbreviation used in the protocol with its definition, and add any terms that need a definition. The table starts with the most common ones.",
+      "hasSubsections": false,
+      "frontMatter": true,
+      "seedContent": true,
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Abbreviation",
+              "widthIn": 3
+            },
+            {
+              "header": "Definition",
+              "widthIn": 3
+            }
+          ],
+          "headerRow": [
+            "Abbreviation",
+            "Definition"
+          ],
+          "rows": [
+            [
+              "AE",
+              "Adverse event"
+            ],
+            [
+              "SAE",
+              "Serious adverse event"
+            ],
+            [
+              "SoA",
+              "Schedule of Activities"
+            ],
+            [
+              "SAP",
+              "Statistical Analysis Plan"
+            ],
+            [
+              "IP",
+              "Investigational product"
+            ]
+          ],
+          "role": "abbreviations"
+        }
+      ],
+      "defaultContentHtml": "<table><tbody><tr><th><p>Abbreviation</p></th><th><p>Definition</p></th></tr><tr><td><p>AE</p></td><td><p>Adverse event</p></td></tr><tr><td><p>SAE</p></td><td><p>Serious adverse event</p></td></tr><tr><td><p>SoA</p></td><td><p>Schedule of Activities</p></td></tr><tr><td><p>SAP</p></td><td><p>Statistical Analysis Plan</p></td></tr><tr><td><p>IP</p></td><td><p>Investigational product</p></td></tr></tbody></table>",
+      "formatRules": "Heading: \"Abbreviations and Definitions\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). Front-matter headings carry no number.\nWhat to write: List every abbreviation used in the protocol with its definition, and add any terms that need a definition. The table starts with the most common ones.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nTable \"Abbreviations\": use a table with the columns Abbreviation, Definition. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Abbreviations\": the rows start with AE, SAE, SoA, SAP, IP; add rows as needed and fill the other cells."
+    },
+    {
       "id": "m11-1",
       "number": "1",
       "title": "Protocol Summary",
@@ -486,7 +734,8 @@
       "crossReferences": {
         "scheduleOfActivities": "m11-1-3"
       },
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Provide a concise synopsis of the entire study.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Provide a concise synopsis of the entire study.</p>",
+      "formatRules": "Heading: \"1 Protocol Summary\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Provide a concise synopsis of the entire study.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nCross-reference: for the schedule of activities, point to section 1.3 \"Schedule of Activities\" rather than repeating it."
     },
     {
       "id": "m11-1-1",
@@ -498,7 +747,8 @@
       "guidance": "Study design, population, sample size, treatment, duration, endpoints, analysis.",
       "templateText": "[Information Required] Study design, population, sample size, treatment, duration, endpoints, analysis.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Study design, population, sample size, treatment, duration, endpoints, analysis.</p>"
+      "defaultContentHtml": "<p>[Information Required] Study design, population, sample size, treatment, duration, endpoints, analysis.</p>",
+      "formatRules": "Heading: \"1.1 Protocol Synopsis\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Study design, population, sample size, treatment, duration, endpoints, analysis.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-1-2",
@@ -510,7 +760,8 @@
       "guidance": "Insert a study design schematic with arms, allocation and follow-up.",
       "templateText": "[Information Required] Insert a study design schematic with arms, allocation and follow-up.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Insert a study design schematic with arms, allocation and follow-up.</p>"
+      "defaultContentHtml": "<p>[Information Required] Insert a study design schematic with arms, allocation and follow-up.</p>",
+      "formatRules": "Heading: \"1.2 Schema\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Insert a study design schematic with arms, allocation and follow-up.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-1-3",
@@ -613,7 +864,8 @@
           "caption": "Table 1"
         }
       ],
-      "defaultContentHtml": "<p>[Information Required] Populate the visit and assessment matrix below.</p>"
+      "defaultContentHtml": "<p>[Information Required] Populate the visit and assessment matrix below.</p>",
+      "formatRules": "Heading: \"1.3 Schedule of Activities\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Populate the visit and assessment matrix below.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available.\nTable \"Table 1\": use a table with the columns Assessment, Screening, Baseline, Visit 2, End of Treatment, Follow-up. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Table 1\": the rows start with Consent, Eligibility, Study intervention, Efficacy assessment, Safety assessments; add rows as needed and fill the other cells (use \"X\" to mark an assessment at a visit, \"[As applicable]\" where it depends on the study).\nTable footnotes: use alphabetic superscript markers (a, b, c…) with the notes under the table, and a caption such as \"Table 1\". These markers are separate from numeric citation superscripts.\nStandard: Table footnotes use real alphabetic superscripts; replace the example markers."
     },
     {
       "id": "m11-2",
@@ -624,7 +876,8 @@
       "style": "Heading1",
       "instructions": "Explain background, benefit–risk and scientific justification.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Explain background, benefit–risk and scientific justification.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Explain background, benefit–risk and scientific justification.</p>",
+      "formatRules": "Heading: \"2 Introduction\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Explain background, benefit–risk and scientific justification.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document."
     },
     {
       "id": "m11-2-1",
@@ -636,7 +889,8 @@
       "guidance": "Disease context, unmet need and prior evidence; add verified citations.",
       "templateText": "[Information Required] Disease context, unmet need and prior evidence; add verified citations.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Disease context, unmet need and prior evidence; add verified citations.</p>"
+      "defaultContentHtml": "<p>[Information Required] Disease context, unmet need and prior evidence; add verified citations.</p>",
+      "formatRules": "Heading: \"2.1 Background\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Disease context, unmet need and prior evidence; add verified citations.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-2-2",
@@ -648,7 +902,8 @@
       "guidance": "Mechanism, nonclinical and clinical experience; reference IB.",
       "templateText": "[Information Required] Mechanism, nonclinical and clinical experience; reference IB.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Mechanism, nonclinical and clinical experience; reference IB.</p>"
+      "defaultContentHtml": "<p>[Information Required] Mechanism, nonclinical and clinical experience; reference IB.</p>",
+      "formatRules": "Heading: \"2.2 Investigational Product Overview\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Mechanism, nonclinical and clinical experience; reference IB.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-2-3",
@@ -660,7 +915,8 @@
       "guidance": "Known and potential risks and anticipated benefits.",
       "templateText": "[Information Required] Known and potential risks and anticipated benefits.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Known and potential risks and anticipated benefits.</p>"
+      "defaultContentHtml": "<p>[Information Required] Known and potential risks and anticipated benefits.</p>",
+      "formatRules": "Heading: \"2.3 Benefit–Risk Assessment\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Known and potential risks and anticipated benefits.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-2-4",
@@ -672,7 +928,8 @@
       "guidance": "Choice of comparator, dose, endpoints and duration.",
       "templateText": "[Information Required] Choice of comparator, dose, endpoints and duration.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Choice of comparator, dose, endpoints and duration.</p>"
+      "defaultContentHtml": "<p>[Information Required] Choice of comparator, dose, endpoints and duration.</p>",
+      "formatRules": "Heading: \"2.4 Rationale for Study Design\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Choice of comparator, dose, endpoints and duration.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-3",
@@ -683,7 +940,8 @@
       "style": "Heading1",
       "instructions": "Align objectives, endpoints, estimands and analyses.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Align objectives, endpoints, estimands and analyses.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Align objectives, endpoints, estimands and analyses.</p>",
+      "formatRules": "Heading: \"3 Study Objectives, Endpoints and Estimands\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Align objectives, endpoints, estimands and analyses.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nStandard: Objectives, endpoints, estimands and analyses are aligned (section 3 with section 10)."
     },
     {
       "id": "m11-3-1",
@@ -695,7 +953,8 @@
       "guidance": "Define objective, variable, assessment method and timepoint.",
       "templateText": "[Information Required] Define objective, variable, assessment method and timepoint.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Define objective, variable, assessment method and timepoint.</p>"
+      "defaultContentHtml": "<p>[Information Required] Define objective, variable, assessment method and timepoint.</p>",
+      "formatRules": "Heading: \"3.1 Primary Objective and Endpoint\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Define objective, variable, assessment method and timepoint.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-3-2",
@@ -707,7 +966,8 @@
       "guidance": "List each objective and its corresponding endpoint.",
       "templateText": "[Information Required] List each objective and its corresponding endpoint.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] List each objective and its corresponding endpoint.</p>"
+      "defaultContentHtml": "<p>[Information Required] List each objective and its corresponding endpoint.</p>",
+      "formatRules": "Heading: \"3.2 Secondary and Exploratory Objectives\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: List each objective and its corresponding endpoint.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-3-3",
@@ -762,7 +1022,8 @@
           "role": "objectivesEndpointsEstimands"
         }
       ],
-      "defaultContentHtml": "<p>[Information Required] Specify population, treatment condition, variable, intercurrent events strategy and summary measure.</p>"
+      "defaultContentHtml": "<p>[Information Required] Specify population, treatment condition, variable, intercurrent events strategy and summary measure.</p>",
+      "formatRules": "Heading: \"3.3 Estimands\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Specify population, treatment condition, variable, intercurrent events strategy and summary measure.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available.\nTable \"Table\": use a table with the columns Objective, Endpoint, Time point, Estimand / analysis link. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Table\": the rows start with [Primary], [Secondary]; add rows as needed and fill the other cells."
     },
     {
       "id": "m11-4",
@@ -773,7 +1034,8 @@
       "style": "Heading1",
       "instructions": "Specify type, phase, arms, masking, allocation and duration.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Specify type, phase, arms, masking, allocation and duration.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Specify type, phase, arms, masking, allocation and duration.</p>",
+      "formatRules": "Heading: \"4 Study Design\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Specify type, phase, arms, masking, allocation and duration.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document."
     },
     {
       "id": "m11-4-1",
@@ -785,7 +1047,8 @@
       "guidance": "Randomization, blinding, control, setting and duration.",
       "templateText": "[Information Required] Randomization, blinding, control, setting and duration.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Randomization, blinding, control, setting and duration.</p>"
+      "defaultContentHtml": "<p>[Information Required] Randomization, blinding, control, setting and duration.</p>",
+      "formatRules": "Heading: \"4.1 Overall Design\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Randomization, blinding, control, setting and duration.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-4-2",
@@ -797,7 +1060,8 @@
       "guidance": "Rationale for dose, comparator and assessments.",
       "templateText": "[Information Required] Rationale for dose, comparator and assessments.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Rationale for dose, comparator and assessments.</p>"
+      "defaultContentHtml": "<p>[Information Required] Rationale for dose, comparator and assessments.</p>",
+      "formatRules": "Heading: \"4.2 Scientific Rationale\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Rationale for dose, comparator and assessments.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-4-3",
@@ -809,7 +1073,8 @@
       "guidance": "Define study end and individual participant completion.",
       "templateText": "[Information Required] Define study end and individual participant completion.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Define study end and individual participant completion.</p>"
+      "defaultContentHtml": "<p>[Information Required] Define study end and individual participant completion.</p>",
+      "formatRules": "Heading: \"4.3 End of Study Definition\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Define study end and individual participant completion.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-4-4",
@@ -821,7 +1086,8 @@
       "guidance": "Identify critical-to-quality factors and proportionate mitigation.",
       "templateText": "[Information Required] Identify critical-to-quality factors and proportionate mitigation.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Identify critical-to-quality factors and proportionate mitigation.</p>"
+      "defaultContentHtml": "<p>[Information Required] Identify critical-to-quality factors and proportionate mitigation.</p>",
+      "formatRules": "Heading: \"4.4 Quality by Design\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Identify critical-to-quality factors and proportionate mitigation.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-5",
@@ -832,7 +1098,8 @@
       "style": "Heading1",
       "instructions": "Define selection and enrollment.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Define selection and enrollment.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Define selection and enrollment.</p>",
+      "formatRules": "Heading: \"5 Study Population\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Define selection and enrollment.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nStandard: Inclusion criteria: numbered, objective, verifiable. Exclusion criteria: numbered, non-overlapping."
     },
     {
       "id": "m11-5-1",
@@ -844,7 +1111,8 @@
       "guidance": "Numbered, objective, verifiable criteria.",
       "templateText": "[Information Required] Numbered, objective, verifiable criteria.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Numbered, objective, verifiable criteria.</p>"
+      "defaultContentHtml": "<p>[Information Required] Numbered, objective, verifiable criteria.</p>",
+      "formatRules": "Heading: \"5.1 Inclusion Criteria\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Numbered, objective, verifiable criteria.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-5-2",
@@ -856,7 +1124,8 @@
       "guidance": "Numbered, non-overlapping criteria.",
       "templateText": "[Information Required] Numbered, non-overlapping criteria.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Numbered, non-overlapping criteria.</p>"
+      "defaultContentHtml": "<p>[Information Required] Numbered, non-overlapping criteria.</p>",
+      "formatRules": "Heading: \"5.2 Exclusion Criteria\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Numbered, non-overlapping criteria.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-5-3",
@@ -868,7 +1137,8 @@
       "guidance": "Screening, rescreening and recruitment processes.",
       "templateText": "[Information Required] Screening, rescreening and recruitment processes.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Screening, rescreening and recruitment processes.</p>"
+      "defaultContentHtml": "<p>[Information Required] Screening, rescreening and recruitment processes.</p>",
+      "formatRules": "Heading: \"5.3 Screening and Recruitment\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Screening, rescreening and recruitment processes.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-5-4",
@@ -880,7 +1150,8 @@
       "guidance": "Withdrawal, follow-up, discontinuation and replacement rules.",
       "templateText": "[Information Required] Withdrawal, follow-up, discontinuation and replacement rules.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Withdrawal, follow-up, discontinuation and replacement rules.</p>"
+      "defaultContentHtml": "<p>[Information Required] Withdrawal, follow-up, discontinuation and replacement rules.</p>",
+      "formatRules": "Heading: \"5.4 Withdrawal and Replacement\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Withdrawal, follow-up, discontinuation and replacement rules.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-6",
@@ -891,7 +1162,8 @@
       "style": "Heading1",
       "instructions": "Describe trial treatment and management.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Describe trial treatment and management.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Describe trial treatment and management.</p>",
+      "formatRules": "Heading: \"6 Study Intervention and Concomitant Therapy\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Describe trial treatment and management.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document."
     },
     {
       "id": "m11-6-1",
@@ -903,7 +1175,8 @@
       "guidance": "Formulation, route, regimen, dosing and duration.",
       "templateText": "[Information Required] Formulation, route, regimen, dosing and duration.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Formulation, route, regimen, dosing and duration.</p>"
+      "defaultContentHtml": "<p>[Information Required] Formulation, route, regimen, dosing and duration.</p>",
+      "formatRules": "Heading: \"6.1 Trial Intervention\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Formulation, route, regimen, dosing and duration.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-6-2",
@@ -915,7 +1188,8 @@
       "guidance": "Allocation concealment, randomization and emergency unblinding.",
       "templateText": "[Information Required] Allocation concealment, randomization and emergency unblinding.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Allocation concealment, randomization and emergency unblinding.</p>"
+      "defaultContentHtml": "<p>[Information Required] Allocation concealment, randomization and emergency unblinding.</p>",
+      "formatRules": "Heading: \"6.2 Assignment and Blinding\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Allocation concealment, randomization and emergency unblinding.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-6-3",
@@ -927,7 +1201,8 @@
       "guidance": "Storage, dispensing, returns and accountability.",
       "templateText": "[Information Required] Storage, dispensing, returns and accountability.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Storage, dispensing, returns and accountability.</p>"
+      "defaultContentHtml": "<p>[Information Required] Storage, dispensing, returns and accountability.</p>",
+      "formatRules": "Heading: \"6.3 Preparation, Handling and Accountability\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Storage, dispensing, returns and accountability.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-6-4",
@@ -939,7 +1214,8 @@
       "guidance": "Interruption, adjustment and stopping criteria.",
       "templateText": "[Information Required] Interruption, adjustment and stopping criteria.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Interruption, adjustment and stopping criteria.</p>"
+      "defaultContentHtml": "<p>[Information Required] Interruption, adjustment and stopping criteria.</p>",
+      "formatRules": "Heading: \"6.4 Dose Modification and Discontinuation\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Interruption, adjustment and stopping criteria.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-6-5",
@@ -951,7 +1227,8 @@
       "guidance": "Permitted and prohibited treatments; rescue medication.",
       "templateText": "[Information Required] Permitted and prohibited treatments; rescue medication.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Permitted and prohibited treatments; rescue medication.</p>"
+      "defaultContentHtml": "<p>[Information Required] Permitted and prohibited treatments; rescue medication.</p>",
+      "formatRules": "Heading: \"6.5 Concomitant Therapy\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Permitted and prohibited treatments; rescue medication.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-6-6",
@@ -963,7 +1240,8 @@
       "guidance": "Compliance assessment and documentation.",
       "templateText": "[Information Required] Compliance assessment and documentation.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Compliance assessment and documentation.</p>"
+      "defaultContentHtml": "<p>[Information Required] Compliance assessment and documentation.</p>",
+      "formatRules": "Heading: \"6.6 Adherence\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Compliance assessment and documentation.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-7",
@@ -974,7 +1252,8 @@
       "style": "Heading1",
       "instructions": "Ensure all procedures reconcile with Table 1 (SoA).",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Ensure all procedures reconcile with Table 1 (SoA).</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Ensure all procedures reconcile with Table 1 (SoA).</p>",
+      "formatRules": "Heading: \"7 Study Assessments and Procedures\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Ensure all procedures reconcile with Table 1 (SoA).\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nStandard: All procedures in section 7 reconcile with Table 1 (Schedule of Activities)."
     },
     {
       "id": "m11-7-1",
@@ -986,7 +1265,8 @@
       "guidance": "Instruments, schedule, methods and central review.",
       "templateText": "[Information Required] Instruments, schedule, methods and central review.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Instruments, schedule, methods and central review.</p>"
+      "defaultContentHtml": "<p>[Information Required] Instruments, schedule, methods and central review.</p>",
+      "formatRules": "Heading: \"7.1 Efficacy Assessments\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Instruments, schedule, methods and central review.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-7-2",
@@ -998,7 +1278,8 @@
       "guidance": "Vitals, ECG, labs, examinations and other monitoring.",
       "templateText": "[Information Required] Vitals, ECG, labs, examinations and other monitoring.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Vitals, ECG, labs, examinations and other monitoring.</p>"
+      "defaultContentHtml": "<p>[Information Required] Vitals, ECG, labs, examinations and other monitoring.</p>",
+      "formatRules": "Heading: \"7.2 Safety Assessments\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Vitals, ECG, labs, examinations and other monitoring.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-7-3",
@@ -1010,7 +1291,8 @@
       "guidance": "Sample collection and analysis, if applicable.",
       "templateText": "[Information Required] Sample collection and analysis, if applicable.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Sample collection and analysis, if applicable.</p>"
+      "defaultContentHtml": "<p>[Information Required] Sample collection and analysis, if applicable.</p>",
+      "formatRules": "Heading: \"7.3 Pharmacokinetic / Pharmacodynamic Assessments\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Sample collection and analysis, if applicable.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-7-4",
@@ -1022,7 +1304,8 @@
       "guidance": "Instruments, language and administration, if applicable.",
       "templateText": "[Information Required] Instruments, language and administration, if applicable.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Instruments, language and administration, if applicable.</p>"
+      "defaultContentHtml": "<p>[Information Required] Instruments, language and administration, if applicable.</p>",
+      "formatRules": "Heading: \"7.4 Patient-Reported Outcomes\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Instruments, language and administration, if applicable.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-7-5",
@@ -1034,7 +1317,8 @@
       "guidance": "Collection, storage, future use, consent and disposition.",
       "templateText": "[Information Required] Collection, storage, future use, consent and disposition.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Collection, storage, future use, consent and disposition.</p>"
+      "defaultContentHtml": "<p>[Information Required] Collection, storage, future use, consent and disposition.</p>",
+      "formatRules": "Heading: \"7.5 Biological Samples\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Collection, storage, future use, consent and disposition.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-8",
@@ -1045,7 +1329,8 @@
       "style": "Heading1",
       "instructions": "Specify collection, evaluation, reporting and follow-up.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Specify collection, evaluation, reporting and follow-up.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Specify collection, evaluation, reporting and follow-up.</p>",
+      "formatRules": "Heading: \"8 Adverse Events and Safety Reporting\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Specify collection, evaluation, reporting and follow-up.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document."
     },
     {
       "id": "m11-8-1",
@@ -1057,7 +1342,8 @@
       "guidance": "Use applicable regulatory definitions.",
       "templateText": "[Information Required] Use applicable regulatory definitions.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Use applicable regulatory definitions.</p>"
+      "defaultContentHtml": "<p>[Information Required] Use applicable regulatory definitions.</p>",
+      "formatRules": "Heading: \"8.1 AE and SAE Definitions\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Use applicable regulatory definitions.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-8-2",
@@ -1069,7 +1355,8 @@
       "guidance": "Observation period, severity, causality and outcomes.",
       "templateText": "[Information Required] Observation period, severity, causality and outcomes.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Observation period, severity, causality and outcomes.</p>"
+      "defaultContentHtml": "<p>[Information Required] Observation period, severity, causality and outcomes.</p>",
+      "formatRules": "Heading: \"8.2 AE/SAE Collection and Follow-up\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Observation period, severity, causality and outcomes.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-8-3",
@@ -1081,7 +1368,8 @@
       "guidance": "Sponsor, investigator and regulatory reporting; per region/SOP.",
       "templateText": "[Information Required] Sponsor, investigator and regulatory reporting; per region/SOP.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Sponsor, investigator and regulatory reporting; per region/SOP.</p>"
+      "defaultContentHtml": "<p>[Information Required] Sponsor, investigator and regulatory reporting; per region/SOP.</p>",
+      "formatRules": "Heading: \"8.3 Reporting Timelines and Procedures\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Sponsor, investigator and regulatory reporting; per region/SOP.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-8-4",
@@ -1093,7 +1381,8 @@
       "guidance": "Specify study-specific procedures, where relevant.",
       "templateText": "[Information Required] Specify study-specific procedures, where relevant.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Specify study-specific procedures, where relevant.</p>"
+      "defaultContentHtml": "<p>[Information Required] Specify study-specific procedures, where relevant.</p>",
+      "formatRules": "Heading: \"8.4 AESIs, Pregnancy and Overdose\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Specify study-specific procedures, where relevant.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-8-5",
@@ -1105,7 +1394,8 @@
       "guidance": "DMC/DSMB and escalation, if applicable.",
       "templateText": "[Information Required] DMC/DSMB and escalation, if applicable.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] DMC/DSMB and escalation, if applicable.</p>"
+      "defaultContentHtml": "<p>[Information Required] DMC/DSMB and escalation, if applicable.</p>",
+      "formatRules": "Heading: \"8.5 Safety Oversight and Stopping Rules\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: DMC/DSMB and escalation, if applicable.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-9",
@@ -1116,7 +1406,8 @@
       "style": "Heading1",
       "instructions": "Describe source records and trial data governance.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Describe source records and trial data governance.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Describe source records and trial data governance.</p>",
+      "formatRules": "Heading: \"9 Data Handling, Monitoring and Quality\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Describe source records and trial data governance.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document."
     },
     {
       "id": "m11-9-1",
@@ -1128,7 +1419,8 @@
       "guidance": "EDC/eCRF, EHR use, direct transfer and provenance.",
       "templateText": "[Information Required] EDC/eCRF, EHR use, direct transfer and provenance.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] EDC/eCRF, EHR use, direct transfer and provenance.</p>"
+      "defaultContentHtml": "<p>[Information Required] EDC/eCRF, EHR use, direct transfer and provenance.</p>",
+      "formatRules": "Heading: \"9.1 Data Capture and Source Records\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: EDC/eCRF, EHR use, direct transfer and provenance.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-9-2",
@@ -1140,7 +1432,8 @@
       "guidance": "Edit checks, reconciliation, audit trail and corrections.",
       "templateText": "[Information Required] Edit checks, reconciliation, audit trail and corrections.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Edit checks, reconciliation, audit trail and corrections.</p>"
+      "defaultContentHtml": "<p>[Information Required] Edit checks, reconciliation, audit trail and corrections.</p>",
+      "formatRules": "Heading: \"9.2 Data Quality and Validation\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Edit checks, reconciliation, audit trail and corrections.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-9-3",
@@ -1152,7 +1445,8 @@
       "guidance": "Risk-based monitoring and deviations.",
       "templateText": "[Information Required] Risk-based monitoring and deviations.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Risk-based monitoring and deviations.</p>"
+      "defaultContentHtml": "<p>[Information Required] Risk-based monitoring and deviations.</p>",
+      "formatRules": "Heading: \"9.3 Monitoring and Oversight\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Risk-based monitoring and deviations.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-9-4",
@@ -1164,7 +1458,8 @@
       "guidance": "Access controls, confidentiality and record retention.",
       "templateText": "[Information Required] Access controls, confidentiality and record retention.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Access controls, confidentiality and record retention.</p>"
+      "defaultContentHtml": "<p>[Information Required] Access controls, confidentiality and record retention.</p>",
+      "formatRules": "Heading: \"9.4 Privacy and Retention\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Access controls, confidentiality and record retention.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-10",
@@ -1175,7 +1470,8 @@
       "style": "Heading1",
       "instructions": "Provide protocol-level statistical methods aligned to ICH E9/E9(R1).",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Provide protocol-level statistical methods aligned to ICH E9/E9(R1).</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Provide protocol-level statistical methods aligned to ICH E9/E9(R1).</p>",
+      "formatRules": "Heading: \"10 Statistical Considerations\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Provide protocol-level statistical methods aligned to ICH E9/E9(R1).\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nStandard: Statistical methods are aligned to ICH E9 and E9(R1)."
     },
     {
       "id": "m11-10-1",
@@ -1187,7 +1483,8 @@
       "guidance": "Assumptions, effect size, power, type I error and attrition.",
       "templateText": "[Information Required] Assumptions, effect size, power, type I error and attrition.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Assumptions, effect size, power, type I error and attrition.</p>"
+      "defaultContentHtml": "<p>[Information Required] Assumptions, effect size, power, type I error and attrition.</p>",
+      "formatRules": "Heading: \"10.1 Hypotheses and Sample Size\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Assumptions, effect size, power, type I error and attrition.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-10-2",
@@ -1199,7 +1496,8 @@
       "guidance": "Specify analysis populations.",
       "templateText": "[Information Required] Specify analysis populations.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Specify analysis populations.</p>"
+      "defaultContentHtml": "<p>[Information Required] Specify analysis populations.</p>",
+      "formatRules": "Heading: \"10.2 Analysis Sets\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Specify analysis populations.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-10-3",
@@ -1211,7 +1509,8 @@
       "guidance": "Endpoint, model, estimand, covariates and significance.",
       "templateText": "[Information Required] Endpoint, model, estimand, covariates and significance.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Endpoint, model, estimand, covariates and significance.</p>"
+      "defaultContentHtml": "<p>[Information Required] Endpoint, model, estimand, covariates and significance.</p>",
+      "formatRules": "Heading: \"10.3 Primary Analysis\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Endpoint, model, estimand, covariates and significance.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-10-4",
@@ -1223,7 +1522,8 @@
       "guidance": "Multiplicity and interpretation.",
       "templateText": "[Information Required] Multiplicity and interpretation.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Multiplicity and interpretation.</p>"
+      "defaultContentHtml": "<p>[Information Required] Multiplicity and interpretation.</p>",
+      "formatRules": "Heading: \"10.4 Secondary and Exploratory Analyses\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Multiplicity and interpretation.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-10-5",
@@ -1235,7 +1535,8 @@
       "guidance": "Methods, assumptions and intercurrent events.",
       "templateText": "[Information Required] Methods, assumptions and intercurrent events.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Methods, assumptions and intercurrent events.</p>"
+      "defaultContentHtml": "<p>[Information Required] Methods, assumptions and intercurrent events.</p>",
+      "formatRules": "Heading: \"10.5 Missing Data and Sensitivity Analyses\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Methods, assumptions and intercurrent events.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-10-6",
@@ -1247,7 +1548,8 @@
       "guidance": "Timing, oversight and alpha control, if applicable.",
       "templateText": "[Information Required] Timing, oversight and alpha control, if applicable.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Timing, oversight and alpha control, if applicable.</p>"
+      "defaultContentHtml": "<p>[Information Required] Timing, oversight and alpha control, if applicable.</p>",
+      "formatRules": "Heading: \"10.6 Interim Analyses\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Timing, oversight and alpha control, if applicable.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-11",
@@ -1258,7 +1560,8 @@
       "style": "Heading1",
       "instructions": "Apply region-specific law and sponsor SOP.",
       "hasSubsections": true,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Apply region-specific law and sponsor SOP.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Apply region-specific law and sponsor SOP.</p>",
+      "formatRules": "Heading: \"11 Ethics and Regulatory Considerations\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Apply region-specific law and sponsor SOP.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nThis section is completed through its numbered subsections. Give a short overview only and do not repeat what the subsections say.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nStandard: Apply region-specific law and sponsor SOP for ethics and regulatory content."
     },
     {
       "id": "m11-11-1",
@@ -1270,7 +1573,8 @@
       "guidance": "Approvals before initiation.",
       "templateText": "[Information Required] Approvals before initiation.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Approvals before initiation.</p>"
+      "defaultContentHtml": "<p>[Information Required] Approvals before initiation.</p>",
+      "formatRules": "Heading: \"11.1 Ethics Committee and Regulatory Approval\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Approvals before initiation.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-11-2",
@@ -1282,7 +1586,8 @@
       "guidance": "Process, reconsent and vulnerable participants.",
       "templateText": "[Information Required] Process, reconsent and vulnerable participants.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Process, reconsent and vulnerable participants.</p>"
+      "defaultContentHtml": "<p>[Information Required] Process, reconsent and vulnerable participants.</p>",
+      "formatRules": "Heading: \"11.2 Informed Consent\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Process, reconsent and vulnerable participants.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-11-3",
@@ -1294,7 +1599,8 @@
       "guidance": "Privacy and participant identifiers.",
       "templateText": "[Information Required] Privacy and participant identifiers.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Privacy and participant identifiers.</p>"
+      "defaultContentHtml": "<p>[Information Required] Privacy and participant identifiers.</p>",
+      "formatRules": "Heading: \"11.3 Confidentiality\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Privacy and participant identifiers.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-11-4",
@@ -1306,7 +1612,8 @@
       "guidance": "Approval, communication and documentation.",
       "templateText": "[Information Required] Approval, communication and documentation.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Approval, communication and documentation.</p>"
+      "defaultContentHtml": "<p>[Information Required] Approval, communication and documentation.</p>",
+      "formatRules": "Heading: \"11.4 Protocol Amendments and Deviations\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Approval, communication and documentation.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-11-5",
@@ -1318,7 +1625,8 @@
       "guidance": "Sponsor policy and registration commitments.",
       "templateText": "[Information Required] Sponsor policy and registration commitments.",
       "placeholder": "[Information Required]",
-      "defaultContentHtml": "<p>[Information Required] Sponsor policy and registration commitments.</p>"
+      "defaultContentHtml": "<p>[Information Required] Sponsor policy and registration commitments.</p>",
+      "formatRules": "Heading: \"11.5 Publication and Data Sharing\" in Heading 2 (Aptos Display 10 pt, bold, colour #1C5A80, 10 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Sponsor policy and registration commitments.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nWhere a fact is not yet known, keep the marker \"[Information Required]\" (or \"[As applicable]\" in a table) instead of guessing; never invent study details. Replace the marker once the real content is available."
     },
     {
       "id": "m11-12",
@@ -1335,7 +1643,8 @@
         "2. [Organization]. [Guideline title]. [Version/year]. [Verified URL and access date if required by sponsor style]."
       ],
       "illustrativeParagraph": "Illustrative in-text citation formatting: Prior research supports the rationale.¹ Repeated citations retain their original number. Citation superscripts must be distinct from alphabetic table footnotes.",
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Use Vancouver-style numbered bibliography, in first-citation order. Insert verified sources only.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Use Vancouver-style numbered bibliography, in first-citation order. Insert verified sources only.</p>",
+      "formatRules": "Heading: \"12 References\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Use Vancouver-style numbered bibliography, in first-citation order. Insert verified sources only.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nCitations: use Vancouver style numbered references in order of first citation, as numeric superscripts or [n]; a repeated citation keeps its original number.\nReference format example: 1. [Author(s)]. [Article title]. [Journal abbreviation]. [Year];[Volume]([Issue]):[Pages]. doi:[Verified DOI].\nReference format example: 2. [Organization]. [Guideline title]. [Version/year]. [Verified URL and access date if required by sponsor style].\nExample: Illustrative in-text citation formatting: Prior research supports the rationale.¹ Repeated citations retain their original number. Citation superscripts must be distinct from alphabetic table footnotes.\nStandard: Use a Vancouver-style numbered bibliography, in first-citation order.\nStandard: Insert verified sources only (verified DOI or URL).\nStandard: Repeated citations retain their original number.\nStandard: Citation superscripts (numeric) must be distinct from alphabetic table footnotes."
     },
     {
       "id": "m11-13",
@@ -1424,7 +1733,8 @@
         }
       ],
       "hasSubsections": false,
-      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Include only applicable appendices; ensure references in main text resolve.</p>"
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Include only applicable appendices; ensure references in main text resolve.</p>",
+      "formatRules": "Heading: \"13 Appendices\" in Heading 1 (Aptos Display 13 pt, bold, colour #14466E, 24 pt space before, kept with the text that follows). The number is typed as part of the heading text, not automatic list numbering.\nWhat to write: Include only applicable appendices; ensure references in main text resolve.\nBody text: Aptos 9 pt, line spacing 1.15, 10 pt space after each paragraph.\nDo not copy the instruction into the finished text. Write the section itself; do not leave an \"AUTHORING INSTRUCTIONS\" line in the final document.\nTable \"Table\": use a table with the columns Appendix, Title / content, Cross-reference. Format it with table style \"Light Shading Accent 1\": centred, header row and first column in bold, banded rows (fill #D3DFEE), 1 pt top and bottom borders in #4F81BD, text colour #365F91.\nTable \"Table\": the rows start with A, B, C, D, E; add rows as needed and fill the other cells.\nStandard: Include only applicable appendices; ensure references in the main text resolve."
     }
   ],
   "backMatter": {

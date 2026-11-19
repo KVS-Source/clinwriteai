@@ -3,7 +3,7 @@
 // (date + time, to the minute), quick presets, a "Times in" timezone choice and Clear.
 // The default range is one month back to the end of today.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export type TimeZoneMode = 'local' | 'utc'
 
@@ -90,6 +90,29 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  // However the popover is aligned, keep it inside the window: nudge it sideways when it would run past an edge
+  // (so a filter at the far right of a page never makes the page scroll sideways).
+  const [shiftX, setShiftX] = useState(0)
+  const shiftRef = useRef(0)
+  useLayoutEffect(() => {
+    if (!open) { shiftRef.current = 0; setShiftX(0); return }
+    const fit = () => {
+      const el = popRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const left = r.left - shiftRef.current, right = r.right - shiftRef.current   // where it sits with no nudge
+      const margin = 8
+      let dx = 0
+      if (right > window.innerWidth - margin) dx = window.innerWidth - margin - right
+      if (left + dx < margin) dx = margin - left
+      shiftRef.current = dx
+      setShiftX(dx)
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -138,7 +161,8 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
       </button>
 
       {open && (
-        <div role="dialog" aria-label={dateOnly ? 'Date range' : 'Date and time range'} className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} z-20 mt-1 w-[320px] rounded-lg border border-slate-200 bg-white p-4 shadow-xl`}>
+        <div ref={popRef} role="dialog" aria-label={dateOnly ? 'Date range' : 'Date and time range'} style={shiftX ? { transform: `translateX(${shiftX}px)` } : undefined}
+          className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} z-20 mt-1 w-[320px] max-w-[calc(100vw-16px)] rounded-lg border border-slate-200 bg-white p-4 shadow-xl`}>
           <div className="flex flex-wrap gap-1.5">
             {RANGE_PRESETS.filter(p => !dateOnly || !p.ms || p.ms >= 24 * 60 * 60 * 1000 * 2).map(p => {
               const active = activePreset === p.label

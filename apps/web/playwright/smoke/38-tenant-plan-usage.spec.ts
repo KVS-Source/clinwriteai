@@ -1,6 +1,7 @@
-// QA regression — Services, Subscription, Reports, Admin > Subscription and Super Admin > Analytics show the signed-in
-// tenant's real plan and AI usage. What nothing records yet (allowance, fee, card, invoices, savings, revenue) shows as
-// not recorded, never as a made-up figure: no "client-default", "growth", "50M tokens", Visa 4242 or fixed client name.
+// QA regression — Services, Reports and Super Admin > Analytics show the signed-in tenant's real plan and AI usage.
+// What nothing records yet (allowance, fee, savings, revenue) shows as not recorded, never as a made-up figure:
+// no "client-default", "growth", "50M tokens" or fixed client name. The /admin/subscription screen + its Admin
+// Settings tab were retired with the licensing refactor (plan + entitlements now ride on the signed JWT).
 //
 //   E2E_BASE_URL=http://localhost:5173 E2E_CHANNEL=msedge \
 //     npx playwright test playwright/smoke/38-tenant-plan-usage.spec.ts
@@ -42,7 +43,7 @@ async function open(page: Page, path: string, sub: unknown, tenantId: string | n
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (/\/auth\/me(\?.*)?$/.test(url)) return json(me)
-      if (/\/(services\/dashboard|admin\/subscription)(\?.*)?$/.test(url)) return json(sub)
+      if (/\/services\/dashboard(\?.*)?$/.test(url)) return json(sub)
       if (/\/super-admin\/analytics(\?.*)?$/.test(url)) return json(analytics)
       if (/\/reports\/available(\?.*)?$/.test(url)) return json([
         { id: 'rpt-001', type: 'project-summary', label: 'Project Summary Report', description: 'Activity summary per project', availableFormats: ['pdf', 'csv'], lastGenerated: null, generatedBy: null },
@@ -106,28 +107,6 @@ test.describe('Services', () => {
   })
 })
 
-test.describe('Subscription', () => {
-  test('no plan: says so, with no fake invoice or card, and top-up is refused', async ({ page }) => {
-    await open(page, '/admin/subscription', view())
-    await expect(page.locator('[data-no-plan]')).toHaveText('No active plan', { timeout: 60_000 })
-    await expect(page.locator('[data-scope-used]')).toHaveText('2,514')
-    await expect(page.locator('[data-scope-included]')).toHaveText('—')
-    await expect(page.locator('[data-next-invoice]')).toHaveCount(0) // hidden until a payment gateway exists
-    await expect(page.locator('[data-no-invoices]')).toBeVisible()
-    await expect(page.locator('[data-update-payment]')).toHaveCount(0)
-    await expect(page.locator('[data-proceed-payment]')).toBeDisabled()
-    await expect(page.locator('[data-topup-needs-plan]')).toBeVisible()
-    expect(await page.locator('[data-screen="subscription-payment"]').innerText()).not.toMatch(FAKE)
-  })
-
-  test('with a plan: the plan name and renewal, under the tenant’s own name', async ({ page }) => {
-    await open(page, '/admin/subscription', WITH_PLAN)
-    await expect(page.locator('[data-plan-name]')).toContainText('starter', { timeout: 60_000 })
-    await expect(page.locator('[data-plan-name]')).toContainText('Acme Oncology · renews 01 Dec 2026')
-    await expect(page.locator('[data-proceed-payment]')).toBeEnabled()
-  })
-})
-
 // Reports are the PM's: the cost panel shows AI use on their projects.
 test('Reports: only real figures — the organisation’s own name, AI use from the call log, nothing made up', async ({ page }) => {
   await open(page, '/reports', view(), 'T-A', 'pm')
@@ -138,16 +117,6 @@ test('Reports: only real figures — the organisation’s own name, AI use from 
   await expect(page.locator('[data-saving], [data-effective-multiple]')).toHaveCount(0)
   const text = await page.locator('[data-screen="reports-analytics"]').innerText()
   expect(text).not.toMatch(/GenBioCa|rate card|Review pass|d\/stage|emailed/i)
-})
-
-test('Admin > Subscription: no made-up plan or token allowance', async ({ page }) => {
-  await open(page, '/admin', view())
-  await page.getByRole('button', { name: 'Subscription', exact: true }).or(page.getByRole('tab', { name: 'Subscription', exact: true })).first().click({ timeout: 60_000 })
-  const panel = page.locator('[data-tab-panel="subscription"]')
-  await expect(panel.locator('[data-plan-value]')).toHaveText('—')
-  await expect(panel).toContainText('No token allowance or renewal date is recorded')
-  await expect(panel).not.toContainText('Professional')
-  await expect(panel.locator('[data-tokens-value]')).toHaveText('3K')       // real usage (2,514), not spend shown as tokens
 })
 
 test('Super Admin > Analytics: real AI tokens, and revenue shown as unknown rather than £0', async ({ page }) => {

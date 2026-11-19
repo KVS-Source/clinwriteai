@@ -340,12 +340,6 @@ export const platformApi = {
       hourlyDistribution: number[]
       hourlyPeakLabel: string
     }>(`/ai/usage-analytics?windowDays=${windowDays}`),
-  getSubscription: () =>
-    api.get<Subscription>('/admin/subscription'),
-  // Records a pending top-up; no payment gateway is integrated yet.
-  requestTopUp: (body: { tokens: number; amountUsd: number; gateway: string | null }) =>
-    api.post<{ requestId: string; status: 'pending_payment'; requestedAt: string }>('/admin/subscription/top-up', body),
-
   // sPM16 — Reports & Analytics
   listReports: () =>
     api.get<ReportDefinition[]>('/reports/available'),

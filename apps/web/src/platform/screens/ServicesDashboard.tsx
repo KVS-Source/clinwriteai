@@ -1,6 +1,5 @@
 import { formatNumber } from '../../utils/formatNumber'
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { Subscription } from '@platform/types'
@@ -39,18 +38,6 @@ function StatusChip({ status }: { status: 'healthy' | 'monitor' | 'over' }) {
 function startOfTodayUTC(): Date {
   const now = new Date()
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-}
-
-// Tokens still needed to reach renewal at the current daily consumption rate,
-// beyond what is left — the "deficit" sPM11 asks Top up to pre-fill. Zero when
-// the remaining balance is projected to last until renewal.
-function projectedShortfall(period: Subscription['currentPeriod'], today: Date, renewalDays: number | null): number {
-  if (period.tokensRemaining == null || renewalDays == null) return 0     // no allowance to run short of
-  const periodStart = new Date(`${period.month}-01T00:00:00Z`)
-  const daysElapsed = Math.max(1, daysBetween(periodStart, today) + 1)
-  const tokensPerDay = period.tokensConsumed / daysElapsed
-  const needed = tokensPerDay * Math.max(0, renewalDays)
-  return Math.max(0, Math.round(needed - period.tokensRemaining))
 }
 
 function csvCell(v: string | number): string {
@@ -105,7 +92,6 @@ function billingPeriodName(month: string | undefined, lang: string): string {
 export function ServicesDashboard() {
   const { t, i18n } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
-  const navigate = useNavigate()
   const today = useMemo(() => startOfTodayUTC(), [])
 
   const { data: sub, error, isError, refetch, isFetching } = useQuery<Subscription>({
@@ -159,12 +145,6 @@ export function ServicesDashboard() {
     : null
   const renewalDays = sub.renewalDate ? daysBetween(today, new Date(sub.renewalDate)) : null
   const alert = sub.burnRateAlert
-  const shortfall = projectedShortfall(period, today, renewalDays)
-
-  const handleTopUp = () => {
-    if (rateCardExpired || !sub.hasSubscription) return
-    navigate(shortfall > 0 ? `/admin/subscription?prefill=${shortfall}` : '/admin/subscription')
-  }
 
   const handleExportCsv = () => {
     const filename = `services-${period.month}.csv`
@@ -189,12 +169,6 @@ export function ServicesDashboard() {
               data-export-csv
               className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >{t('page.services_dashboard.export_csv')}</button>
-            <button type="button" onClick={handleTopUp} disabled={rateCardExpired || !sub.hasSubscription}
-              title={sub.hasSubscription ? undefined : t('page.services_dashboard.top_up_needs_plan')}
-              data-top-up
-              className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{t('page.services_dashboard.top_up_tokens')}</button>
           </div>
         </div>
 

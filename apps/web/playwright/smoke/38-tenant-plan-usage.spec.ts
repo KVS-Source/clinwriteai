@@ -1,6 +1,7 @@
-// QA regression — Services, Subscription, Reports, Admin > Subscription and Super Admin > Analytics show the signed-in
-// tenant's real plan and AI usage. What nothing records yet (allowance, fee, card, invoices, savings, revenue) shows as
-// not recorded, never as a made-up figure: no "client-default", "growth", "50M tokens", Visa 4242 or fixed client name.
+// QA regression — Services, Reports and Super Admin > Analytics show the signed-in tenant's real plan and AI usage.
+// What nothing records yet (allowance, fee, savings, revenue) shows as not recorded, never as a made-up figure:
+// no "client-default", "growth", "50M tokens" or fixed client name. The /admin/subscription screen + its Admin
+// Settings tab were retired with the licensing refactor (plan + entitlements now ride on the signed JWT).
 //
 //   E2E_BASE_URL=http://localhost:5173 E2E_CHANNEL=msedge \
 //     npx playwright test playwright/smoke/38-tenant-plan-usage.spec.ts
@@ -34,23 +35,31 @@ const CONFIG = {
   seats: { used: 9, total: 9 }, paymentGateways: [], externalApis: [], featureFlags: [], integrations: [],
 }
 
-async function open(page: Page, path: string, sub: unknown, tenantId: string | null = 'T-A') {
-  await page.addInitScript(({ sub, tenantId, analytics, config }) => {
-    const me = { id: 'u-a', email: 'a@x.io', name: 'Ada Admin', role: 'tenant-admin', modules: ['A'], status: 'active', lastActiveAt: null, tenantId }
+async function open(page: Page, path: string, sub: unknown, tenantId: string | null = 'T-A', role = 'tenant-admin') {
+  await page.addInitScript(({ sub, tenantId, analytics, config, role }) => {
+    const me = { id: 'u-a', email: 'a@x.io', name: 'Ada Admin', role, modules: ['A'], status: 'active', lastActiveAt: null, tenantId }
     const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } })
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (/\/auth\/me(\?.*)?$/.test(url)) return json(me)
-      if (/\/(services\/dashboard|admin\/subscription)(\?.*)?$/.test(url)) return json(sub)
+      if (/\/services\/dashboard(\?.*)?$/.test(url)) return json(sub)
       if (/\/super-admin\/analytics(\?.*)?$/.test(url)) return json(analytics)
+      if (/\/reports\/available(\?.*)?$/.test(url)) return json([
+        { id: 'rpt-001', type: 'project-summary', label: 'Project Summary Report', description: 'Activity summary per project', availableFormats: ['pdf', 'csv'], lastGenerated: null, generatedBy: null },
+        { id: 'rpt-002', type: 'module-activity', label: 'Module Activity Report', description: 'Clinical Writing documents created or updated in the date range', availableFormats: ['pdf', 'csv'], lastGenerated: null, generatedBy: null },
+        { id: 'rpt-003', type: 'ai-usage', label: 'AI Usage Report', description: 'Clinical Writing AI calls in the date range', availableFormats: ['pdf', 'csv'], lastGenerated: null, generatedBy: null },
+      ])
+      if (/\/reports\/ai-usage\/preview/.test(url)) return json({ reportType: 'ai-usage', header: ['When', 'Model', 'Purpose', 'User', 'Input tokens', 'Output tokens', 'Cost (USD)'], rows: [['2026-11-02T10:00:00.000Z', 'claude-x', 'draft_section', 'Wanda Writer', 1200, 300, '0.0100']], totalRows: 1, summary: [{ label: 'AI calls', value: 1 }, { label: 'Tokens', value: '1,500' }] })
+      if (/\/reports\/module-activity\/preview/.test(url)) return json({ reportType: 'module-activity', header: ['Document', 'Type', 'Status'], rows: [], totalRows: 0, summary: [{ label: 'Documents worked on', value: 0 }] })
+      if (/\/reports\/cost-summary(\?.*)?$/.test(url)) return json({ periodStart: '2026-11-01', projects: 2, tokensConsumed: 2514, estimatedSpend: 0.03, tenantName: 'Acme Oncology' })
       if (/\/super-admin\/clients(\?.*)?$/.test(url)) return json([{ id: 'T-A', name: 'Acme Oncology', plan: null, status: 'active', adminContactName: null, createdAt: '2026-01-01T00:00:00Z', revenueToDateGBP: null }])
       if (/\/admin\/config(\?.*)?$/.test(url)) return json(config)
       if (/\/ai\/usage-analytics/.test(url)) return json({ windowDays: 30, totals: { calls: 0, tokens: 0, costUsd: 0 }, dailyTokens: [], promptIntents: [], modelMix: [], topPrompts: [], topUsers: [], hourlyDistribution: [], hourlyPeakLabel: '' })
       const res = await real(input, init)
       return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
     }
-  }, { sub, tenantId, analytics: ANALYTICS, config: CONFIG })
+  }, { sub, tenantId, analytics: ANALYTICS, config: CONFIG, role })
   await page.goto(path, { waitUntil: 'domcontentloaded' })
 }
 
@@ -98,44 +107,16 @@ test.describe('Services', () => {
   })
 })
 
-test.describe('Subscription', () => {
-  test('no plan: says so, with no fake invoice or card, and top-up is refused', async ({ page }) => {
-    await open(page, '/admin/subscription', view())
-    await expect(page.locator('[data-no-plan]')).toHaveText('No active plan', { timeout: 60_000 })
-    await expect(page.locator('[data-scope-used]')).toHaveText('2,514')
-    await expect(page.locator('[data-scope-included]')).toHaveText('—')
-    await expect(page.locator('[data-next-invoice]')).toHaveCount(0) // hidden until a payment gateway exists
-    await expect(page.locator('[data-no-invoices]')).toBeVisible()
-    await expect(page.locator('[data-update-payment]')).toHaveCount(0)
-    await expect(page.locator('[data-proceed-payment]')).toBeDisabled()
-    await expect(page.locator('[data-topup-needs-plan]')).toBeVisible()
-    expect(await page.locator('[data-screen="subscription-payment"]').innerText()).not.toMatch(FAKE)
-  })
-
-  test('with a plan: the plan name and renewal, under the tenant’s own name', async ({ page }) => {
-    await open(page, '/admin/subscription', WITH_PLAN)
-    await expect(page.locator('[data-plan-name]')).toContainText('starter', { timeout: 60_000 })
-    await expect(page.locator('[data-plan-name]')).toContainText('Acme Oncology · renews 01 Dec 2026')
-    await expect(page.locator('[data-proceed-payment]')).toBeEnabled()
-  })
-})
-
-test('Reports: savings aren’t calculated yet, and the page still renders', async ({ page }) => {
-  await open(page, '/reports', view())
+// Reports are the PM's: the cost panel shows AI use on their projects.
+test('Reports: only real figures — the organisation’s own name, AI use from the call log, nothing made up', async ({ page }) => {
+  await open(page, '/reports', view(), 'T-A', 'pm')
   await expect(page.locator('[data-tokens]')).toHaveText('2,514', { timeout: 60_000 })
-  await expect(page.locator('[data-saving]')).toHaveText('—')
-  await expect(page.locator('[data-effective-multiple]')).toHaveText('—')
-  await expect(page.locator('[data-savings-not-calculated]')).toBeVisible()
-})
-
-test('Admin > Subscription: no made-up plan or token allowance', async ({ page }) => {
-  await open(page, '/admin', view())
-  await page.getByRole('button', { name: 'Subscription', exact: true }).or(page.getByRole('tab', { name: 'Subscription', exact: true })).first().click({ timeout: 60_000 })
-  const panel = page.locator('[data-tab-panel="subscription"]')
-  await expect(panel.locator('[data-plan-value]')).toHaveText('—')
-  await expect(panel).toContainText('No token allowance or renewal date is recorded')
-  await expect(panel).not.toContainText('Professional')
-  await expect(panel.locator('[data-tokens-value]')).toHaveText('3K')       // real usage (2,514), not spend shown as tokens
+  await expect(page.locator('[data-date-range-label]')).toContainText('Acme Oncology')
+  await expect(page.locator('[data-cost-hint]')).toContainText('AI call log')
+  // Not calculated, so not shown: no savings or multiple tiles, no "rate card" claim, no fixed client name.
+  await expect(page.locator('[data-saving], [data-effective-multiple]')).toHaveCount(0)
+  const text = await page.locator('[data-screen="reports-analytics"]').innerText()
+  expect(text).not.toMatch(/GenBioCa|rate card|Review pass|d\/stage|emailed/i)
 })
 
 test('Super Admin > Analytics: real AI tokens, and revenue shown as unknown rather than £0', async ({ page }) => {
@@ -150,7 +131,7 @@ test('Super Admin > Analytics: real AI tokens, and revenue shown as unknown rath
 })
 
 test('Reports: the top bar says Reports (not Projects), and there is no "Platform > Reports > Dashboard" line', async ({ page }) => {
-  await open(page, '/reports', view())
+  await open(page, '/reports', view(), 'T-A', 'pm')
   const screen = page.locator('[data-screen="reports-analytics"]')
   await expect(screen.locator('h1')).toBeVisible({ timeout: 60_000 })
   const header = page.locator('header').first()
@@ -160,4 +141,42 @@ test('Reports: the top bar says Reports (not Projects), and there is no "Platfor
   await expect(header).not.toContainText('Projects')
   await expect(screen.locator('nav')).toHaveCount(0)
   expect((await screen.innerText()).trimStart().startsWith('Reports')).toBe(true)
+})
+
+test('Reports moved off the IT Admin: no sidebar entry, and /reports sends an admin home', async ({ page }) => {
+  await open(page, '/reports', view())
+  await expect(page).toHaveURL(/\/home$/, { timeout: 60_000 })
+  await expect(page.locator('aside a[href="/reports"]')).toHaveCount(0)
+})
+
+test('a PM gets Reports in the sidebar', async ({ page }) => {
+  await open(page, '/reports', view(), 'T-A', 'pm')
+  await expect(page.locator('[data-screen="reports-analytics"]')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('a[href="/reports"]').first()).toBeVisible()
+})
+
+// sPM16 design: the left menu picks a report — it heads the page and the Report type dropdown follows; the
+// dropdown moves the menu too.
+test('Reports: picking a report on the left names it and selects it for Generate', async ({ page }) => {
+  await open(page, '/reports', view(), 'T-A', 'pm')
+  await page.locator('[data-nav-item="ai-usage"]').click({ timeout: 60_000 })
+  await expect(page.locator('[data-report-heading]')).toHaveText('AI Usage Report')
+  await expect(page.locator('[data-report-description]')).toBeVisible()
+  await expect(page.locator('[data-report-type]')).toHaveValue('ai-usage')
+  // Its own content: the report's figures and rows, not the dashboard.
+  await expect(page.locator('[data-report-view="ai-usage"] [data-report-row]')).toHaveCount(1)
+  await expect(page.locator('[data-report-summary]')).toContainText('AI calls')
+  await expect(page.locator('[data-report-row]').first()).toContainText('Wanda Writer')
+  await expect(page.locator('[data-health-scores]')).toHaveCount(0)
+  await expect(page.locator('[data-cost-panel]')).toHaveCount(0)
+
+  await page.locator('[data-report-type]').selectOption('module-activity')
+  await expect(page.locator('[data-nav-item="module-activity"]')).toHaveAttribute('data-active', 'true')
+  await expect(page.locator('[data-report-heading]')).toHaveText('Module Activity Report')
+  await expect(page.locator('[data-report-empty]')).toBeVisible()
+
+  await page.locator('[data-nav-item="dashboard"]').click()
+  await expect(page.locator('[data-report-heading]')).toHaveText('Reports & Analytics')
+  await expect(page.locator('[data-health-scores]')).toBeVisible()
+  await expect(page.locator('[data-report-type]')).toHaveValue('module-activity')
 })

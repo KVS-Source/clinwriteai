@@ -28,7 +28,6 @@ const BEST_PRACTICES: QuickLink = { labelKey: 'page.role_home.link_best_practice
 const ADMIN_LINKS: QuickLink[] = [
   { labelKey: 'page.role_home.link_user_management_label', href: '/admin/users',  hintKey: 'page.role_home.link_user_management_hint' },
   { labelKey: 'page.role_home.link_audit_trail_label',     href: '/admin/audit',  hintKey: 'page.role_home.link_audit_trail_hint' },
-  { labelKey: 'page.role_home.link_raci_label',            href: '/admin/raci',   hintKey: 'page.role_home.link_raci_hint' },
   { labelKey: 'page.role_home.link_admin_panel_label',     href: '/admin',        hintKey: 'page.role_home.link_admin_panel_hint' },
 ]
 

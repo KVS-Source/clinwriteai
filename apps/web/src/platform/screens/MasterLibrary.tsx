@@ -307,7 +307,14 @@ export function MasterLibrary() {
             </div>
           )}
 
-          <table className="w-full border-collapse text-[13px]">
+          {/* Fixed column widths (title gets the most room; the rest share the remainder). A narrow window scrolls the table
+              sideways inside its card instead of squeezing the columns. */}
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] table-fixed border-collapse text-[13px]">
+            <colgroup>
+              <col style={{ width: '36%' }} /><col style={{ width: '13%' }} /><col style={{ width: '17%' }} />
+              <col style={{ width: '9%' }} /><col style={{ width: '14%' }} /><col style={{ width: '11%' }} />
+            </colgroup>
             <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
               <tr>
                 <SortHead label={t('page.master_library.col_title')} asc="name-asc" desc="name-desc" />
@@ -339,7 +346,7 @@ export function MasterLibrary() {
                     data-panel-trigger aria-current={isActive || undefined}
                     className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
                     style={{ backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined }}>
-                    <td className="px-4 py-3 font-semibold text-slate-900">
+                    <td className="break-words px-4 py-3 font-semibold text-slate-900 [overflow-wrap:anywhere]">
                       {it.name}
                       {it.isWithdrawn && <span className="ml-2 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">{t('page.master_library.withdrawn_tag')}</span>}
                       {it.isArchived && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" data-archived-tag>{t('page.master_library.archived_tag')}</span>}
@@ -357,17 +364,26 @@ export function MasterLibrary() {
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
                     {/* The two buttons open their own side panel and must not also open the details (row click). */}
                     <td className="whitespace-nowrap px-4 py-3 text-center" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() }}>
+                      <div className="flex items-center justify-center gap-2">
+                      <button type="button" onClick={() => { setSideView(null); setSelected(it) }}
+                        aria-label={`${t('button.open')}: ${it.name}`}
+                        className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 transition-colors hover:bg-slate-100"
+                        data-action="open-document">
+                        {t('button.open')}
+                      </button>
                       <RowActionsMenu ariaLabel={t('page.master_library.more_actions', { name: it.name })}
                         actions={[
                           { key: 'open-share-history', label: t('page.master_library.share_history'), onSelect: () => { setSelected(null); setSideView({ kind: 'shares', item: it }) } },
                           { key: 'open-audit-trail', label: t('page.master_library.audit_trail'), onSelect: () => { setSelected(null); setSideView({ kind: 'audit', item: it }) } },
                         ]} />
+                      </div>
                     </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
+          </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3" data-pagination>
             <select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-[13px]" value={pageSize}

@@ -39,7 +39,7 @@ function FolderIcon() {
 }
 
 // Row columns: project · TA · phase · start date · submission countries · documents · status · chevron
-const ROW_GRID = 'minmax(200px,2fr) minmax(110px,1fr) 80px 100px minmax(120px,1.2fr) 90px 100px 14px'
+const ROW_GRID = 'minmax(220px,2fr) minmax(120px,1fr) 100px 120px minmax(120px,1fr) 120px 120px 14px'
 type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
@@ -180,10 +180,13 @@ export function AllProjects() {
     <div className="flex h-full flex-col" data-screen="all-projects">
 
       {/* Page header */}
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-6">
-        <div>
-          <h1 className="text-[22px] font-bold text-slate-900">{t('page.all_projects.title')}</h1>
-          <p className="mt-0.5 font-mono text-xs text-slate-500">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: '#2563EB' }} />
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">{t('page.all_projects.title')}</h1>
+          </div>
+          <p className="text-sm text-slate-500">
             {statusSummary}
           </p>
         </div>
@@ -203,143 +206,141 @@ export function AllProjects() {
         )}
       </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-8 py-4">
+      {/* Body: one card holding the filters and the table, like the documents list. */}
+      <div className="flex-1 overflow-auto px-8 py-6">
+        <div className="flex flex-col gap-3.5">
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
 
-        {/* Search */}
-        <div className="flex h-9 w-full max-w-[280px] items-center gap-2 rounded-md border border-slate-200 px-3">
-          <SearchIcon />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder={t('page.all_projects.search_placeholder')}
-            className="flex-1 bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="text-slate-400 hover:text-slate-600 text-xs leading-none"
-              aria-label={t('page.all_projects.clear_search')}
-            >
-              ✕
-            </button>
+            {/* Filter bar */}
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-4">
+              <div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <SearchIcon />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder={t('page.all_projects.search_placeholder')}
+                  className="w-full border-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    className="text-xs leading-none text-slate-400 hover:text-slate-600"
+                    aria-label={t('page.all_projects.clear_search')}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Status chips */}
+              <div className="flex flex-wrap items-center gap-2">
+                {STATUS_FILTERS.map(f => (
+                  <button
+                    key={f.value}
+                    onClick={() => setStatusFilter(f.value)}
+                    data-status-filter={f.value}
+                    className={`h-[38px] rounded-md border px-3 text-sm transition-colors ${statusFilter === f.value
+                      ? 'border-blue-200 bg-blue-50 font-semibold text-blue-600'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    {t(f.labelKey)}
+                  </button>
+                ))}
+              </div>
+
+              {/* TA filter */}
+              <select
+                value={taFilter}
+                onChange={e => setTaFilter(e.target.value)}
+                data-ta-filter
+                aria-label={t('page.all_projects.filter_by_ta')}
+                className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
+              >
+                <option value="all">{t('page.all_projects.all_tas')}</option>
+                {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+              </select>
+            </div>
+
+            {/* Scrolls sideways on narrow screens instead of squeezing the columns together. */}
+            <div className="overflow-x-auto">
+              <div className="min-w-[960px]">
+                {/* Column headers */}
+                <div className="grid items-center border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500" style={{ gridTemplateColumns: ROW_GRID }}>
+                  {COLUMN_HEADERS.map(h => h.key ? (
+                    <div key={h.labelKey} aria-sort={sort?.key === h.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button
+                        type="button"
+                        onClick={() => setSort(cur => nextSort(cur, h.key!))}
+                        data-sort={h.key}
+                        className="inline-flex items-center gap-1.5 font-semibold hover:text-slate-800"
+                      >
+                        {t(h.labelKey)}<SortIcon state={sort?.key === h.key ? sort.dir : null} />
+                      </button>
+                    </div>
+                  ) : <div key={h.labelKey}>{t(h.labelKey)}</div>)}
+                  <div />
+                </div>
+
+                {isLoading && (
+                  <div className="p-12 text-center font-mono text-sm text-slate-400">{t('page.all_projects.loading')}</div>
+                )}
+
+                {!isLoading && filtered.length === 0 && (
+                  <div className="flex flex-col items-center justify-center gap-3 px-5 py-12">
+                    <FolderIcon />
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-slate-900">{t('page.all_projects.empty_title')}</p>
+                      <p className="mt-1 text-[13px] text-slate-400">{t('page.all_projects.empty_hint')}</p>
+                    </div>
+                  </div>
+                )}
+
+                {!isLoading && sorted.map((project: Project, i: number) => {
+                  const docs = project.documentCount ?? 0
+                  return (
+                    <div
+                      key={project.id}
+                      onClick={() => handleProjectClick(project)}
+                      data-project-row={project.id}
+                      className={`grid cursor-pointer items-center px-5 py-4 text-sm transition-colors hover:bg-slate-50 ${i === sorted.length - 1 ? '' : 'border-b border-slate-100'}`}
+                      style={{ gridTemplateColumns: ROW_GRID }}
+                    >
+                      <div className="min-w-0 pr-4">
+                        <p className="truncate font-semibold text-slate-900">{project.shortTitle}</p>
+                        {project.name && project.name !== project.shortTitle && (
+                          <p className="mt-0.5 truncate text-xs text-slate-500" title={project.name}>{project.name}</p>
+                        )}
+                      </div>
+                      <div className="min-w-0 truncate pr-2 text-slate-900" title={project.therapeuticArea ?? undefined}>
+                        {project.therapeuticArea || <span className="text-slate-400">—</span>}
+                      </div>
+                      <div className="text-slate-500">{project.phase ? (/^phase\b|preclinical/i.test(project.phase) ? project.phase : t('page.all_projects.phase_prefix', { phase: project.phase })) : '—'}</div>
+                      <div className="text-slate-500">{project.startDate ? formatDate(project.startDate) : '—'}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {project.submissionCountries?.length
+                          ? project.submissionCountries.map(c => (
+                              <span key={c} className="rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-500">{c}</span>
+                            ))
+                          : <span className="text-slate-400">—</span>}
+                      </div>
+                      <div className="text-slate-500">{t('page.all_projects.document_count', { count: docs })}</div>
+                      <div data-project-status={project.status}><ProjectStatusPill status={project.status} /></div>
+                      <ChevronRightIcon />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Count footer */}
+          {!isLoading && (
+            <div className="flex justify-between px-1 text-xs text-slate-500">
+              <span data-projects-count>{t('page.all_projects.showing_count', { visible: filtered.length, total: projects.length })}</span>
+            </div>
           )}
         </div>
-
-        {/* Filter chips */}
-        <div className="flex flex-wrap items-center gap-2">
-          {STATUS_FILTERS.map(f => (
-            <button
-              key={f.value}
-              onClick={() => setStatusFilter(f.value)}
-              data-status-filter={f.value}
-              className="h-8 rounded-md px-3 text-xs font-medium transition-colors"
-              style={statusFilter === f.value ? {
-                backgroundColor: '#EFF6FF',
-                color: '#2563EB',
-                border: '1px solid #DBEAFE',
-                fontWeight: 600,
-              } : {
-                backgroundColor: '#F8FAFC',
-                color: '#64748B',
-                border: '1px solid #E2E8F0',
-              }}
-            >
-              {t(f.labelKey)}
-            </button>
-          ))}
-        </div>
-
-        {/* TA filter */}
-        <select
-          value={taFilter}
-          onChange={e => setTaFilter(e.target.value)}
-          data-ta-filter
-          aria-label={t('page.all_projects.filter_by_ta')}
-          className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800"
-        >
-          <option value="all">{t('page.all_projects.all_tas')}</option>
-          {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
-        </select>
-
-      </div>
-
-      {/* Project list */}
-      <div className="flex-1 overflow-y-auto px-8 pb-8">
-
-        {isLoading && (
-          <div className="flex items-center justify-center py-20">
-            <p className="font-mono text-sm text-slate-400">{t('page.all_projects.loading')}</p>
-          </div>
-        )}
-
-        {!isLoading && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-3 py-20">
-            <FolderIcon />
-            <div className="text-center">
-              <p className="text-[15px] font-bold text-slate-900">{t('page.all_projects.empty_title')}</p>
-              <p className="mt-1 text-[13px] text-slate-400">{t('page.all_projects.empty_hint')}</p>
-            </div>
-          </div>
-        )}
-
-        {!isLoading && filtered.length > 0 && (
-          <div className="overflow-x-auto">
-            <div className="min-w-[900px]">
-              <div className="grid items-center gap-4 px-6 pt-5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400" style={{ gridTemplateColumns: ROW_GRID }}>
-                {COLUMN_HEADERS.map(h => h.key ? (
-                  <span key={h.labelKey} aria-sort={sort?.key === h.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                    <button
-                      type="button"
-                      onClick={() => setSort(cur => nextSort(cur, h.key!))}
-                      data-sort={h.key}
-                      className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-widest hover:text-slate-700"
-                    >
-                      {t(h.labelKey)}<SortIcon state={sort?.key === h.key ? sort.dir : null} />
-                    </button>
-                  </span>
-                ) : <span key={h.labelKey}>{t(h.labelKey)}</span>)}
-                <span />
-              </div>
-              {sorted.map((project: Project) => {
-                const docs = project.documentCount ?? 0
-                return (
-                  <div
-                    key={project.id}
-                    onClick={() => handleProjectClick(project)}
-                    data-project-row={project.id}
-                    className="mt-2 grid cursor-pointer items-center gap-4 rounded-lg border border-slate-200 bg-white px-6 py-4 transition-shadow hover:shadow-md"
-                    style={{ gridTemplateColumns: ROW_GRID }}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[15px] font-bold text-slate-900">{project.shortTitle}</p>
-                      <p className="mt-0.5 truncate text-[13px] text-slate-500" title={project.name}>{project.name}</p>
-                    </div>
-                    <span className="min-w-0">
-                      {project.therapeuticArea
-                        ? <span className="inline-block max-w-full truncate rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }} title={project.therapeuticArea}>{project.therapeuticArea}</span>
-                        : <span className="text-[13px] text-slate-400">—</span>}
-                    </span>
-                    <span className="text-[13px] text-slate-700">{project.phase ? (/^phase\b|preclinical/i.test(project.phase) ? project.phase : t('page.all_projects.phase_prefix', { phase: project.phase })) : '—'}</span>
-                    <span className="text-[13px] text-slate-700">{project.startDate ? formatDate(project.startDate) : '—'}</span>
-                    <span className="flex flex-wrap gap-1">
-                      {project.submissionCountries?.length
-                        ? project.submissionCountries.map(c => (
-                            <span key={c} className="rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600" style={{ backgroundColor: '#F1F5F9' }}>{c}</span>
-                          ))
-                        : <span className="text-[13px] text-slate-400">—</span>}
-                    </span>
-                    <span className="text-[13px] text-slate-500">{t('page.all_projects.document_count', { count: docs })}</span>
-                    <span data-project-status={project.status}><ProjectStatusPill status={project.status} /></span>
-                    <ChevronRightIcon />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
       </div>
 
       <SlidePanel

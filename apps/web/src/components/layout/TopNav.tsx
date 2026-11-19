@@ -237,7 +237,6 @@ export function TopNav() {
     : onPage('/admin/raci') ? t('component.sidebar.platform_raci_matrix')
     : onPage('/notifications') ? t('component.sidebar.platform_notifications')
     : onPage('/services') ? t('component.sidebar.platform_services')
-    : onPage('/admin/subscription') ? t('component.sidebar.platform_subscription')
     : onPage('/reports') ? t('component.sidebar.platform_reports')
     : onPage('/admin/taxonomy') ? t('component.sidebar.platform_ta_tags')
     : onPage('/admin/audit') ? t('component.sidebar.platform_audit_trail')

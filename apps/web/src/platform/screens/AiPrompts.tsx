@@ -330,7 +330,12 @@ function PromptList({
     <div className="flex min-h-0 flex-1 flex-col gap-3" data-prompt-list>
       <header className="flex flex-wrap items-center gap-3">
         <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-          {approved.length} approved prompt{approved.length === 1 ? '' : 's'}
+          {approved.length} prompt{approved.length === 1 ? '' : 's'}
+          {(() => {
+            const draftCount = approved.filter(p => p.status === 'draft').length
+            if (draftCount === 0) return null
+            return <span className="ml-2 text-amber-700"> · {draftCount} draft{draftCount === 1 ? '' : 's'} pending</span>
+          })()}
           {q && visible.length !== approved.length && (
             <span className="ml-2 text-slate-400">· {visible.length} match{visible.length === 1 ? '' : 'es'}</span>
           )}
@@ -358,10 +363,10 @@ function PromptList({
 
       {approved.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-white p-8 text-center" data-empty>
-          <p className="text-[13px] font-semibold text-slate-800">No approved prompts yet</p>
+          <p className="text-[13px] font-semibold text-slate-800">No prompts yet</p>
           <p className="max-w-md text-[12px] text-slate-500">
             Draft and approve a prompt for a doc type to steer every draft + rewrite call.
-            Drafts don't reach AI until they're approved.
+            Drafts show here with a pending chip; they don't reach AI until they're approved.
           </p>
           <button
             type="button"
@@ -409,13 +414,21 @@ function PromptList({
                     </div>
                   </td>
                   <td className="px-3 py-2 font-mono text-[12px] text-slate-700">
-                    v{p.version} <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">approved</span>
+                    v{p.version}
+                    {p.status === 'approved' && (
+                      <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">approved</span>
+                    )}
+                    {p.status === 'draft' && (
+                      <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-800">draft</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-[12px] text-slate-700">
                     {p.smePrompt.length.toLocaleString()}<span className="ml-1 text-slate-400">ch</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-700" title={p.approvedAt ? new Date(p.approvedAt).toLocaleString() : ''}>
-                    {p.approvedAt ? formatRelativeShort(p.approvedAt) : '—'}
+                  <td className="px-3 py-2 text-slate-700" title={(p.approvedAt ?? p.updatedAt) ? new Date(p.approvedAt ?? p.updatedAt).toLocaleString() : ''}>
+                    {p.status === 'approved' && p.approvedAt && formatRelativeShort(p.approvedAt)}
+                    {p.status === 'draft'    && <span className="text-amber-700">drafted {formatRelativeShort(p.updatedAt)}</span>}
+                    {!p.approvedAt && p.status === 'approved' && '—'}
                   </td>
                   <td className="truncate px-3 py-2 font-mono text-[11px] text-slate-500" title={p.approvedBy ?? p.updatedBy}>
                     {p.approvedBy ?? p.updatedBy}

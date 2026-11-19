@@ -88,9 +88,12 @@ export const aiPromptRoutes: FastifyPluginAsync = async (app) => {
 
   // ------ reads -----------------------------------------------------------
 
-  // GET /ai-prompts — latest approved row for every docType (list screen).
+  // GET /ai-prompts — one row per docType for the admin list. Shows
+  // approved rows when present, falls back to the draft otherwise so a
+  // brand-new draft doesn't vanish between "Create" and "Approve".
+  // Retired rows are always excluded (audit snapshots, not navigation).
   app.get('/', { preHandler: readGate }, async () => {
-    const rows = await svc.listAllApproved()
+    const rows = await svc.listVisible()
     return { prompts: rows.map(r => shape(r as Row)) }
   })
 

@@ -1,4 +1,4 @@
-// Automatic ICH sync: syncs once the last sync (from the audit trail) is a day old, records it as 'system' /
+// Automatic ICH sync: syncs once the last sync (from the audit trail) is 30 days old, records it as 'system' /
 // 'automatic', changes nothing when ich.org is down, and can be switched off.
 
 import Fastify from 'fastify'
@@ -35,14 +35,14 @@ describe('automatic ICH sync', () => {
     })])
   })
 
-  it('syncs when the last sync is more than a day old', async () => {
-    const { job, sync } = setup({ timestamp: '2026-11-15T11:00:00.000Z', actor_id: 'u-pm', details: { trigger: 'manual' } })
+  it('syncs when the last sync is 30 days old or more', async () => {
+    const { job, sync } = setup({ timestamp: '2026-10-17T11:00:00.000Z', actor_id: 'u-pm', details: { trigger: 'manual' } })
     expect(await job.tick()).toBe('synced')
     expect(sync).toHaveBeenCalledOnce()
   })
 
-  it('does nothing when someone synced in the last day (button or automatic)', async () => {
-    const { job, sync, appended } = setup({ timestamp: '2026-11-16T02:00:00.000Z', actor_id: 'u-pm', details: { trigger: 'manual' } })
+  it('does nothing when someone synced in the last 30 days (button or automatic)', async () => {
+    const { job, sync, appended } = setup({ timestamp: '2026-10-18T12:00:00.000Z', actor_id: 'u-pm', details: { trigger: 'manual' } })
     expect(await job.tick()).toBe('not_due')
     expect(sync).not.toHaveBeenCalled()
     expect(appended).toEqual([])
@@ -83,7 +83,7 @@ describe('automatic ICH sync', () => {
 })
 
 describe('GET /sync-ich/status', () => {
-  it('tells any signed-in user when the registry last synced and that it syncs daily', async () => {
+  it('tells any signed-in user when the registry last synced and that it syncs every 30 days', async () => {
     const app = Fastify()
     app.decorate('prisma', { $queryRawUnsafe: vi.fn(async () => [{ timestamp: '2026-11-16T00:00:00.000Z', actor_id: 'system', details: { trigger: 'automatic' } }]) } as never)
     app.decorate('audit', { append: vi.fn() } as never)
@@ -93,7 +93,7 @@ describe('GET /sync-ich/status', () => {
     await app.register(frameworksRoutes)
     const res = await app.inject({ method: 'GET', url: '/sync-ich/status' })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual({ lastSyncedAt: '2026-11-16T00:00:00.000Z', lastTrigger: 'automatic', autoSync: { enabled: true, everyHours: 24 } })
+    expect(res.json()).toEqual({ lastSyncedAt: '2026-11-16T00:00:00.000Z', lastTrigger: 'automatic', autoSync: { enabled: true, everyDays: 30 } })
     await app.close()
   })
 })

@@ -24,8 +24,8 @@ async function open(page: Page, syncFails = false, me: typeof PM = PM) {
       if (path.endsWith('/auth/me')) return json(me)
       if (path.endsWith('/admin/frameworks/sync-ich/status')) {
         return json(rows.length
-          ? { lastSyncedAt: new Date().toISOString(), lastTrigger: 'manual', autoSync: { enabled: true, everyHours: 24 } }
-          : { lastSyncedAt: '2026-11-16T06:30:00.000Z', lastTrigger: 'automatic', autoSync: { enabled: true, everyHours: 24 } })
+          ? { lastSyncedAt: new Date().toISOString(), lastTrigger: 'manual', autoSync: { enabled: true, everyDays: 30 } }
+          : { lastSyncedAt: '2026-11-16T06:30:00.000Z', lastTrigger: 'automatic', autoSync: { enabled: true, everyDays: 30 } })
       }
       if (path.endsWith('/admin/frameworks/sync-ich') && m === 'POST') {
         if (syncFails) return json({ error: 'ich_unreachable', message: 'Could not reach ich.org. Nothing was changed. Try again later.' }, 502)
@@ -54,12 +54,14 @@ test('Sync from ICH fills the table with real ICH guidelines and says what it di
   await expect(page.locator('[data-frameworks-table] tbody tr', { hasText: 'ICH E3' })).toContainText('Structure and Content of Clinical Study Reports')
 })
 
-test('shows when the registry last synced from ICH and that it syncs by itself every day', async ({ page }) => {
+test('shows when the registry last synced from ICH and that it syncs by itself every 30 days, with the next date', async ({ page }) => {
   await open(page)
   const status = page.locator('[data-ich-sync-status]')
   await expect(status).toContainText('Last synced from ICH', { timeout: 60_000 })
   await expect(status).toContainText('(automatic)')
-  await expect(status).toContainText('automatically every day')
+  await expect(status).toContainText('automatically every 30 days')
+  // Last sync 16 Nov 2026 + 30 days.
+  await expect(status.locator('[data-next-auto-sync]')).toContainText('Dec 16, 2026')
   await page.locator('[data-action="sync-ich"]').click()
   await expect(status).not.toContainText('(automatic)')            // a manual sync replaces it
 })
@@ -96,9 +98,13 @@ test('the scope colour key sits beside the search field, and the status chip sta
   await page.screenshot({ path: 'test-results/frameworks-toolbar-wide.png' })
 })
 
-test('a QC does not get Sync from ICH or + Add framework', async ({ page }) => {
+// Since 8ff2cb00 the Master Library shows a non-PM only Master Documents and Best Practices: a QC never reaches the
+// frameworks page, so never gets its Sync or Add buttons.
+test('a QC does not get the ICH Frameworks page, Sync from ICH or + Add framework', async ({ page }) => {
   await open(page, false, QC)
-  await expect(page.locator('[data-screen="regulatory-framework-admin"]')).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('heading', { name: 'Master Documents' })).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('[data-screen="regulatory-framework-admin"]')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /ICH Frameworks/ })).toHaveCount(0)
   await expect(page.locator('[data-action="sync-ich"]')).toHaveCount(0)
   await expect(page.locator('[data-add-framework]')).toHaveCount(0)
 })

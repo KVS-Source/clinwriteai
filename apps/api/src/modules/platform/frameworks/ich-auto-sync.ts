@@ -1,11 +1,11 @@
 // Automatic ICH sync: keeps the framework registry in step with www.ich.org/page/ich-guidelines without anyone
 // pressing "Sync from ICH".
 //
-// How it runs: an in-process timer (same pattern as the compliance gauge scheduler) checks once an hour. If the last
-// ICH sync, manual or automatic, is older than a day, it runs the same sync as the button (./ich-sync.ts) and records
+// How it runs: an in-process timer (same pattern as the compliance gauge scheduler) checks once a day. If the last
+// ICH sync, manual or automatic, is 30 days old or more, it runs the same sync as the button (./ich-sync.ts) and records
 // it in the audit trail as `frameworks_synced_from_ich` with actor 'system' and trigger 'automatic'. "Last sync" is
 // read from the audit trail, so API restarts (e.g. dev --watch) never cause extra syncs, and a manual sync resets the
-// clock. If ich.org cannot be reached, nothing is changed and the next hourly check tries again.
+// clock. If ich.org cannot be reached, nothing is changed and the next daily check tries again.
 //
 // On in production (ICH_AUTO_SYNC=off to stop it); on a dev machine only with ICH_AUTO_SYNC=on; never under tests.
 
@@ -13,8 +13,10 @@ import { syncIchGuidelines, type IchSyncResult } from './ich-sync.js'
 
 export const ICH_SYNC_ACTION = 'frameworks_synced_from_ich'
 export const ICH_AUTO_SYNC_ACTOR = 'system'
-export const ICH_AUTO_SYNC_MAX_AGE_MS = 24 * 60 * 60 * 1000   // sync when the last one is older than a day
-export const ICH_AUTO_SYNC_CHECK_MS = 60 * 60 * 1000          // look once an hour
+export const ICH_AUTO_SYNC_EVERY_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
+export const ICH_AUTO_SYNC_MAX_AGE_MS = ICH_AUTO_SYNC_EVERY_DAYS * DAY_MS   // sync when the last one is 30 days old
+export const ICH_AUTO_SYNC_CHECK_MS = DAY_MS                                  // look once a day
 const FIRST_CHECK_DELAY_MS = 60 * 1000                         // let the API finish starting first
 
 export type IchSyncTrigger = 'manual' | 'automatic'
@@ -99,7 +101,7 @@ export class IchAutoSync {
       try {
         result = await (this.o.sync ?? syncIchGuidelines)(this.o.prisma, ICH_AUTO_SYNC_ACTOR)
       } catch (err) {
-        this.o.logger.warn({ err }, 'Automatic ICH sync: could not reach ich.org; nothing changed, will retry next hour')
+        this.o.logger.warn({ err }, 'Automatic ICH sync: could not reach ich.org; nothing changed, will retry tomorrow')
         return 'failed'
       }
       await this.o.audit.append({

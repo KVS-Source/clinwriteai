@@ -507,7 +507,15 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                 })
               : t('page.regulatory_framework_admin.never_synced')}
             {' · '}
-            {syncStatus.autoSync.enabled ? t('page.regulatory_framework_admin.auto_sync_on') : t('page.regulatory_framework_admin.auto_sync_off')}
+            {syncStatus.autoSync.enabled
+              ? t('page.regulatory_framework_admin.auto_sync_on', { days: syncStatus.autoSync.everyDays })
+              : t('page.regulatory_framework_admin.auto_sync_off', { days: syncStatus.autoSync.everyDays })}
+            {syncStatus.autoSync.enabled && syncStatus.lastSyncedAt && (
+              <span data-next-auto-sync>{' · '}{t('page.regulatory_framework_admin.next_auto_sync', {
+                when: new Date(new Date(syncStatus.lastSyncedAt).getTime() + syncStatus.autoSync.everyDays * 86_400_000)
+                  .toLocaleDateString(i18n.language, { day: 'numeric', month: 'short', year: 'numeric' }),
+              })}</span>
+            )}
           </p>
         )}
         {syncResult && <p className="rounded-md p-2 text-[12px]"style={{ backgroundColor: '#F0FDF4', color: '#166534' }} role="status" data-sync-result>{syncResult}</p>}

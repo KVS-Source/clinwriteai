@@ -7,7 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Role } from '../../../auth/rbac.js'
 import { syncIchGuidelines } from './ich-sync.js'
-import { ICH_AUTO_SYNC_MAX_AGE_MS, ICH_SYNC_ACTION, ichAutoSyncEnabled, ichSyncAuditDetails, lastIchSync } from './ich-auto-sync.js'
+import { ICH_AUTO_SYNC_EVERY_DAYS, ICH_SYNC_ACTION, ichAutoSyncEnabled, ichSyncAuditDetails, lastIchSync } from './ich-auto-sync.js'
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -57,7 +57,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return {
       lastSyncedAt: last?.at.toISOString() ?? null,
       lastTrigger:  last?.trigger ?? null,
-      autoSync:     { enabled: auto, everyHours: ICH_AUTO_SYNC_MAX_AGE_MS / 3_600_000 },
+      autoSync:     { enabled: auto, everyDays: ICH_AUTO_SYNC_EVERY_DAYS },
     }
   })
 

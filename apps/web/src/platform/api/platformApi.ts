@@ -126,7 +126,7 @@ function taTagShape(r: TaxonomyRow): TATag {
 export interface IchSyncStatus {
   lastSyncedAt: string | null
   lastTrigger:  'manual' | 'automatic' | null
-  autoSync:     { enabled: boolean; everyHours: number }
+  autoSync:     { enabled: boolean; everyDays: number }
 }
 
 export interface IchSyncResult {

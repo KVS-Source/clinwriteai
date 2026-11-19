@@ -9,14 +9,17 @@
 // Shows nothing when the chain isn't in flight.
 
 import { useEffect, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { AiDraftSummary } from '../../hooks/useAiDraftStatus'
-import type { AiDraftState } from '../../api/ai-drafter'
+import { aiDrafterApi, type AiDraftState } from '../../api/ai-drafter'
+import { ApiError } from '../../api/client'
 
 interface Props {
-  state:   AiDraftState | null
-  summary: AiDraftSummary
+  state:      AiDraftState | null
+  summary:    AiDraftSummary
+  documentId: string
 }
 
 const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
@@ -25,12 +28,33 @@ const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
   validating: 'headline_validating',
   complete:   'headline_complete',
   failed:     'headline_failed',
+  cancelled:  'headline_cancelled',
   not_configured: 'headline_not_configured',
 }
 
-export function AiDraftingProgressToast({ state, summary }: Props) {
+export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
   const { t } = useTranslation()
+  const qc = useQueryClient()
   const [dismissed, setDismissed] = useState(false)
+  const [stopError, setStopError] = useState<string | null>(null)
+
+  const stopMut = useMutation({
+    mutationFn: () => aiDrafterApi.stopDraft(documentId),
+    onSuccess: () => {
+      setStopError(null)
+      // Invalidate the status query so the SPA picks up the new
+      // 'cancelled' state and the toast hides on its own.
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) {
+        const body = err.body as { message?: string; error?: string } | null
+        setStopError(body?.message ?? body?.error ?? `${err.status}`)
+      } else {
+        setStopError(err instanceof Error ? err.message : 'Stop failed')
+      }
+    },
+  })
 
   // Reset the dismiss flag the moment the chain re-enters an in-flight
   // state (so a fresh regenerate shows the toast even if the user
@@ -47,6 +71,7 @@ export function AiDraftingProgressToast({ state, summary }: Props) {
 
   const headline = t(`component.ai_drafting_progress_toast.${STATE_HEADLINE_KEY[state]}`)
   const line = buildStatusLine(state, summary, t)
+  const canStop = state === 'pending' || state === 'drafting' || state === 'validating'
 
   return (
     <div
@@ -79,6 +104,20 @@ export function AiDraftingProgressToast({ state, summary }: Props) {
               />
             </span>
             <span className="font-mono text-[10px] text-slate-500">{summary.confidence}%</span>
+          </div>
+        )}
+        {canStop && (
+          <div className="mt-1 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { if (confirm('Stop the AI draft? Already-written sections stay intact; the chain exits at the next section boundary.')) stopMut.mutate() }}
+              disabled={stopMut.isPending || stopMut.isSuccess}
+              className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              data-action="stop-ai-draft"
+            >
+              {stopMut.isSuccess ? 'Stopping…' : stopMut.isPending ? 'Stopping…' : 'Stop'}
+            </button>
+            {stopError && <span className="text-[10px] text-rose-700">{stopError}</span>}
           </div>
         )}
       </div>

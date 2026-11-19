@@ -16,6 +16,7 @@ vi.mock('../../platform/library/auto-push.js', () => ({
 }))
 
 import { signatureRoutes } from './routes.js'
+import { DocumentService } from '../documents/service.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
 type Row = Record<string, any>
@@ -100,6 +101,7 @@ function fakePrisma() {
       findMany: async ({ where }: Row) => chains.filter(c => matches(c, where)).map(withRecords),
       create: async ({ data }: Row) => { const c = { id: `chain-${chains.length + 1}`, initiatedAt: new Date(), completedAt: null, cancelledAt: null, cancelReason: null, ...data }; chains.push(c); return c },
       update: async ({ where, data }: Row) => Object.assign(chains.find(c => c.id === where.id)!, data),
+      updateMany: async ({ where, data }: Row) => { const hit = chains.filter(c => matches(c, where)); hit.forEach(c => Object.assign(c, data)); return { count: hit.length } },
     },
     signatureRecord: {
       createMany: async ({ data }: Row) => { records.push(...data); return { count: data.length } },
@@ -126,6 +128,8 @@ function fakePrisma() {
     documentRaci: {
       findMany: async ({ where }: Row) => raciRows.filter(r => matches(r, where)),
       findFirst: async ({ where }: Row) => raciRows.find(r => matches(r, where)) ?? null,
+      count: async ({ where }: Row) => raciRows.filter(r => matches(r, where)).length,
+      update: async ({ where, data }: Row) => Object.assign(raciRows.find(r => r.id === where.id)!, data),
       updateMany: async ({ where, data }: Row) => { const hit = raciRows.filter(r => matches(r, where)); hit.forEach(r => Object.assign(r, data)); return { count: hit.length } },
     },
     // An Approver's approval comment, written after an approvers_first signature.
@@ -763,6 +767,47 @@ describe('signature chain — approvers first (Approve & E-sign), then Authors, 
     expect(t.db.raciRows.find(r => r.id === 'raci-a2')!.documentApprovedAt).toBeNull()   // the other Approver hasn't yet
     expect(t.db.comments).toEqual([expect.objectContaining({ sectionRef: 'Document', verdict: 'approve', text: 'Good to go.', reviewerId: 'u-reviewer' })])
     expect(t.audit.at(-1)).toMatchObject({ action: 'signature_recorded', details: { meaning: 'approved', approved: true, approvalComment: 'Good to go.' } })
+  })
+
+  it('an Approver who returned the document cannot sign it', async () => {
+    const chain = await start()
+    t.db.raciRows.find(r => r.id === 'raci-2')!.rejectedAt = new Date()
+    const res = await sign(USERS.reviewer, chain.records.find((r: Row) => r.signerId === 'u-reviewer').id)
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('returned_document')
+  })
+
+  it('the last Approver to finish, with another having returned the document: back to authoring, nobody else is asked to sign', async () => {
+    const snapshot = vi.spyOn(DocumentService.prototype, 'createVersionSnapshot').mockResolvedValue({ version: { id: 'ver-b', versionNumber: 'v0.3' } } as never)
+    try {
+      const chain = await start()
+      const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
+      const returner = t.db.raciRows.find(r => r.id === 'raci-a2')!
+      returner.rejectedAt = new Date(); returner.rejectionNote = 'Not ready to sign.'      // u-author2 returned it
+      t.notices.length = 0
+
+      const res = await sign(USERS.reviewer, rec('u-reviewer'))                           // the other Approver signs: all Approvers are in
+      expect(res.statusCode).toBe(200)
+      expect(res.json().returnedToAuthoring).toBe(true)
+      expect(t.db.documents[0].status).toBe('in_authoring')
+      expect(t.db.chains[0].status).toBe('cancelled')
+      expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ reason: 'signature_bounce', note: 'Not ready to sign.', createdBy: 'u-author2' }))
+      // Their signature stays on the trail, but Authors, Reviewers and Informed were never asked to sign.
+      expect(status(chain)['u-reviewer']).toBe('signed')
+      expect(status(chain)).toMatchObject({ 'u-author': 'queued', 'u-cons': 'queued', 'u-info': 'queued' })
+      expect(t.notices.filter(n => n.linkPath?.endsWith('/sign'))).toHaveLength(0)
+      // A new round: no one is left approved or returned.
+      expect(t.db.raciRows.find(r => r.id === 'raci-a2')!.rejectedAt).toBeNull()
+      expect(t.db.raciRows.find(r => r.id === 'raci-2')!.documentApprovedAt).toBeNull()
+    } finally { snapshot.mockRestore() }
+  })
+
+  it('an Approver signing while no one has returned the document does not send it back', async () => {
+    const chain = await start()
+    const res = await sign(USERS.reviewer, chain.records.find((r: Row) => r.signerId === 'u-reviewer').id)
+    expect(res.statusCode).toBe(200)
+    expect(res.json().returnedToAuthoring).toBeUndefined()
+    expect(t.db.documents[0].status).toBe('pending_signature')
   })
 
   it('Authors, Reviewers and Informed wait for every Approver, then are released together and told', async () => {

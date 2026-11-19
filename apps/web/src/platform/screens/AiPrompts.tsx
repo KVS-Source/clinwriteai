@@ -23,6 +23,7 @@ import {
   type AiPromptRecord,
   type AiPromptSectionRules,
   type BestPracticeDigest,
+  type CrossCuttingRule,
   type DocumentTypePolicy,
 } from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
@@ -330,7 +331,12 @@ function PromptList({
     <div className="flex min-h-0 flex-1 flex-col gap-3" data-prompt-list>
       <header className="flex flex-wrap items-center gap-3">
         <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-          {approved.length} approved prompt{approved.length === 1 ? '' : 's'}
+          {approved.length} prompt{approved.length === 1 ? '' : 's'}
+          {(() => {
+            const draftCount = approved.filter(p => p.status === 'draft').length
+            if (draftCount === 0) return null
+            return <span className="ml-2 text-amber-700"> · {draftCount} draft{draftCount === 1 ? '' : 's'} pending</span>
+          })()}
           {q && visible.length !== approved.length && (
             <span className="ml-2 text-slate-400">· {visible.length} match{visible.length === 1 ? '' : 'es'}</span>
           )}
@@ -358,10 +364,10 @@ function PromptList({
 
       {approved.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-white p-8 text-center" data-empty>
-          <p className="text-[13px] font-semibold text-slate-800">No approved prompts yet</p>
+          <p className="text-[13px] font-semibold text-slate-800">No prompts yet</p>
           <p className="max-w-md text-[12px] text-slate-500">
             Draft and approve a prompt for a doc type to steer every draft + rewrite call.
-            Drafts don't reach AI until they're approved.
+            Drafts show here with a pending chip; they don't reach AI until they're approved.
           </p>
           <button
             type="button"
@@ -409,13 +415,21 @@ function PromptList({
                     </div>
                   </td>
                   <td className="px-3 py-2 font-mono text-[12px] text-slate-700">
-                    v{p.version} <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">approved</span>
+                    v{p.version}
+                    {p.status === 'approved' && (
+                      <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">approved</span>
+                    )}
+                    {p.status === 'draft' && (
+                      <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-800">draft</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-[12px] text-slate-700">
                     {p.smePrompt.length.toLocaleString()}<span className="ml-1 text-slate-400">ch</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-700" title={p.approvedAt ? new Date(p.approvedAt).toLocaleString() : ''}>
-                    {p.approvedAt ? formatRelativeShort(p.approvedAt) : '—'}
+                  <td className="px-3 py-2 text-slate-700" title={(p.approvedAt ?? p.updatedAt) ? new Date(p.approvedAt ?? p.updatedAt).toLocaleString() : ''}>
+                    {p.status === 'approved' && p.approvedAt && formatRelativeShort(p.approvedAt)}
+                    {p.status === 'draft'    && <span className="text-amber-700">drafted {formatRelativeShort(p.updatedAt)}</span>}
+                    {!p.approvedAt && p.status === 'approved' && '—'}
                   </td>
                   <td className="truncate px-3 py-2 font-mono text-[11px] text-slate-500" title={p.approvedBy ?? p.updatedBy}>
                     {p.approvedBy ?? p.updatedBy}
@@ -625,6 +639,11 @@ function DraftEditor({
 }) {
   const [smePrompt, setSmePrompt]    = useState(draft.smePrompt)
   const [rules,     setRules]        = useState<AiPromptSectionRules>(draft.rules)
+  // Cross-cutting rules (migration 95). When non-empty, the server
+  // emits GENERAL RULES in place of the verbatim SME prompt on every
+  // AI call — ~5× token saving per section. Admin populates via the
+  // Extract button (which returns both buckets) and can edit inline.
+  const [crossCuttingRules, setCrossCuttingRules] = useState<CrossCuttingRule[]>(draft.crossCuttingRules ?? [])
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionInfo,  setActionInfo]  = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -632,7 +651,10 @@ function DraftEditor({
   const [rulesJsonText,  setRulesJsonText]  = useState(() => JSON.stringify(draft.rules, null, 2))
   const [rulesJsonError, setRulesJsonError] = useState<string | null>(null)
 
-  const dirty = smePrompt !== draft.smePrompt || JSON.stringify(rules) !== JSON.stringify(draft.rules)
+  const dirty =
+    smePrompt !== draft.smePrompt
+    || JSON.stringify(rules) !== JSON.stringify(draft.rules)
+    || JSON.stringify(crossCuttingRules) !== JSON.stringify(draft.crossCuttingRules ?? [])
   const trimmed = smePrompt.trim()
 
   // BP digest still rides on the policy row (Phase 1). Preview renders
@@ -655,7 +677,8 @@ function DraftEditor({
   const save = useMutation({
     mutationFn: () => platformApi.updateAiPromptDraft(draft.id, {
       smePrompt,
-      sectionRules: rules,
+      sectionRules:      rules,
+      crossCuttingRules,
     }),
     onSuccess: () => {
       setActionInfo('Draft saved.')
@@ -688,28 +711,33 @@ function DraftEditor({
   const extract = useMutation({
     mutationFn: () => platformApi.extractSectionRulesForPrompt(draft.id),
     onSuccess: (res) => {
-      // Non-destructive: we show the parsed rules in a review modal and
-      // only persist on Save-rules. Match the Doc Type Policies flow.
+      // Non-destructive: show both parsed buckets in a review modal and
+      // only persist on Save. Match the Doc Type Policies flow.
       setParsedRules(res.sectionRules)
+      setParsedCrossCutting(res.crossCuttingRules ?? [])
       setParseReviewOpen(true)
       setActionError(null)
+      const cc = res.crossCuttingCount ?? 0
       setActionInfo(
-        res.ruleCount === 0
-          ? 'AI found no per-section rules in this SME prompt — the parsed structure is empty.'
-          : `AI parsed ${res.ruleCount} rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review + Save to persist.`,
+        (res.ruleCount === 0 && cc === 0)
+          ? 'AI found no actionable rules in this SME prompt — both buckets are empty.'
+          : `AI parsed ${cc} general + ${res.ruleCount} per-section rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review + Save to persist.`,
       )
     },
     onError: (err: unknown) => { setActionError(errMessage(err, 'Parse failed')); setActionInfo(null) },
   })
 
-  const [parsedRules,     setParsedRules]     = useState<AiPromptSectionRules | null>(null)
-  const [parseReviewOpen, setParseReviewOpen] = useState(false)
+  const [parsedRules,         setParsedRules]         = useState<AiPromptSectionRules | null>(null)
+  const [parsedCrossCutting,  setParsedCrossCutting]  = useState<CrossCuttingRule[]>([])
+  const [parseReviewOpen,     setParseReviewOpen]     = useState(false)
 
   const applyParsedRules = () => {
     if (parsedRules) setRules(parsedRules)
+    setCrossCuttingRules(parsedCrossCutting)
     setParseReviewOpen(false)
     setParsedRules(null)
-    setActionInfo('Parsed rules merged into draft — review the preview, then Save.')
+    setParsedCrossCutting([])
+    setActionInfo('Parsed rules merged into draft — review the preview, then Save. GENERAL RULES now flow in place of the verbatim SME prompt.')
   }
 
   const ruleSections = Object.keys(rules).length
@@ -776,6 +804,55 @@ function DraftEditor({
         data-field="sme-prompt"
         placeholder="SME prompt — role-specific preamble the AI reads on every draft + rewrite."
       />
+
+      {/* GENERAL RULES — cross-cutting rules extracted from the SME prompt
+           (migration 95). When non-empty, the server sends these in place
+           of the verbatim SME prompt on every AI call (~5× token saving
+           per section). Admin reviews + edits; populated via Extract. */}
+      <section className="rounded-md border border-emerald-200 bg-emerald-50/30 p-3" data-parsed-cross-cutting>
+        <header className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-emerald-700">
+              General rules (apply to every section)
+            </span>
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+              {crossCuttingRules.length} rule{crossCuttingRules.length === 1 ? '' : 's'}
+            </span>
+            {crossCuttingRules.length > 0 && (
+              <span className="text-[10px] text-slate-500">· replaces verbatim SME prompt on every AI call</span>
+            )}
+          </div>
+          {crossCuttingRules.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setCrossCuttingRules([]); setActionInfo('General rules cleared — AI calls will fall back to the verbatim SME prompt until you re-parse.') }}
+              className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              data-action="clear-cross-cutting"
+            >
+              Clear
+            </button>
+          )}
+        </header>
+        {crossCuttingRules.length === 0 ? (
+          <p className="text-[12px] text-slate-500">
+            No general rules yet. Click <strong>Parse SME prompt</strong> below — AI will extract both general + per-section rules.
+            Until you have general rules, the AI resolver falls back to dumping the full SME prompt on every call (expensive).
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1 text-[12px]">
+            {crossCuttingRules.map((r, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className={`inline-block flex-none rounded px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase ${
+                  r.severity === 'must' ? 'bg-rose-100 text-rose-800' :
+                  r.severity === 'should' ? 'bg-amber-100 text-amber-800' :
+                  'bg-slate-100 text-slate-700'
+                }`}>{r.severity}</span>
+                <span className="text-slate-800">{r.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="rounded-md border border-slate-200 bg-white p-3" data-parsed-structures>
         <header className="mb-2 flex flex-wrap items-center justify-between gap-3">

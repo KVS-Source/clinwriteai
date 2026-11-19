@@ -76,12 +76,14 @@ import { StandardsMetadataDOI }         from '../screens/ideation-publishing/Sta
 import { IdeationArtefactLiveEditor }   from '../screens/ideation-publishing/IdeationArtefactLiveEditor'
 import { NewIdeationArtefactsList }    from '../screens/ideation-publishing/NewIdeationArtefact'
 import { AdminPanel }                   from '../platform/screens/AdminPanel'
-import { SuperAdminPanel }              from '../platform/screens/SuperAdminPanel'
+// SuperAdminPanel, TenantDirectory, TenantDetail, RateCardAdmin imports
+// removed 2026-11-19 — Super Admin surface retired. Screen files remain
+// on disk for now (not imported anywhere); re-wire imports if the
+// multi-tenant model ever comes back.
+// SsoConnectionConfig import also dropped here; Phase 3 will mount it
+// inside Settings → SSO.
 import { UserManagement }               from '../platform/screens/UserManagement'
 import { AuditTrailViewer }             from '../platform/screens/AuditTrailViewer'
-import { TenantDirectory }              from '../platform/screens/tenant-admin/TenantDirectory'
-import { TenantDetail }                 from '../platform/screens/tenant-admin/TenantDetail'
-import { SsoConnectionConfig }          from '../platform/screens/tenant-admin/SsoConnectionConfig'
 import { UserManagementLive }           from '../platform/screens/tenant-admin/UserManagementLive'
 import { AcceptInvitation }             from '../platform/screens/AcceptInvitation'
 import { RoleHome }                     from '../platform/screens/RoleHome'
@@ -94,20 +96,18 @@ import { RegulatoryFrameworkAdmin }     from '../platform/screens/RegulatoryFram
 import { MasterLibrary }                from '../platform/screens/MasterLibrary'
 import { BestPracticesLibrary }         from '../platform/screens/BestPracticesLibrary'
 import { ServicesDashboard }            from '../platform/screens/ServicesDashboard'
-import { RateCardAdmin }                 from '../platform/screens/RateCardAdmin'
 import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
 import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
 import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePolicies'
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
-import { SectionTemplates }             from '../platform/screens/SectionTemplates'
 import { PublicationPolicies }          from '../platform/screens/PublicationPolicies'
 import { MedContentPolicies }           from '../platform/screens/MedContentPolicies'
 import { RegulatoryPolicies }           from '../platform/screens/RegulatoryPolicies'
 import { IdeationPolicies }             from '../platform/screens/IdeationPolicies'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
 import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
-import { AdminGuard, NonAdminGuard, PmGuard, SuperAdminGuard }  from '../platform/components/guards'
+import { AdminGuard, NonAdminGuard, PmGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
 import { ContentLayout }                from '../components/layout/ContentLayout'
@@ -143,7 +143,15 @@ export const router = createBrowserRouter([
       // the projects they belong to (admins see everything in-tenant).
       { path: 'dashboards/portfolio', element: <NonAdminGuard><PortfolioDashboard /></NonAdminGuard> },
       { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
-      { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
+      // Super Admin surface retired 2026-11-19 — per-customer installs
+      // don't use multi-tenant / rate-card. Enablement flows from the
+      // signed licensing token (Settings → Licensing, migration 92).
+      // Routes redirect to /projects so bookmarked URLs still land
+      // somewhere valid instead of white-screening.
+      { path: 'super-admin',                          element: <Navigate to="/projects" replace /> },
+      { path: 'super-admin/tenants',                  element: <Navigate to="/projects" replace /> },
+      { path: 'super-admin/tenants/:tenantId',        element: <Navigate to="/projects" replace /> },
+      { path: 'super-admin/tenants/:tenantId/sso',    element: <Navigate to="/projects" replace /> },
       // Tenant admin (Arc 4). Live screens use the real API; the legacy
       // mock-driven ones stay mounted at /admin/users-mock + /admin/audit-mock
       // for the handover demo until Dev + QA sign off.
@@ -151,9 +159,6 @@ export const router = createBrowserRouter([
       { path: 'admin/users-mock',  element: <AdminGuard><UserManagement /></AdminGuard> },
       { path: 'admin/audit',       element: <AdminGuard allowPm><AuditTrailViewerLive /></AdminGuard> },
       { path: 'admin/audit-mock',  element: <AdminGuard><AuditTrailViewer /></AdminGuard> },
-      { path: 'super-admin/tenants',                  element: <SuperAdminGuard><TenantDirectory /></SuperAdminGuard> },
-      { path: 'super-admin/tenants/:tenantId',        element: <SuperAdminGuard><TenantDetail /></SuperAdminGuard> },
-      { path: 'super-admin/tenants/:tenantId/sso',    element: <SuperAdminGuard><SsoConnectionConfig /></SuperAdminGuard> },
       { path: 'admin/taxonomy', element: <PmGuard><TATagConfiguration /></PmGuard> },
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },
@@ -186,7 +191,10 @@ export const router = createBrowserRouter([
           { path: 'best-practices',      element: <BestPracticesLibrary /> },
           { path: 'templates',           element: <TemplateLibrary /> },
           { path: 'ai-prompts',          element: <AiPrompts /> },
-          { path: 'section-templates',   element: <SectionTemplates /> },
+          // section-templates tab retired in migration 94 — per-section
+          // formatRules live inside the template now. Redirect for old
+          // bookmarks.
+          { path: 'section-templates',   element: <Navigate to="/master-library/templates" replace /> },
           { path: 'checklists',          element: <ChecklistTemplatesAdmin /> },
           { path: 'ich-frameworks',      element: <RegulatoryFrameworkAdmin /> },
           { path: 'policies',            element: <DocumentTypePolicies /> },
@@ -204,9 +212,11 @@ export const router = createBrowserRouter([
       { path: 'admin/document-type-policies',  element: <Navigate to="/master-library/policies" replace /> },
       { path: 'super-admin/frameworks',        element: <Navigate to="/master-library/ich-frameworks" replace /> },
       { path: 'services',               element: <AdminGuard><ServicesDashboard /></AdminGuard> },
-      { path: 'super-admin/rate-card',  element: <SuperAdminGuard><RateCardAdmin /></SuperAdminGuard> },
+      // Rate card URL retired alongside the rest of the Super Admin surface.
+      { path: 'super-admin/rate-card',  element: <Navigate to="/projects" replace /> },
       { path: 'admin/subscription',     element: <AdminGuard><SubscriptionPayment /></AdminGuard> },
-      { path: 'reports',                element: <AdminGuard><ReportsAnalytics /></AdminGuard> },
+      // Reports are the PM's (moved off the IT Admin), covering the projects they manage.
+      { path: 'reports',                element: <PmGuard><ReportsAnalytics /></PmGuard> },
       {
         path: 'projects/:projectId',
         // Admins never view projects — this covers every module and document

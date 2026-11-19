@@ -110,6 +110,25 @@ describe('GET /library/:id/audit', () => {
     expect((await t.app.inject({ method: 'GET', url: '/library/lib-2/audit?limit=500' })).statusCode).toBe(400)
   })
 
+  it('keeps to a period: from / to (inclusive) apply to the entry’s own trail and to its events on the document', async () => {
+    const t = await setup()
+    await seedPushedDocument(t)   // lib-2: pushed 09:30, shared 09:31, invitation opened 09:32, viewed 09:33
+    const at = (minute: number) => new Date(Date.UTC(2026, 10, 10, 9, minute)).toISOString()
+    const q = (qs: string) => panel(t.app, 'lib-2', qs)
+    expect(actions((await q(`?from=${at(32)}`)).entries)).toEqual(['library_document_viewed', 'library_share_opened'])
+    expect(actions((await q(`?to=${at(31)}`)).entries)).toEqual(['library_document_shared', 'library_pushed'])
+    const mid = await q(`?from=${at(31)}&to=${at(32)}`)
+    expect(actions(mid.entries)).toEqual(['library_share_opened', 'library_document_shared'])
+    expect(mid.total).toBe(2)
+    expect((await q(`?from=${at(59)}`)).entries).toEqual([])
+    // olderTotal: what lies before `from` (both trails), only when `from` is given without `to`.
+    expect((await q(`?from=${at(32)}`) as Panel & { olderTotal?: number }).olderTotal).toBe(2)   // pushed 09:30 + shared 09:31
+    expect((await q(`?from=${at(30)}`) as Panel & { olderTotal?: number }).olderTotal).toBe(0)
+    expect((await q('') as Panel & { olderTotal?: number }).olderTotal).toBeUndefined()
+    expect((await q(`?from=${at(30)}&to=${at(33)}`) as Panel & { olderTotal?: number }).olderTotal).toBeUndefined()
+    expect((await t.app.inject({ method: 'GET', url: '/library/lib-2/audit?from=yesterday' })).statusCode).toBe(400)
+  })
+
   it('returns only the panel fields — no raw details, IP addresses, hashes, tokens or codes', async () => {
     const t = await setup()
     await seedPushedDocument(t)

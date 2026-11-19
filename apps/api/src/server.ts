@@ -286,13 +286,23 @@ async function buildServer() {
   const { bestPracticeRoutes } = await import('./modules/platform/best-practice/routes.js')
   await app.register(bestPracticeRoutes, { prefix: '/best-practice-records' })
 
-  // Section Template — per-section formatting JSON (migration 90). Admin
-  // authors font/paragraph/list/table rules per (docType, sectionKey);
-  // document creation snapshots the approved row onto each section so
-  // AI rewrites preserve the styling. Replaces BP's role as the vehicle
-  // for AI-steering formatting hints (BP is now author-guidance only).
-  const { sectionTemplateRoutes } = await import('./modules/platform/section-template/routes.js')
-  await app.register(sectionTemplateRoutes, { prefix: '/section-templates' })
+  // Section Templates retired in migration 94 — per-section formatting
+  // rules now live inside DocumentTemplate.sections[].formatRules and
+  // flow to each document's SectionContent snapshot at create time.
+  // No standalone entity, no admin tab.
+
+  // Licensing (migration 92) — per-install signed-JWT licence. IT admin
+  // imports the token on Settings → Licensing; the verifier re-reads
+  // the token on every GET so a tampered DB row doesn't widen trust.
+  const { licenseRoutes } = await import('./modules/platform/licensing/routes.js')
+  await app.register(licenseRoutes, { prefix: '/license' })
+
+  // Platform Settings (migration 93) — install-wide Branding + Localisation
+  // edited on Settings → Branding and Settings → Localisation. Single row,
+  // reads open to any authed user (sidebar + email + PDF consume it),
+  // writes IT-admin-only.
+  const { platformSettingsRoutes } = await import('./modules/platform/settings/routes.js')
+  await app.register(platformSettingsRoutes, { prefix: '/platform-settings' })
 
   // Scientific-Writing Policy admin (Phase M-B.1, migration 75) — mirror
   // of the clinical-writing policy stack scoped to publication doctypes
@@ -692,6 +702,54 @@ async function buildServer() {
 
   // Automatic ICH sync — keeps the ICH Frameworks registry in step with ich.org once a day (ICH_AUTO_SYNC=off to stop).
   await app.register(import('./modules/platform/frameworks/ich-auto-sync-plugin.js'))
+
+  // Licensing boot check (migration 92) — read the active license once
+  // so the operator sees the state in the startup log. Does NOT cache
+  // the result: the GET /license path re-verifies on every read so
+  // DB tamper attempts fail at request time, not just at boot.
+  try {
+    const { LicenseService } = await import('./modules/platform/licensing/service.js')
+    const { setLicenseModules } = await import('./auth/rbac.js')
+    const view = await new LicenseService(app.prisma).getActive()
+    if (view.publicKeySource === 'dev_fallback') {
+      app.log.warn(
+        { licenseState: view.state, publicKeySource: view.publicKeySource },
+        'LICENSE_PUBLIC_KEY env var not set — using embedded dev public key. DO NOT RUN IN PRODUCTION.',
+      )
+    }
+    // Hand the parsed modules to the module-gate (rbac.ts). The override
+    // persists until POST /license/import refreshes it (see routes.ts).
+    //
+    //   active                → trust the signed JWT's module list
+    //   dev_mode_unlicensed   → view.modules = all five (LICENSE_DEV_MODE=1)
+    //   unlicensed + dev pubkey → auto-enable all five with a clear WARN.
+    //     Rationale: a deployment that hasn't configured LICENSE_PUBLIC_KEY
+    //     is inherently not production. Blocking every gated route in that
+    //     state strands demo / staging installs during the licence rollout.
+    //     Any install that sets LICENSE_PUBLIC_KEY (= production) falls
+    //     through to the strict "empty set" branch and must import a
+    //     real token before modules unlock.
+    //   anything else (invalid / expired / unlicensed with real pubkey)
+    //                         → empty set. Broken licence grants nothing.
+    const autoDev = view.state === 'unlicensed' && view.publicKeySource === 'dev_fallback'
+    if (autoDev) {
+      app.log.warn(
+        { licenseState: view.state, publicKeySource: view.publicKeySource },
+        'No licence imported and dev public key in use — auto-enabling all modules. Import a real token on Settings → Licensing for strict gating.',
+      )
+    }
+    setLicenseModules(
+      view.state === 'active' || view.state === 'dev_mode_unlicensed' || autoDev
+        ? (autoDev ? ['A', 'B', 'C', 'D', 'E'] : view.modules)
+        : [],
+    )
+    app.log.info(
+      { licenseState: view.state, customer: view.customerName, modules: view.modules, daysToExpiry: view.daysToExpiry },
+      'licensing: boot check complete',
+    )
+  } catch (err) {
+    app.log.warn({ err }, 'licensing: boot check failed (non-fatal)')
+  }
 
   return app
 }

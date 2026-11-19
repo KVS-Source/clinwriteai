@@ -33,6 +33,9 @@ const visibleTo = (user: { tenantId: string | null }): Prisma.LibrarySectionWher
 const pageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(AUDIT_PAGE_MAX).default(50),
   offset: z.coerce.number().int().min(0).max(AUDIT_OFFSET_MAX).default(0),
+  // Only entries in this period (inclusive), as ISO instants — the panel's "last 7 days" and its date range.
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
 })
 
 /** One row of the panel. Mirrors packages/types MasterLibraryAuditEntry. */
@@ -87,19 +90,29 @@ export const libraryAuditRoutes: FastifyPluginAsync = async (app) => {
     const user = request.user! as AuthenticatedUser
     const parsed = pageQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
-    const { limit, offset } = parsed.data
+    const { limit, offset, from, to } = parsed.data
     const row = await loadItem(user, (request.params as { id: string }).id)
     if (!row) return reply.code(404).send({ error: 'not_found' })
     const documentId = sourceDocumentId(row.tags)
 
     // Master Library activity: the entry's own trail + this entry's library events on the document's trail.
     const [own, onDocument] = await Promise.all([
-      app.audit.pageForEntity('library_section', row.id, { limit: offset + limit, offset: 0 }),
+      app.audit.pageForEntity('library_section', row.id, { limit: offset + limit, offset: 0, ...(from && { from }), ...(to && { to }) }),
       documentId ? byAction(app, documentId, LIBRARY_EVENTS_ON_DOCUMENT) : Promise.resolve([]),
     ])
-    const mine = onDocument.filter(e => e.details?.libraryItemId === row.id)
+    const inPeriod = (e: StoredAuditEvent) => (!from || Date.parse(e.timestamp) >= Date.parse(from)) && (!to || Date.parse(e.timestamp) <= Date.parse(to))
+    const mine = onDocument.filter(e => e.details?.libraryItemId === row.id && inPeriod(e))
     const libraryRows = [...own.rows, ...mine].sort(newestFirst).slice(offset, offset + limit)
 
-    return { entries: await shape(app, libraryRows), total: own.total + mine.length, limit, offset }
+    // With `from`: how many entries are older than that, so the panel knows whether "Show more" has anything to show.
+    // (Asked for in the same request, so the button never depends on a second call.)
+    let olderTotal: number | undefined
+    if (from && !to) {
+      const before = new Date(Date.parse(from) - 1).toISOString()
+      const ownOlder = await app.audit.pageForEntity('library_section', row.id, { limit: 1, offset: 0, to: before })
+      olderTotal = ownOlder.total + onDocument.filter(e => e.details?.libraryItemId === row.id && Date.parse(e.timestamp) <= Date.parse(before)).length
+    }
+
+    return { entries: await shape(app, libraryRows), total: own.total + mine.length, limit, offset, ...(olderTotal !== undefined && { olderTotal }) }
   })
 }

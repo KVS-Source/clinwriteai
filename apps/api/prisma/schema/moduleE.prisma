@@ -117,8 +117,7 @@ model IdeationArtefactSection {
   aiConfidence                   Int?       @map("ai_confidence")
   aiFlags                        String[]   @default([]) @map("ai_flags")
 
-  // Section template pin (migration 90, NL rules in 91) — same as SectionContent.
-  sectionTemplateRecordId        String?    @map("section_template_record_id")
+  // Per-section formatting snapshot (migration 94) — same as SectionContent.
   templateFormatRules            String?    @map("template_format_rules")
 
   version                        IdeationArtefactVersion @relation(fields: [ideationArtefactVersionId], references: [id], onDelete: Cascade)

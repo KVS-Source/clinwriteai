@@ -286,6 +286,26 @@ describe('Finish CRM and send for approval', () => {
   })
 })
 
+describe('the uploaded transcript', () => {
+  it('is returned with the drafts, so it can be read in the meeting panel', async () => {
+    const { app, db } = await build()
+    const prisma = db.prisma as Row
+    prisma.crmAiDraftNote = { findMany: async () => [] }
+    prisma.crmMeetingTranscript = { findUnique: async () => ({ wordCount: 4, source: 'manual_paste', uploadedAt: new Date('2026-11-18T06:24:00Z'), rawText: 'Alice: agreed on the dose wording.' }) }
+    const res = await app.inject({ method: 'GET', url: '/crm/m1/ai-drafts' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().transcript).toMatchObject({ wordCount: 4, source: 'manual_paste', rawText: 'Alice: agreed on the dose wording.' })
+  })
+
+  it('is null when nothing was uploaded', async () => {
+    const { app, db } = await build()
+    const prisma = db.prisma as Row
+    prisma.crmAiDraftNote = { findMany: async () => [] }
+    prisma.crmMeetingTranscript = { findUnique: async () => null }
+    expect((await app.inject({ method: 'GET', url: '/crm/m1/ai-drafts' })).json().transcript).toBeNull()
+  })
+})
+
 describe('several meetings on one document', () => {
   const schedule = (app: Awaited<ReturnType<typeof build>>['app']) => app.inject({
     method: 'POST', url: '/documents/DOC-1/crm',

@@ -199,6 +199,15 @@ export const documentsApi = {
     api.post<Document>(`/projects/${projectId}/documents/confirm-classification`, body),
   updateSection: (documentId: string, sectionId: string, body: UpdateSectionBody) =>
     api.patch<Document>(`/documents/${documentId}/sections/${sectionId}`, body),
+  // Batched search-and-replace of a TBD placeholder across every section of
+  // the current version. One tx, one audit entry. Returns the affected
+  // sections + per-section occurrence count.
+  replaceTbd: (documentId: string, body: { find: string; replace: string }) =>
+    api.post<{
+      sectionsAffected: number
+      totalOccurrences: number
+      updated:          Array<{ sectionId: string; occurrences: number }>
+    }>(`/documents/${documentId}/tbd-replace`, body),
   // Protocol metadata (migration 60). Partial, nullable; server validates.
   updateProtocolMetadata: (documentId: string, patch: ProtocolMetadataPatch) =>
     api.patch<Document>(`/documents/${documentId}/protocol-metadata`, patch),

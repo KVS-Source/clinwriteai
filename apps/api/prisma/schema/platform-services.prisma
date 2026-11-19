@@ -178,6 +178,11 @@ model AiPromptRecord {
 
   smePrompt      String
   sectionRules   Json      @default("{}")                              // { <sectionKey>: [{severity,text}] }
+  // Cross-cutting rules extracted from smePrompt at admin time
+  // (migration 95). The resolver emits these as GENERAL RULES on every
+  // AI call in place of the full SME prompt dump, cutting token
+  // scaffolding ~5× per section. Shape: [{severity, text}].
+  crossCuttingRules Json   @default("[]")
 
   // Chain pointer: on approve, the previously-approved row of the same
   // docType is set to status='retired' + supersededBy = new row id.
@@ -252,51 +257,72 @@ model BestPracticeRecord {
   @@index([status])
 }
 
+// SectionTemplate was retired in migration 94 — per-section formatting
+// rules now live inside DocumentTemplate.sections[].formatRules so the
+// template is the single source of truth for how a section is laid out
+// AND what it reads like. The SectionContent.templateFormatRules
+// snapshot column survives as the per-document pin; it's seeded at
+// document create from the template's section.
+
 // --------------------------------------------------------------------------
-// SectionTemplate — per-section formatting rules (natural language)
-// that flow into every AI call so Claude preserves the authored styling
-// (font, paragraph, list, table, references) on every rewrite.
+// License — per-install licensing token (migration 92).
 //
-// Pattern mirrors AiPromptRecord / BestPracticeRecord (migrations 73 / 74):
-// versioned per (docType, sectionKey) with draft → approved → retired.
-// Documents snapshot both the pointer (section.sectionTemplateRecordId)
-// and the rules text (section.templateFormatRules) at create time — the
-// snapshot is what the resolver reads so authored sections never drift
-// when admins approve a newer SectionTemplate.
+// Each customer install receives a signed JWT from GenBioCa HQ containing
+// the modules + features they're licensed for. IT admin imports the token
+// on Settings → Licensing. The server re-verifies the JWT on every read
+// using the embedded GenBioCa public key — the DB row itself is UNTRUSTED
+// because customers have DB access on self-hosted installs. Only what's
+// inside the signed token is authoritative.
 //
-// Storage shape is plain text / markdown (migration 91 flipped off the
-// structured JSON from migration 90). Admins write in the same prose the
-// AI reads — one source of truth, no schema to maintain, no renderer
-// parity to guard. See docs on format-rules authoring guidance.
+// `modulesSnapshot` + `featuresSnapshot` are display-only caches so the
+// admin UI can render without re-verifying on every request. The auth
+// path never reads them — it always re-decodes `token`.
 // --------------------------------------------------------------------------
 
-model SectionTemplate {
-  id             String    @id @default(uuid())
-  docType        String                                                // 'protocol' | 'csr_full' | 'manuscript' | …
-  sectionKey     String                                                // 's6_2', 'methods', …
-  version        Int                                                   // 1-based, unique per (docType, sectionKey)
-  status         String    @default("draft")                           // 'draft' | 'approved' | 'retired'
+model License {
+  id               String    @id @default(uuid())
 
-  formatRules    String    @default("")                                // NL formatting rules — read verbatim by the AI
+  // Raw signed JWT — only authoritative module/feature list.
+  token            String
 
-  // Chain pointer: on approve, the previously-approved row for the same
-  // (docType, sectionKey) is set to status='retired' + supersededBy = new row id.
-  supersededBy   String?
-  effectiveDate  DateTime?
-  retiredAt      DateTime?
-  retireReason   String?
-  approvedBy     String?
-  approvedAt     DateTime?
+  // Display-only cache (populated at import time from the decoded JWT).
+  installId        String
+  customerName     String
+  issuedAt         DateTime
+  expiry           DateTime
+  modulesSnapshot  String[]  @default([])
+  featuresSnapshot String[]  @default([])
 
-  createdBy      String
-  updatedBy      String
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  importedBy       String
+  importedAt       DateTime  @default(now())
 
-  @@map("section_templates")
-  @@unique([docType, sectionKey, version])
-  @@index([docType, sectionKey, status])
-  @@index([status])
+  isActive         Boolean   @default(false)
+  revokedAt        DateTime?
+  revokedBy        String?
+  revokeReason     String?
+
+  @@map("licenses")
+  @@index([importedAt])
+  @@index([installId])
+}
+
+// --------------------------------------------------------------------------
+// PlatformSettings — single-row table carrying install-wide Branding +
+// Localisation (Phase 3 of the admin consolidation). Edited via
+// Settings → Branding + Settings → Localisation.
+//
+// Shapes validated at the API edge by Zod; the JSON columns keep adding
+// new fields migration-free.
+// --------------------------------------------------------------------------
+
+model PlatformSettings {
+  id           String   @id @default("default")
+  branding     Json     @default("{}")
+  localisation Json     @default("{}")
+  updatedBy    String?
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@map("platform_settings")
 }
 
 // --------------------------------------------------------------------------

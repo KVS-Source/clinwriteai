@@ -260,8 +260,9 @@ export const platformApi = {
   listLibraryItemShares: (itemId: string) =>
     api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
   // This document's Master Library activity (pushed / uploaded, viewed, shared, ...), newest first, a page at a time. Read-only.
-  listLibraryItemAudit: (itemId: string, offset = 0, limit = 50) =>
-    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
+  // `from` / `to` (ISO instants) keep it to that period.
+  listLibraryItemAudit: (itemId: string, offset = 0, limit = 50, period: { from?: string; to?: string } = {}) =>
+    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}${period.from ? `&from=${encodeURIComponent(period.from)}` : ''}${period.to ? `&to=${encodeURIComponent(period.to)}` : ''}`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),
@@ -350,6 +351,14 @@ export const platformApi = {
     api.get<ReportDefinition[]>('/reports/available'),
   getHealthScores: () =>
     api.get<ModuleHealthScore[]>('/reports/health-scores'),
+  // One report on screen: headline figures + its rows (the same rows the download carries).
+  getReportPreview: (reportType: string, range: { dateFrom: string; dateTo: string }) =>
+    api.get<{ reportType: string; header: string[]; rows: unknown[][]; totalRows: number; summary: Array<{ label: string; value: string | number }> }>(
+      `/reports/${reportType}/preview?dateFrom=${range.dateFrom}&dateTo=${range.dateTo}`,
+    ),
+  // AI tokens + cost on the PM's projects this billing period (the Reports cost panel).
+  getReportCostSummary: () =>
+    api.get<{ periodStart: string; projects: number; tokensConsumed: number; estimatedSpend: number; tenantName: string | null }>('/reports/cost-summary'),
   generateReport: (reportType: string, body: GenerateReportBody) =>
     api.post<{ reportType: string; format: string; generatedAt: string; downloadUrl: string }>(
       `/reports/${reportType}/generate`, body,
@@ -529,43 +538,38 @@ export const platformApi = {
     api.post<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}/approve`, {}),
   retireAiPrompt: (id: string, reason: string) =>
     api.post<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}/retire`, { reason }),
-  /** Run AI extraction on this prompt row's smePrompt. Returns parsed
-   *  rules for review — admin saves via `updateAiPromptDraft` to persist. */
+  /** Run AI extraction on this prompt row's smePrompt. Returns BOTH the
+   *  per-section rules AND the cross-cutting rules (migration 95).
+   *  Admin reviews + saves via `updateAiPromptDraft` to persist. */
   extractSectionRulesForPrompt: (id: string) =>
     api.post<{
-      sectionRules: Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
-      sectionCount: number
-      ruleCount:    number
+      sectionRules:      Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+      crossCuttingRules: Array<{ severity: 'must' | 'should' | 'nice'; text: string }>
+      sectionCount:      number
+      ruleCount:         number
+      crossCuttingCount: number
     }>(`/ai-prompts/${encodeURIComponent(id)}/extract-section-rules`, {}),
 
-  // --- SectionTemplate (migration 90) ----------------------------------
-  // Per-section formatting JSON that flows into every AI call so Claude
-  // preserves authored styling. Versioned per (docType, sectionKey) with
-  // draft → approved → retired lifecycle. Document creation snapshots
-  // the approved row onto each section — admin approvals of newer
-  // templates don't retroactively rewrite in-flight documents.
-  listSectionTemplates: () =>
-    api.get<{ templates: SectionTemplate[] }>(`/section-templates`),
-  listSectionTemplatesForDocType: (docType: string) =>
-    api.get<{ templates: SectionTemplate[] }>(`/section-templates/${encodeURIComponent(docType)}`),
-  getSectionTemplate: async (docType: string, sectionKey: string): Promise<SectionTemplate | null> => {
-    try {
-      return await api.get<SectionTemplate>(`/section-templates/${encodeURIComponent(docType)}/${encodeURIComponent(sectionKey)}`)
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return null
-      throw err
-    }
-  },
-  listSectionTemplateVersions: (docType: string, sectionKey: string) =>
-    api.get<{ versions: SectionTemplate[] }>(`/section-templates/${encodeURIComponent(docType)}/${encodeURIComponent(sectionKey)}/versions`),
-  createSectionTemplateDraft: (body: SectionTemplateCreateBody) =>
-    api.post<SectionTemplate>(`/section-templates`, body),
-  updateSectionTemplateDraft: (id: string, body: SectionTemplatePatchBody) =>
-    api.patch<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}`, body),
-  approveSectionTemplate: (id: string) =>
-    api.post<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}/approve`, {}),
-  retireSectionTemplate: (id: string, reason: string) =>
-    api.post<SectionTemplate>(`/section-templates/${encodeURIComponent(id)}/retire`, { reason }),
+  // --- Licensing (migration 92) ----------------------------------------
+  // Per-install signed-JWT licence. GET re-verifies on every call, so
+  // the response is fresh truth; never cache stale values client-side
+  // beyond react-query's normal staleTime.
+  getLicense: () =>
+    api.get<LicenseView>(`/license`),
+  importLicense: (token: string) =>
+    api.post<LicenseView>(`/license/import`, { token }),
+
+  // --- Platform Settings — Branding + Localisation (migration 93) -----
+  getPlatformSettings: () =>
+    api.get<PlatformSettingsView>(`/platform-settings`),
+  updateBranding: (body: Partial<BrandingSettings>) =>
+    api.patch<PlatformSettingsView>(`/platform-settings/branding`, body),
+  updateLocalisation: (body: Partial<LocalisationSettings>) =>
+    api.patch<PlatformSettingsView>(`/platform-settings/localisation`, body),
+
+  // SectionTemplate methods retired in migration 94 — per-section
+  // formatRules live inside DocumentTemplate.sections[] now; use the
+  // existing template endpoints to read/edit them.
 
   // --- BestPracticeRecord (Phase-2 pointer refactor, migration 74) ------
   // BP digest is its own versioned entity. The distill worker writes to
@@ -1038,70 +1042,103 @@ export type AiPromptStatus = 'draft' | 'approved' | 'retired'
 
 export type AiPromptSectionRules = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
 
+/** Cross-cutting rules extracted from smePrompt (migration 95). Shipped
+ *  as GENERAL RULES on every AI call in place of the full SME prompt
+ *  dump — admins see them beside sectionRules on the AI Prompts editor. */
+export type CrossCuttingRule = { severity: 'must' | 'should' | 'nice'; text: string }
+
 export interface AiPromptRecord {
-  id:            string
-  docType:       string
-  version:       number
-  status:        AiPromptStatus
-  smePrompt:     string
-  sectionRules:  unknown           // parsed structure — see AiPromptSectionRules
-  supersededBy:  string | null
-  effectiveDate: string | null
-  retiredAt:     string | null
-  retireReason:  string | null
-  approvedBy:    string | null
-  approvedAt:    string | null
-  createdBy:     string
-  updatedBy:     string
-  createdAt:     string
-  updatedAt:     string
+  id:                 string
+  docType:            string
+  version:            number
+  status:             AiPromptStatus
+  smePrompt:          string
+  sectionRules:       unknown                // parsed structure — see AiPromptSectionRules
+  crossCuttingRules?: CrossCuttingRule[]     // optional — empty on legacy rows that pre-date migration 95
+  supersededBy:       string | null
+  effectiveDate:      string | null
+  retiredAt:          string | null
+  retireReason:       string | null
+  approvedBy:         string | null
+  approvedAt:         string | null
+  createdBy:          string
+  updatedBy:          string
+  createdAt:          string
+  updatedAt:          string
 }
 
 export interface AiPromptCreateBody {
-  docType:       string
-  smePrompt:     string
-  sectionRules?: AiPromptSectionRules
+  docType:            string
+  smePrompt:          string
+  sectionRules?:      AiPromptSectionRules
+  crossCuttingRules?: CrossCuttingRule[]
 }
 
 export interface AiPromptPatchBody {
-  smePrompt?:    string
-  sectionRules?: AiPromptSectionRules
+  smePrompt?:         string
+  sectionRules?:      AiPromptSectionRules
+  crossCuttingRules?: CrossCuttingRule[]
 }
 
-// --- SectionTemplate (platform/section-template, migration 91) ----------
-// Per-section formatting rules authored as natural language. The admin
-// writes the exact text the AI reads on every draft + rewrite — no
-// translation step.
-export type SectionTemplateStatus = 'draft' | 'approved' | 'retired'
+// --- License (platform/licensing, migration 92) -------------------------
+// Per-install view of the signed licence JWT. Re-verified on every GET,
+// so a stale response from the browser cache is still safe — the UI
+// only ever sees state the server reaffirmed. `modules` + `features`
+// here come from the signed claim, NEVER the DB snapshot columns.
+export type LicenseState =
+  | 'active'
+  | 'expired'
+  | 'invalid'
+  | 'dev_mode_unlicensed'
+  | 'auto_dev_unlicensed'   // no row + dev public key in use → all modules auto-granted
+  | 'unlicensed'
 
-export interface SectionTemplate {
-  id:            string
-  docType:       string
-  sectionKey:    string
-  version:       number
-  status:        SectionTemplateStatus
-  formatRules:   string
-  supersededBy:  string | null
-  effectiveDate: string | null
-  retiredAt:     string | null
-  retireReason:  string | null
-  approvedBy:    string | null
-  approvedAt:    string | null
-  createdBy:     string
-  updatedBy:     string
-  createdAt:     string
-  updatedAt:     string
+export interface LicenseView {
+  state:            LicenseState
+  publicKeySource:  'env' | 'dev_fallback'
+  installId:        string | null
+  customerName:     string | null
+  modules:          string[]
+  features:         string[]
+  issuedAt:         string | null
+  expiry:           string | null
+  importedAt:       string | null
+  importedBy:       string | null
+  daysToExpiry:     number | null
+  invalidReason?:   string
+  invalidDetail?:   string
 }
 
-export interface SectionTemplateCreateBody {
-  docType:     string
-  sectionKey:  string
-  formatRules: string
+// --- Platform Settings — Branding + Localisation (migration 93) --------
+// Edited on Settings → Branding and Settings → Localisation. The server
+// merges partial PATCH bodies with the current row so a single field
+// update doesn't overwrite everything.
+
+export interface BrandingSettings {
+  companyName?:   string
+  primaryColor?:  string                  // #RGB or #RRGGBB
+  logoUrl?:       string
+  emailFromName?: string
 }
 
-export interface SectionTemplatePatchBody {
-  formatRules: string
+export interface LocalisationSettings {
+  timezone?:   string                     // IANA, e.g. 'Asia/Kolkata'
+  country?:    string                     // ISO-3166-1 alpha-2
+  dateFormat?: string                     // e.g. 'yyyy-MM-dd'
+  timeFormat?: '24h' | '12h'
+  currency?:   string                     // ISO-4217
 }
+
+export interface PlatformSettingsView {
+  branding:     BrandingSettings
+  localisation: LocalisationSettings
+  updatedBy:    string | null
+  updatedAt:    string
+}
+
+// SectionTemplate types retired in migration 94 — per-section formatting
+// rules now live inside DocumentTemplate.sections[] (see the Templates
+// tab) with the shape `{ id, number, title, formatRules?, ... }`.
 
 // --- BestPracticeRecord (platform/best-practice) --------------------------
 // Phase-2 pointer refactor (migration 74): BP digest becomes its own

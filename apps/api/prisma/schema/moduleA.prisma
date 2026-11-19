@@ -231,12 +231,12 @@ model SectionContent {
   // Each code is weighted in the rubric. Empty = clean section.
   aiFlags            String[]   @default([]) @map("ai_flags")
 
-  // ---- Section template pin (migration 90, flipped to NL in 91) ----
-  // Pointer + snapshot of the SectionTemplate row that applied when this
-  // section was first created. Snapshot is the NL rules the resolver
-  // injects into the AI prompt on every rewrite; pointer is retained for
-  // audit + the debug panel's "which template version?" preview.
-  sectionTemplateRecordId String?    @map("section_template_record_id")
+  // Per-section formatting snapshot. Seeded at document-create time from
+  // DocumentTemplate.sections[].formatRules (migration 94 folded the
+  // standalone SectionTemplate entity into the template). The resolver
+  // injects these NL rules into the AI prompt on every rewrite; admin
+  // approvals of a new template don't retroactively restyle in-flight
+  // documents because the snapshot is pinned on the section.
   templateFormatRules     String?    @map("template_format_rules")
 
   version            DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)

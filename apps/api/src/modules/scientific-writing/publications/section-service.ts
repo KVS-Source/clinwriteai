@@ -94,38 +94,22 @@ export async function initialisePublicationVersion(
   })
 
   if (args.sections.length > 0) {
-    // SectionTemplate snapshot (migration 91 — NL rules). Same pattern as clinical.
-    const tplBySection = new Map<string, { id: string; formatRules: string }>()
-    if (args.docType) {
-      const docType = args.docType.replace(/-/g, '_')
-      const sectionKeys = args.sections.map(s => s.sectionId)
-      try {
-        const templates = await tx.sectionTemplate.findMany({
-          where:   { docType, sectionKey: { in: sectionKeys }, status: 'approved' },
-          orderBy: { version: 'desc' },
-          select:  { id: true, sectionKey: true, formatRules: true },
-        })
-        for (const t of templates) {
-          if (!tplBySection.has(t.sectionKey)) {
-            tplBySection.set(t.sectionKey, { id: t.id, formatRules: t.formatRules })
-          }
-        }
-      } catch { /* model absent on test mocks — fine */ }
-    }
+    // Per-section formatRules snapshot is populated by the clinical
+    // distill-template worker today (migration 94). The publications
+    // distiller doesn't write into PublicationTemplate.sections[] yet,
+    // so templateFormatRules stays null here — AI calls just fall back
+    // to the module's default styling. Future workstream: extend the
+    // template distiller to run per-module.
     await tx.publicationSectionContent.createMany({
-      data: args.sections.map(s => {
-        const tpl = tplBySection.get(s.sectionId)
-        return {
-          publicationVersionId: version.id,
-          sectionId:            s.sectionId,
-          sectionNumber:        s.sectionNumber,
-          sectionTitle:         s.sectionTitle,
-          contentHtml:          s.contentHtml ?? '',
-          wordCount:            wordsIn(s.contentHtml ?? ''),
-          sectionTemplateRecordId: tpl?.id ?? null,
-          templateFormatRules:     tpl?.formatRules ?? null,
-        }
-      }),
+      data: args.sections.map(s => ({
+        publicationVersionId: version.id,
+        sectionId:            s.sectionId,
+        sectionNumber:        s.sectionNumber,
+        sectionTitle:         s.sectionTitle,
+        contentHtml:          s.contentHtml ?? '',
+        wordCount:            wordsIn(s.contentHtml ?? ''),
+        templateFormatRules:  null,
+      })),
     })
   }
 

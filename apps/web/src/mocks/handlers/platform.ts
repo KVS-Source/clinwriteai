@@ -247,11 +247,26 @@ export const platformHandlers = [
   // --- sPM16 Reports & Analytics ---
   http.get(`${BASE}/reports/available`, async () => {
     await delay(100)
-    return HttpResponse.json(reports)
+    // Reports are the PM's and cover Clinical Writing only (catalogue-routes.ts).
+    return HttpResponse.json(reports.filter(r => ['project-summary', 'module-activity', 'ai-usage'].includes(r.type)))
   }),
   http.get(`${BASE}/reports/health-scores`, async () => {
     await delay(120)
-    return HttpResponse.json(healthScores)
+    return HttpResponse.json(healthScores.filter(h => h.module === 'A'))
+  }),
+  http.get(`${BASE}/reports/:reportType/preview`, async ({ params }) => {
+    await delay(120)
+    return HttpResponse.json({
+      reportType: params.reportType,
+      header:     ['Project', 'Status', 'Documents', 'Signed', 'Overdue'],
+      rows:       [['Demo Project', 'ongoing', 3, 1, 0]],
+      totalRows:  1,
+      summary:    [{ label: 'Projects', value: 1 }, { label: 'Documents', value: 3 }],
+    })
+  }),
+  http.get(`${BASE}/reports/cost-summary`, async () => {
+    await delay(100)
+    return HttpResponse.json({ periodStart: '2026-11-01', projects: 3, tokensConsumed: 60251, estimatedSpend: 0.45, tenantName: null })
   }),
   http.post(`${BASE}/reports/:reportType/generate`, async ({ params, request }) => {
     await delay(500)

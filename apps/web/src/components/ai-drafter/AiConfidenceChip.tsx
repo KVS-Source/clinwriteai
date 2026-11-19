@@ -29,6 +29,7 @@ const STATE_KEY: Record<AiDraftState, string> = {
   validating: 'state_validating',
   complete:   'state_complete',
   failed:     'state_failed',
+  cancelled:  'state_cancelled',
   not_configured: 'state_not_configured',
 }
 

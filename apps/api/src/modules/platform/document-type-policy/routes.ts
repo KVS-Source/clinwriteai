@@ -291,8 +291,9 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
-    const sectionCount = Object.keys(rules).length
-    const ruleCount    = Object.values(rules).reduce((n, arr) => n + arr.length, 0)
+    const sectionCount      = Object.keys(rules.sectionRules).length
+    const ruleCount         = Object.values(rules.sectionRules).reduce((n, arr) => n + arr.length, 0)
+    const crossCuttingCount = rules.crossCuttingRules.length
 
     await app.audit.append({
       timestamp:  new Date().toISOString(),
@@ -301,13 +302,17 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
       entityType: 'document_type_policy',
       entityId:   policy.id,
       details:    {
-        docType, version: policy.version, sectionCount, ruleCount,
+        docType, version: policy.version, sectionCount, ruleCount, crossCuttingCount,
         extractionEngine: apiKey ? engine.default : 'stub',
       },
       ipAddress:  request.ip ?? null,
     })
 
-    return { sectionRules: rules, sectionCount, ruleCount }
+    return {
+      crossCuttingRules: rules.crossCuttingRules,
+      sectionRules:      rules.sectionRules,
+      crossCuttingCount, sectionCount, ruleCount,
+    }
   })
 
   // POST /document-type-policies/:docType/retire — retire the current

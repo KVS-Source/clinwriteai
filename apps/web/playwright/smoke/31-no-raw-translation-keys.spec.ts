@@ -21,7 +21,7 @@ const SCREENS = [
   { path: '/library' },
   { path: '/library/best-practices' },
   { path: '/services' },
-  { path: '/reports' },
+  // /reports is the PM's now; spec 38 opens it as a PM.
 ]
 
 async function visitAsAdmin(page: Page, path: string) {

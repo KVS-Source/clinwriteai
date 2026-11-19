@@ -15,6 +15,7 @@ import { usePlatformStore } from '../store/platformStore'
 import { describeApiError } from '../../api'
 import { api, ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
+import { RowActionsMenu } from '../../components/ui/RowActionsMenu'
 import { ProtectedPdfViewer } from '../../components/library/ProtectedPdfViewer'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
@@ -355,18 +356,12 @@ export function MasterLibrary() {
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
                     {/* The two buttons open their own side panel and must not also open the details (row click). */}
-                    <td className="whitespace-nowrap px-4 py-3" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() }}>
-                      <div className="flex items-center justify-center gap-2">
-                        {(['shares', 'audit'] as const).map(kind => (
-                          <button key={kind} type="button" onClick={() => { setSelected(null); setSideView({ kind, item: it }) }}
-                            className="h-7 rounded-md border px-2.5 text-[12px] font-semibold hover:bg-slate-50"
-                            style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
-                            aria-label={`${t(kind === 'shares' ? 'page.master_library.share_history' : 'page.master_library.audit_trail')}: ${it.name}`}
-                            data-action={kind === 'shares' ? 'open-share-history' : 'open-audit-trail'}>
-                            {t(kind === 'shares' ? 'page.master_library.share_history' : 'page.master_library.audit_trail')}
-                          </button>
-                        ))}
-                      </div>
+                    <td className="whitespace-nowrap px-4 py-3 text-center" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() }}>
+                      <RowActionsMenu ariaLabel={t('page.master_library.more_actions', { name: it.name })}
+                        actions={[
+                          { key: 'open-share-history', label: t('page.master_library.share_history'), onSelect: () => { setSelected(null); setSideView({ kind: 'shares', item: it }) } },
+                          { key: 'open-audit-trail', label: t('page.master_library.audit_trail'), onSelect: () => { setSelected(null); setSideView({ kind: 'audit', item: it }) } },
+                        ]} />
                     </td>
                   </tr>
                 )
@@ -809,38 +804,87 @@ function ShareHistoryList({ itemId }: { itemId: string }) {
 }
 
 // Audit trail: this document's Master Library activity only — uploaded, pushed / auto-pushed, viewed, shared,
-// invitation opened, locked out. Newest first, a page at a time. Read-only, and deliberately no export / download /
-// print. Badges and phrases are the Clinical Writing Audit Trail panel's own.
+// invitation opened, locked out. Newest first, a page at a time. It opens on the last 7 days; "Show more" lists
+// everything, and the date range at the top (the same picker as the Master Documents filters) shows just that
+// period instead. Read-only, and deliberately no export / download / print. Badges and phrases are the Clinical
+// Writing Audit Trail panel's own.
 const AUDIT_PAGE_SIZE = 50
+const RECENT_DAYS = 7
 function AuditTrailList({ itemId }: { itemId: string }) {
   const { t } = useTranslation()
+  const [tz, setTz] = useState<TimeZoneMode>('local')
+  const [rangeFrom, setRangeFrom] = useState('')
+  const [rangeTo, setRangeTo] = useState('')
+  const [showAll, setShowAll] = useState(false)
+  const rangeInvalid = !!rangeFrom && !!rangeTo && rangeFrom > rangeTo
+  const picked = !!(rangeFrom || rangeTo)
+  // The 7-day window is fixed when the panel opens, so paging and refetching see the same period.
+  const [openedAt] = useState(() => Date.now())
+  const period = useMemo(() => {
+    if (picked) return { from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz) }
+    return showAll ? {} : { from: new Date(openedAt - RECENT_DAYS * 86_400_000).toISOString() }
+  }, [picked, rangeFrom, rangeTo, tz, showAll, openedAt])
+  // Switching the timezone keeps the range pointing at the same moments (as on the Master Documents filters).
+  function changeTz(next: TimeZoneMode) {
+    const convert = (v: string) => (v ? toInputValue(new Date(rangeToIso(v, 'start', tz)!), next) : '')
+    setRangeFrom(convert(rangeFrom)); setRangeTo(convert(rangeTo)); setTz(next)
+  }
   const trail = useInfiniteQuery({
-    queryKey: ['library-audit', itemId],
-    queryFn: ({ pageParam }) => platformApi.listLibraryItemAudit(itemId, pageParam, AUDIT_PAGE_SIZE),
+    queryKey: ['library-audit', itemId, period.from ?? null, period.to ?? null],
+    queryFn: ({ pageParam }) => platformApi.listLibraryItemAudit(itemId, pageParam, AUDIT_PAGE_SIZE, period),
     initialPageParam: 0,
     getNextPageParam: (last) => {
       const next = last.offset + last.entries.length
       return last.entries.length && next < last.total ? next : undefined
     },
+    enabled: !rangeInvalid,
+    placeholderData: keepPreviousData,
   })
   const entries = trail.data?.pages.flatMap(p => p.entries) ?? []
   const total = trail.data?.pages[0]?.total ?? 0
-  if (trail.isLoading) return <p className="text-[12px] text-slate-500" data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
-  if (trail.error) return <p className="text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
-  if (!entries.length) return <p className="text-[12px] text-slate-500" data-library-audit-state="empty">{t('page.master_library.audit_library_empty')}</p>
+  const recentOnly = !picked && !showAll
+  // "Show more" is offered only when something older than the 7 days exists (the same response says so).
+  const hasOlder = (trail.data?.pages[0]?.olderTotal ?? 0) > 0
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-3" data-library-audit>
-      <AuditRows entries={entries} />
-      <div className="mt-2 flex flex-wrap items-center gap-3">
-        <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
-        {trail.hasNextPage && (
-          <button type="button" onClick={() => void trail.fetchNextPage()} disabled={trail.isFetchingNextPage}
-            className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
-            data-action="library-audit-more">
-            {trail.isFetchingNextPage ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
-          </button>
-        )}
+    <div data-library-audit-panel>
+      <div className="mb-3 flex flex-wrap items-center gap-2" data-audit-dates>
+        <DateTimeRangeFilter from={rangeFrom} to={rangeTo} tz={tz} invalid={rangeInvalid}
+          onChange={r => { setRangeFrom(r.from); setRangeTo(r.to) }} onTzChange={changeTz}
+          align="left" buttonClassName="h-9 w-[240px]" dateOnly />
+        <p className="text-[11px] text-slate-500" data-audit-scope>
+          {t(picked ? 'page.master_library.audit_scope_range' : showAll ? 'page.master_library.audit_scope_all' : 'page.master_library.audit_scope_recent', { days: RECENT_DAYS })}
+        </p>
       </div>
+      {rangeInvalid && <p className="mb-2 text-[12px] text-red-700">{t('page.master_library.date_range_invalid')}</p>}
+      {trail.isLoading ? (
+        <p className="text-[12px] text-slate-500" data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
+      ) : trail.error ? (
+        <p className="text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
+      ) : !entries.length ? (
+        <p className="text-[12px] text-slate-500" data-library-audit-state="empty">{t(showAll && !picked ? 'page.master_library.audit_library_empty' : 'page.master_library.audit_period_empty')}</p>
+      ) : (
+        <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-3" data-library-audit>
+          <AuditRows entries={entries} />
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
+            {trail.hasNextPage && (
+              <button type="button" onClick={() => void trail.fetchNextPage()} disabled={trail.isFetchingNextPage}
+                className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
+                data-action="library-audit-more">
+                {trail.isFetchingNextPage ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {recentOnly && hasOlder && !trail.isLoading && !trail.error && (
+        <button type="button" onClick={() => setShowAll(true)}
+          className="mt-3 h-9 rounded-md border px-4 text-[13px] font-semibold hover:bg-slate-50"
+          style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
+          data-action="library-audit-show-all">
+          {t('page.master_library.audit_show_more')}
+        </button>
+      )}
     </div>
   )
 }

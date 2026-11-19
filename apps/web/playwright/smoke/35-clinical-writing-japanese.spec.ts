@@ -63,7 +63,7 @@ async function open(page: Page, path: string, stub: Stub = {}, language = 'ja') 
     ]
     const meetings = stub.meeting === 'in_progress' || stub.meeting === 'complete' ? [{
       id: 'm1', meetingRef: 'CRM-001', documentId: doc, documentTitle: 'JA Test Document', version: 'v1.0', date: '2026-10-28T10:00:00Z', startTime: '15:00', endTime: '16:00', status: stub.meeting,
-      startedAt: '2026-10-28T10:00:00Z', endedAt: stub.meeting === 'complete' ? '2026-10-28T11:00:00Z' : null, chair: { id: 'u-me', name: 'Asha Rao' },
+      startedAt: '2026-10-28T10:00:00Z', endedAt: stub.meeting === 'complete' ? '2026-10-28T11:00:00Z' : null, chair: { id: 'u-me', userId: 'u-me', name: 'Asha Rao', initials: 'AR' },
       attendees: [{ userId: 'u-me', name: 'Asha Rao', initials: 'AR', role: 'Chair' }, { userId: 'u-ben', name: 'Ben Ito', initials: 'BI', role: 'Reviewer' }],
       pendingIds: stub.meeting === 'complete' ? [] : ['CMT-1', 'CMT-2'], resolvedIds: ['CMT-3'],
     }] : []
@@ -216,20 +216,29 @@ test('Final Document: signed with no signature records', async ({ page }) => {
 test('CRM: meeting in progress, document viewer and transcript dialog', async ({ page }) => {
   await open(page, `${base}/crm`, { status: 'crm-in-progress', meeting: 'in_progress' })
   await expect(page.locator('[data-crm-comment="CMT-1"]')).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator('[data-crm-log-entry]')).toBeVisible()
+  // A running meeting opens in the right-hand panel by itself: its resolution queue (open and resolved comments),
+  // Start / End buttons, transcript and details are all in there.
+  await expect(page.locator('[data-crm-log-entry]').first()).toBeVisible()
   await shot(page, 'crm-progress')
   await expectNoEnglish(page, '[data-screen="crm-module"]')
 
+  // Closing the panel leaves the meetings list; a row click opens the details again.
+  await page.keyboard.press('Escape')
+  await shot(page, 'crm-list')
+  await page.locator('[data-crm-row]').first().click()
   await page.locator('[data-action="open-doc-viewer"]').click()
   await expect(page.locator('[data-crm-viewer-chrome]')).toBeVisible()
   await shot(page, 'crm-viewer')
   await expectNoEnglish(page, '[data-crm-doc-viewer]')
   await page.keyboard.press('Escape')
 
+  // The viewer's Escape may also have closed the panel: open the meeting's details again for the transcript button.
+  if (!(await page.locator('[data-action="upload-transcript"]').count())) await page.locator('[data-crm-row]').first().click()
   await page.locator('[data-action="upload-transcript"]').click()
-  const dialog = page.locator('[role="dialog"]')
+  // The transcript dialog is the modal one (the details panel beside it is also a dialog, but not modal).
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]')
   await expect(dialog).toBeVisible()
-  await expectNoEnglish(page, '[role="dialog"]')
+  await expectNoEnglish(page, '[role="dialog"][aria-modal="true"]')
 })
 
 test('CRM: no meeting yet, schedule form and the blocked state', async ({ page }) => {

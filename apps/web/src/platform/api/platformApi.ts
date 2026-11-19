@@ -530,13 +530,16 @@ export const platformApi = {
     api.post<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}/approve`, {}),
   retireAiPrompt: (id: string, reason: string) =>
     api.post<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}/retire`, { reason }),
-  /** Run AI extraction on this prompt row's smePrompt. Returns parsed
-   *  rules for review — admin saves via `updateAiPromptDraft` to persist. */
+  /** Run AI extraction on this prompt row's smePrompt. Returns BOTH the
+   *  per-section rules AND the cross-cutting rules (migration 95).
+   *  Admin reviews + saves via `updateAiPromptDraft` to persist. */
   extractSectionRulesForPrompt: (id: string) =>
     api.post<{
-      sectionRules: Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
-      sectionCount: number
-      ruleCount:    number
+      sectionRules:      Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+      crossCuttingRules: Array<{ severity: 'must' | 'should' | 'nice'; text: string }>
+      sectionCount:      number
+      ruleCount:         number
+      crossCuttingCount: number
     }>(`/ai-prompts/${encodeURIComponent(id)}/extract-section-rules`, {}),
 
   // --- Licensing (migration 92) ----------------------------------------
@@ -1031,34 +1034,42 @@ export type AiPromptStatus = 'draft' | 'approved' | 'retired'
 
 export type AiPromptSectionRules = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
 
+/** Cross-cutting rules extracted from smePrompt (migration 95). Shipped
+ *  as GENERAL RULES on every AI call in place of the full SME prompt
+ *  dump — admins see them beside sectionRules on the AI Prompts editor. */
+export type CrossCuttingRule = { severity: 'must' | 'should' | 'nice'; text: string }
+
 export interface AiPromptRecord {
-  id:            string
-  docType:       string
-  version:       number
-  status:        AiPromptStatus
-  smePrompt:     string
-  sectionRules:  unknown           // parsed structure — see AiPromptSectionRules
-  supersededBy:  string | null
-  effectiveDate: string | null
-  retiredAt:     string | null
-  retireReason:  string | null
-  approvedBy:    string | null
-  approvedAt:    string | null
-  createdBy:     string
-  updatedBy:     string
-  createdAt:     string
-  updatedAt:     string
+  id:                 string
+  docType:            string
+  version:            number
+  status:             AiPromptStatus
+  smePrompt:          string
+  sectionRules:       unknown                // parsed structure — see AiPromptSectionRules
+  crossCuttingRules?: CrossCuttingRule[]     // optional — empty on legacy rows that pre-date migration 95
+  supersededBy:       string | null
+  effectiveDate:      string | null
+  retiredAt:          string | null
+  retireReason:       string | null
+  approvedBy:         string | null
+  approvedAt:         string | null
+  createdBy:          string
+  updatedBy:          string
+  createdAt:          string
+  updatedAt:          string
 }
 
 export interface AiPromptCreateBody {
-  docType:       string
-  smePrompt:     string
-  sectionRules?: AiPromptSectionRules
+  docType:            string
+  smePrompt:          string
+  sectionRules?:      AiPromptSectionRules
+  crossCuttingRules?: CrossCuttingRule[]
 }
 
 export interface AiPromptPatchBody {
-  smePrompt?:    string
-  sectionRules?: AiPromptSectionRules
+  smePrompt?:         string
+  sectionRules?:      AiPromptSectionRules
+  crossCuttingRules?: CrossCuttingRule[]
 }
 
 // --- License (platform/licensing, migration 92) -------------------------

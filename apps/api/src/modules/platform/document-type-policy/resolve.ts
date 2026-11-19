@@ -33,9 +33,16 @@ export interface PolicyRowForAi {
   id:                 string
   docType:            string
   version:            number
-  smePrompt:          string
+  smePrompt:          string                              // kept for audit + preview + fallback render
   bestPracticeDigest: BestPracticeDigest
   sectionRules:       SectionRules
+  // Cross-cutting rules extracted from smePrompt (migration 95). When
+  // non-empty, the resolver emits GENERAL RULES + SECTION RULES on
+  // every AI call in place of the full SME prompt dump. Empty array →
+  // we're on a row that hasn't been re-extracted yet; the resolver
+  // falls back to the old verbatim-SME-prompt path so behavior stays
+  // consistent while admins work through the catalogue.
+  crossCuttingRules:  Array<{ severity: 'must' | 'should' | 'nice'; text: string }>
 }
 
 /** Read the rule-set that applies to a document for AI assembly.
@@ -104,6 +111,18 @@ export async function resolveForDocument(
   // BestPracticeRecord's digest; fall back to the policy row for anything
   // missing. The `id` + `version` reflect the AI-prompt source so the
   // preview panel's "SME PROMPT (policy v<N>)" label stays meaningful.
+  const crossCuttingRaw = (promptRow as { crossCuttingRules?: unknown })?.crossCuttingRules
+  const crossCuttingRules: PolicyRowForAi['crossCuttingRules'] = Array.isArray(crossCuttingRaw)
+    ? (crossCuttingRaw as Array<{ severity?: unknown; text?: unknown }>)
+        .filter(r => r && typeof r === 'object' && typeof r.text === 'string' && r.text.length > 0)
+        .map(r => {
+          const sev: 'must' | 'should' | 'nice' =
+            r.severity === 'must' || r.severity === 'should' || r.severity === 'nice'
+              ? r.severity
+              : 'should'
+          return { severity: sev, text: String(r.text) }
+        })
+    : []
   return {
     id:                 promptRow?.id        ?? policyRow?.id        ?? bpRow!.id,
     docType:            promptRow?.docType   ?? policyRow?.docType   ?? bpRow!.docType,
@@ -111,7 +130,22 @@ export async function resolveForDocument(
     smePrompt:          promptRow?.smePrompt ?? policyRow?.smePrompt ?? '',
     bestPracticeDigest: ((bpRow?.digest ?? policyRow?.bestPracticeDigest) as unknown as BestPracticeDigest) ?? { principles: [] },
     sectionRules:       ((promptRow?.sectionRules ?? policyRow?.sectionRules) as unknown as SectionRules) ?? {},
+    crossCuttingRules,
   }
+}
+
+function sevOrder(s: 'must' | 'should' | 'nice'): number {
+  return s === 'must' ? 0 : s === 'should' ? 1 : 2
+}
+
+/** Render the cross-cutting rules extracted from the SME prompt as the
+ *  GENERAL RULES block. Returns '' when the list is empty so the
+ *  resolver can fall back to the verbatim SME prompt dump for rows
+ *  that haven't been re-extracted yet. */
+export function renderCrossCuttingRules(rules: PolicyRowForAi['crossCuttingRules']): string {
+  if (!rules || rules.length === 0) return ''
+  const ordered = [...rules].sort((a, b) => sevOrder(a.severity) - sevOrder(b.severity))
+  return ordered.map(r => `[${r.severity.toUpperCase()}] ${r.text}`).join('\n')
 }
 
 /** Render the policy as a plain-text block ready to append to a system
@@ -131,8 +165,19 @@ export function renderPolicyPromptBlock(
 ): string {
   if (!policy && !sectionTemplateFormatRules) return ''
   const parts: string[] = []
-  if (policy && policy.smePrompt.trim().length > 0) {
-    parts.push(`SME PROMPT (policy v${policy.version})`, policy.smePrompt.trim())
+  if (policy) {
+    // Migration 95: prefer the compact GENERAL RULES block (cross-cutting
+    // rules extracted from smePrompt at admin time) over the verbatim
+    // dump. Saves ~5× per-section tokens on every draft/rewrite call.
+    // Legacy rows that haven't been re-extracted have crossCuttingRules=[]
+    // — fall back to the raw smePrompt text for those so no behavior
+    // changes until the admin re-runs the extractor.
+    const general = renderCrossCuttingRules(policy.crossCuttingRules)
+    if (general) {
+      parts.push(`GENERAL RULES (policy v${policy.version}) — apply to every section`, general)
+    } else if (policy.smePrompt.trim().length > 0) {
+      parts.push(`SME PROMPT (policy v${policy.version})`, policy.smePrompt.trim())
+    }
   }
   // BP removed per product decision — BP is author guidance, not AI steering. (M-F.1)
   const whole = "" // was: renderWholeDocPrinciples(policy.bestPracticeDigest)

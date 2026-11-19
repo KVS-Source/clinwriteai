@@ -25,22 +25,25 @@ const sectionRuleSchema = z.object({
   severity: z.enum(['must', 'should', 'nice']),
   text:     z.string().min(1).max(2_000),
 })
-const sectionRulesSchema = z.record(z.string().regex(/^[a-zA-Z0-9_.\-§]+$/), z.array(sectionRuleSchema))
+const sectionRulesSchema  = z.record(z.string().regex(/^[a-zA-Z0-9_.\-§]+$/), z.array(sectionRuleSchema))
+const crossCuttingSchema  = z.array(sectionRuleSchema).max(30)
 
 const createSchema = z.object({
-  docType:      z.string().min(1).max(80),
-  smePrompt:    z.string().min(1).max(100_000),
-  sectionRules: sectionRulesSchema.optional(),
+  docType:            z.string().min(1).max(80),
+  smePrompt:          z.string().min(1).max(100_000),
+  sectionRules:       sectionRulesSchema.optional(),
+  crossCuttingRules:  crossCuttingSchema.optional(),
 })
 const patchSchema = z.object({
-  smePrompt:    z.string().min(1).max(100_000).optional(),
-  sectionRules: sectionRulesSchema.optional(),
+  smePrompt:          z.string().min(1).max(100_000).optional(),
+  sectionRules:       sectionRulesSchema.optional(),
+  crossCuttingRules:  crossCuttingSchema.optional(),
 })
 const retireSchema = z.object({ reason: z.string().min(1).max(500) })
 
 interface Row {
   id: string; docType: string; version: number; status: string
-  smePrompt: string; sectionRules: unknown
+  smePrompt: string; sectionRules: unknown; crossCuttingRules?: unknown
   supersededBy: string | null; effectiveDate: Date | null
   retiredAt: Date | null; retireReason: string | null
   approvedBy: string | null; approvedAt: Date | null
@@ -49,22 +52,23 @@ interface Row {
 
 function shape(row: Row) {
   return {
-    id:            row.id,
-    docType:       row.docType,
-    version:       row.version,
-    status:        row.status,
-    smePrompt:     row.smePrompt,
-    sectionRules:  row.sectionRules,
-    supersededBy:  row.supersededBy,
-    effectiveDate: row.effectiveDate?.toISOString() ?? null,
-    retiredAt:     row.retiredAt?.toISOString() ?? null,
-    retireReason:  row.retireReason,
-    approvedBy:    row.approvedBy,
-    approvedAt:    row.approvedAt?.toISOString() ?? null,
-    createdBy:     row.createdBy,
-    updatedBy:     row.updatedBy,
-    createdAt:     row.createdAt.toISOString(),
-    updatedAt:     row.updatedAt.toISOString(),
+    id:                row.id,
+    docType:           row.docType,
+    version:           row.version,
+    status:            row.status,
+    smePrompt:         row.smePrompt,
+    sectionRules:      row.sectionRules,
+    crossCuttingRules: row.crossCuttingRules ?? [],
+    supersededBy:      row.supersededBy,
+    effectiveDate:     row.effectiveDate?.toISOString() ?? null,
+    retiredAt:         row.retiredAt?.toISOString() ?? null,
+    retireReason:      row.retireReason,
+    approvedBy:        row.approvedBy,
+    approvedAt:        row.approvedAt?.toISOString() ?? null,
+    createdBy:         row.createdBy,
+    updatedBy:         row.updatedBy,
+    createdAt:         row.createdAt.toISOString(),
+    updatedAt:         row.updatedAt.toISOString(),
   }
 }
 
@@ -258,17 +262,22 @@ export const aiPromptRoutes: FastifyPluginAsync = async (app) => {
         message: err instanceof Error ? err.message : 'AI extraction failed',
       })
     }
-    const sectionCount = Object.keys(rules).length
-    const ruleCount    = Object.values(rules).reduce((n, arr) => n + arr.length, 0)
+    const sectionCount       = Object.keys(rules.sectionRules).length
+    const ruleCount          = Object.values(rules.sectionRules).reduce((n, arr) => n + arr.length, 0)
+    const crossCuttingCount  = rules.crossCuttingRules.length
     await app.audit.append({
       timestamp:  new Date().toISOString(),
       actorId:    request.user!.id,
       action:     'ai_prompt.section_rules_extracted',
       entityType: 'ai_prompt_record',
       entityId:   row.id,
-      details:    { docType: row.docType, version: row.version, sectionCount, ruleCount, engine: apiKey ? engine.default : 'stub' },
+      details:    { docType: row.docType, version: row.version, sectionCount, ruleCount, crossCuttingCount, engine: apiKey ? engine.default : 'stub' },
       ipAddress:  request.ip ?? null,
     })
-    return { sectionRules: rules, sectionCount, ruleCount }
+    return {
+      crossCuttingRules: rules.crossCuttingRules,
+      sectionRules:      rules.sectionRules,
+      crossCuttingCount, sectionCount, ruleCount,
+    }
   })
 }

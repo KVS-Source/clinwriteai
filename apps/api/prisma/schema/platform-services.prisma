@@ -178,6 +178,11 @@ model AiPromptRecord {
 
   smePrompt      String
   sectionRules   Json      @default("{}")                              // { <sectionKey>: [{severity,text}] }
+  // Cross-cutting rules extracted from smePrompt at admin time
+  // (migration 95). The resolver emits these as GENERAL RULES on every
+  // AI call in place of the full SME prompt dump, cutting token
+  // scaffolding ~5× per section. Shape: [{severity, text}].
+  crossCuttingRules Json   @default("[]")
 
   // Chain pointer: on approve, the previously-approved row of the same
   // docType is set to status='retired' + supersededBy = new row id.

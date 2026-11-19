@@ -16,17 +16,20 @@ import type { PrismaClient, Prisma } from '@prisma/client'
 
 export type AiPromptStatus = 'draft' | 'approved' | 'retired'
 
-export type SectionRulesMap = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+export type SectionRulesMap     = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+export type CrossCuttingRules   = Array<{ severity: 'must' | 'should' | 'nice'; text: string }>
 
 export interface CreateInput {
-  docType:      string
-  smePrompt:    string
-  sectionRules?: SectionRulesMap
+  docType:            string
+  smePrompt:          string
+  sectionRules?:      SectionRulesMap
+  crossCuttingRules?: CrossCuttingRules
 }
 
 export interface UpdateDraftInput {
-  smePrompt?:    string
-  sectionRules?: SectionRulesMap
+  smePrompt?:          string
+  sectionRules?:       SectionRulesMap
+  crossCuttingRules?:  CrossCuttingRules
 }
 
 export class AiPromptService {
@@ -114,12 +117,13 @@ export class AiPromptService {
     return this.prisma.aiPromptRecord.create({
       data: {
         docType,
-        version:      nextVersion,
-        status:       'draft',
-        smePrompt:    input.smePrompt,
-        sectionRules: (input.sectionRules ?? {}) as unknown as Prisma.InputJsonValue,
-        createdBy:    actorId,
-        updatedBy:    actorId,
+        version:           nextVersion,
+        status:            'draft',
+        smePrompt:         input.smePrompt,
+        sectionRules:      (input.sectionRules ?? {}) as unknown as Prisma.InputJsonValue,
+        crossCuttingRules: (input.crossCuttingRules ?? []) as unknown as Prisma.InputJsonValue,
+        createdBy:         actorId,
+        updatedBy:         actorId,
       },
     })
   }
@@ -138,8 +142,9 @@ export class AiPromptService {
     return this.prisma.aiPromptRecord.update({
       where: { id },
       data:  {
-        ...(input.smePrompt    !== undefined && { smePrompt:    input.smePrompt }),
-        ...(input.sectionRules !== undefined && { sectionRules: input.sectionRules as unknown as Prisma.InputJsonValue }),
+        ...(input.smePrompt          !== undefined && { smePrompt:          input.smePrompt }),
+        ...(input.sectionRules       !== undefined && { sectionRules:       input.sectionRules as unknown as Prisma.InputJsonValue }),
+        ...(input.crossCuttingRules  !== undefined && { crossCuttingRules:  input.crossCuttingRules as unknown as Prisma.InputJsonValue }),
         updatedBy: actorId,
       },
     })

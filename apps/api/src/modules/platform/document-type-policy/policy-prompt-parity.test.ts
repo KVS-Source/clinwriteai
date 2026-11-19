@@ -37,6 +37,18 @@ const SAMPLE_POLICY = {
       { severity: 'should' as const, text: 'Should describe the washout period.' },
     ],
   },
+  // Empty — exercise the legacy SME-prompt-dump fallback. The GENERAL
+  // RULES branch is covered by its own describe block below.
+  crossCuttingRules: [],
+} satisfies ApiPolicy & WorkerPolicy
+
+const SAMPLE_POLICY_WITH_CROSS = {
+  ...SAMPLE_POLICY,
+  crossCuttingRules: [
+    { severity: 'must'   as const, text: 'Write in active voice throughout.' },
+    { severity: 'must'   as const, text: 'Never invent numeric values, patient counts, or citations.' },
+    { severity: 'should' as const, text: 'Prefer British English spelling.' },
+  ],
 } satisfies ApiPolicy & WorkerPolicy
 
 describe('renderPolicyPromptBlock — API ↔ worker parity', () => {
@@ -90,6 +102,49 @@ describe('renderPolicyPromptBlock — API ↔ worker parity', () => {
     // suppressed since BP was retired as an AI steering input.
     expect(withKey).not.toContain('Numbered list, one inclusion criterion per line.')
     expect(withKey).not.toContain('Cross-reference exclusion criteria by number.')
+  })
+})
+
+describe('renderPolicyPromptBlock — GENERAL RULES path (migration 95)', () => {
+  it('emits GENERAL RULES in place of the verbatim SME PROMPT when crossCuttingRules is non-empty', () => {
+    const out = apiRender(SAMPLE_POLICY_WITH_CROSS)
+    expect(out).toContain('GENERAL RULES (policy v3) — apply to every section')
+    expect(out).toContain('[MUST] Write in active voice throughout.')
+    expect(out).toContain('[MUST] Never invent numeric values, patient counts, or citations.')
+    expect(out).toContain('[SHOULD] Prefer British English spelling.')
+    // SME prompt verbatim must NOT appear — that was the whole point.
+    expect(out).not.toContain('You are a Clinical Protocol subject-matter expert.')
+    expect(out).not.toContain('SME PROMPT')
+  })
+
+  it('falls back to the verbatim SME prompt when crossCuttingRules is empty (legacy row)', () => {
+    const out = apiRender(SAMPLE_POLICY)
+    expect(out).toContain('SME PROMPT (policy v3)')
+    expect(out).toContain('You are a Clinical Protocol subject-matter expert.')
+    expect(out).not.toContain('GENERAL RULES')
+  })
+
+  it('API ↔ worker parity: both emit identical GENERAL RULES output', () => {
+    expect(workerRender(SAMPLE_POLICY_WITH_CROSS)).toBe(apiRender(SAMPLE_POLICY_WITH_CROSS))
+    expect(workerRender(SAMPLE_POLICY_WITH_CROSS, 's6_2')).toBe(apiRender(SAMPLE_POLICY_WITH_CROSS, 's6_2'))
+  })
+
+  it('cross-cutting rules sort must → should → nice regardless of input order', () => {
+    const scrambled = {
+      ...SAMPLE_POLICY,
+      crossCuttingRules: [
+        { severity: 'nice'   as const, text: 'Use the Oxford comma.' },
+        { severity: 'should' as const, text: 'Prefer British English.' },
+        { severity: 'must'   as const, text: 'Write in active voice.' },
+      ],
+    } satisfies ApiPolicy
+    const out = apiRender(scrambled)
+    const mustIdx   = out.indexOf('[MUST] Write in active voice.')
+    const shouldIdx = out.indexOf('[SHOULD] Prefer British English.')
+    const niceIdx   = out.indexOf('[NICE] Use the Oxford comma.')
+    expect(mustIdx).toBeGreaterThan(-1)
+    expect(shouldIdx).toBeGreaterThan(mustIdx)
+    expect(niceIdx).toBeGreaterThan(shouldIdx)
   })
 })
 

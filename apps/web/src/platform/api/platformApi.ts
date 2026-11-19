@@ -1096,6 +1096,7 @@ export type LicenseState =
   | 'expired'
   | 'invalid'
   | 'dev_mode_unlicensed'
+  | 'auto_dev_unlicensed'   // no row + dev public key in use → all modules auto-granted
   | 'unlicensed'
 
 export interface LicenseView {

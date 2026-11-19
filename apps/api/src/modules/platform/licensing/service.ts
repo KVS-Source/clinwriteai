@@ -20,7 +20,12 @@ import { licenseClaimsSchema } from './schema.js'
 /** What the auth path + /license GET return. Always safe to serialise —
  *  no secrets. The raw token is never exposed on reads. */
 export interface ActiveLicenseView {
-  state:          'active' | 'expired' | 'invalid' | 'dev_mode_unlicensed' | 'unlicensed'
+  // `dev_mode_unlicensed` fires when LICENSE_DEV_MODE=1 AND no row.
+  // `auto_dev_unlicensed` fires when the dev public key is in use AND
+  // no row — same effective behaviour (all modules enabled with a
+  // warning) but detected automatically so demo/staging installs
+  // don't need an env flag.
+  state:          'active' | 'expired' | 'invalid' | 'dev_mode_unlicensed' | 'auto_dev_unlicensed' | 'unlicensed'
   publicKeySource: 'env' | 'dev_fallback'
   installId:      string | null
   customerName:   string | null
@@ -66,6 +71,26 @@ export class LicenseService {
           features: [],
           issuedAt: null, expiry: null, importedAt: null, importedBy: null,
           daysToExpiry: null,
+        }
+      }
+      // Dev-public-key auto-unlock: an install that hasn't configured
+      // LICENSE_PUBLIC_KEY is inherently not production. Rather than
+      // strand demo/staging installs behind a 503 wall during the
+      // licence rollout, grant all modules here and surface it in the
+      // UI as an actionable state (so it's still obvious this isn't a
+      // real licence). Production installs set LICENSE_PUBLIC_KEY and
+      // fall through to the strict `unlicensed` branch below.
+      if (publicKeySource === 'dev_fallback') {
+        return {
+          state: 'auto_dev_unlicensed',
+          publicKeySource,
+          installId: 'auto-dev', customerName: 'Demo / staging install',
+          modules:  ['A', 'B', 'C', 'D', 'E'],
+          features: [],
+          issuedAt: null, expiry: null, importedAt: null, importedBy: null,
+          daysToExpiry: null,
+          invalidReason: 'no_row',
+          invalidDetail: 'No signed licence imported — all modules auto-enabled because LICENSE_PUBLIC_KEY is not configured. Set the GenBioCa public key + import a real token for strict gating.',
         }
       }
       return {

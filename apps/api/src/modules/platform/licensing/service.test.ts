@@ -136,12 +136,19 @@ describe('LicenseService.getActive — trusts only the signed JWT', () => {
     expect(view.modules).toEqual([])
   })
 
-  it('returns state=unlicensed when no row exists + dev mode off', async () => {
+  it('returns state=unlicensed when no row exists + production public key configured', async () => {
+    // Strict branch: LICENSE_PUBLIC_KEY points at a real (non-dev) key,
+    // so we're in production posture and MUST block without a licence.
+    // Using the dev pubkey as the "env value" here is enough to make
+    // publicKeySource='env' (the dev auto-unlock branch checks source,
+    // not key material).
+    process.env.LICENSE_PUBLIC_KEY = '-----BEGIN PUBLIC KEY-----\nTEST\n-----END PUBLIC KEY-----'
     const svc = new LicenseService(buildPrisma(null) as never)
     const view = await svc.getActive()
     expect(view.state).toBe('unlicensed')
     expect(view.modules).toEqual([])
     expect(view.invalidReason).toBe('no_row')
+    expect(view.publicKeySource).toBe('env')
   })
 
   it('returns state=dev_mode_unlicensed with all modules when LICENSE_DEV_MODE=1 + no row', async () => {
@@ -150,6 +157,22 @@ describe('LicenseService.getActive — trusts only the signed JWT', () => {
     const view = await svc.getActive()
     expect(view.state).toBe('dev_mode_unlicensed')
     expect(view.modules).toEqual(['A', 'B', 'C', 'D', 'E'])
+  })
+
+  it('returns state=auto_dev_unlicensed with all modules when no row + dev public key in use', async () => {
+    // No LICENSE_DEV_MODE, no LICENSE_PUBLIC_KEY, no row — the common
+    // demo/staging posture. Server must NOT block every gated route;
+    // the UI shows the state so an admin knows a real licence is still
+    // owed. Production installs set LICENSE_PUBLIC_KEY and get the
+    // strict unlicensed branch instead.
+    delete process.env.LICENSE_DEV_MODE
+    delete process.env.LICENSE_PUBLIC_KEY
+    const svc = new LicenseService(buildPrisma(null) as never)
+    const view = await svc.getActive()
+    expect(view.state).toBe('auto_dev_unlicensed')
+    expect(view.publicKeySource).toBe('dev_fallback')
+    expect(view.modules).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(view.invalidDetail).toContain('all modules auto-enabled')
   })
 })
 

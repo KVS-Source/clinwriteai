@@ -16,19 +16,21 @@ import { platformApi, type LicenseView, type LicenseState } from '../api/platfor
 import { ApiError } from '../../api/client'
 
 const STATE_LABEL: Record<LicenseState, string> = {
-  active:              'Active',
-  expired:             'Expired',
-  invalid:             'Invalid',
-  dev_mode_unlicensed: 'Dev mode (no licence)',
-  unlicensed:          'No licence imported',
+  active:               'Active',
+  expired:              'Expired',
+  invalid:              'Invalid',
+  dev_mode_unlicensed:  'Dev mode (no licence)',
+  auto_dev_unlicensed:  'Demo mode (no licence)',
+  unlicensed:           'No licence imported',
 }
 
 const STATE_COLOR: Record<LicenseState, { bg: string; fg: string; dot: string }> = {
-  active:              { bg: 'bg-emerald-50', fg: 'text-emerald-900', dot: 'bg-emerald-500' },
-  expired:             { bg: 'bg-amber-50',   fg: 'text-amber-900',   dot: 'bg-amber-500' },
-  invalid:             { bg: 'bg-rose-50',    fg: 'text-rose-900',    dot: 'bg-rose-500' },
-  dev_mode_unlicensed: { bg: 'bg-slate-50',   fg: 'text-slate-700',   dot: 'bg-slate-400' },
-  unlicensed:          { bg: 'bg-slate-50',   fg: 'text-slate-700',   dot: 'bg-slate-400' },
+  active:               { bg: 'bg-emerald-50', fg: 'text-emerald-900', dot: 'bg-emerald-500' },
+  expired:              { bg: 'bg-amber-50',   fg: 'text-amber-900',   dot: 'bg-amber-500' },
+  invalid:              { bg: 'bg-rose-50',    fg: 'text-rose-900',    dot: 'bg-rose-500' },
+  dev_mode_unlicensed:  { bg: 'bg-slate-50',   fg: 'text-slate-700',   dot: 'bg-slate-400' },
+  auto_dev_unlicensed:  { bg: 'bg-sky-50',     fg: 'text-sky-900',     dot: 'bg-sky-500' },
+  unlicensed:           { bg: 'bg-slate-50',   fg: 'text-slate-700',   dot: 'bg-slate-400' },
 }
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {

@@ -722,10 +722,30 @@ async function buildServer() {
     }
     // Hand the parsed modules to the module-gate (rbac.ts). The override
     // persists until POST /license/import refreshes it (see routes.ts).
-    // Unlicensed install → empty set → every module gate returns 503.
-    // Dev-mode-unlicensed → view.modules = all five → gate stays open.
-    // Invalid/expired → empty set (strict: broken licence doesn't grant).
-    setLicenseModules(view.state === 'active' || view.state === 'dev_mode_unlicensed' ? view.modules : [])
+    //
+    //   active                → trust the signed JWT's module list
+    //   dev_mode_unlicensed   → view.modules = all five (LICENSE_DEV_MODE=1)
+    //   unlicensed + dev pubkey → auto-enable all five with a clear WARN.
+    //     Rationale: a deployment that hasn't configured LICENSE_PUBLIC_KEY
+    //     is inherently not production. Blocking every gated route in that
+    //     state strands demo / staging installs during the licence rollout.
+    //     Any install that sets LICENSE_PUBLIC_KEY (= production) falls
+    //     through to the strict "empty set" branch and must import a
+    //     real token before modules unlock.
+    //   anything else (invalid / expired / unlicensed with real pubkey)
+    //                         → empty set. Broken licence grants nothing.
+    const autoDev = view.state === 'unlicensed' && view.publicKeySource === 'dev_fallback'
+    if (autoDev) {
+      app.log.warn(
+        { licenseState: view.state, publicKeySource: view.publicKeySource },
+        'No licence imported and dev public key in use — auto-enabling all modules. Import a real token on Settings → Licensing for strict gating.',
+      )
+    }
+    setLicenseModules(
+      view.state === 'active' || view.state === 'dev_mode_unlicensed' || autoDev
+        ? (autoDev ? ['A', 'B', 'C', 'D', 'E'] : view.modules)
+        : [],
+    )
     app.log.info(
       { licenseState: view.state, customer: view.customerName, modules: view.modules, daysToExpiry: view.daysToExpiry },
       'licensing: boot check complete',

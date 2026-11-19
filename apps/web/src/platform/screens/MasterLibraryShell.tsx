@@ -23,6 +23,7 @@
 
 import { useMemo, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { isAdminRole } from '../../config/roles'
 import { useQuery } from '@tanstack/react-query'
 import { platformApi } from '../api/platformApi'
 import { documentsApi } from '../../api/documents'
@@ -134,6 +135,9 @@ export function MasterLibraryShell() {
   const isPm = usePlatformStore(s => s.hasRole)(['pm'])
   const tabs = tabsFor(isPm)
   const counts = useTabCounts(isPm)
+
+  // Admins (tenant admin) have no Master Library — e.g. after switching role from PM while on this page.
+  if (user && isAdminRole(user.role)) return <Navigate to="/home" replace />
 
   // A deep link to a tab this user doesn't have goes to Master Documents (no blank page, no error screen).
   if (user && !isPm && !LIBRARY_TAB_SLUGS.includes(activeSlug)) return <Navigate to="/master-library/documents" replace />

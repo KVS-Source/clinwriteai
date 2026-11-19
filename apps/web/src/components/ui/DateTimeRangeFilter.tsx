@@ -30,10 +30,10 @@ export function toInputValue(d: Date, tz: TimeZoneMode): string {
 }
 
 // '2026-10-27T09:05' → '27 Oct 09:05'
-function shortWhen(value: string): string {
+function shortWhen(value: string, dateOnly = false): string {
   const [day, time] = value.split('T')
   const [, m, d] = (day ?? '').split('-').map(Number)
-  return m && d ? `${String(d).padStart(2, '0')} ${MONTHS[m - 1]} ${time ?? ''}`.trim() : value
+  return m && d ? `${String(d).padStart(2, '0')} ${MONTHS[m - 1]} ${dateOnly ? '' : (time ?? '')}`.trim() : value
 }
 
 type RangePreset = { label: string; ms?: number; today?: true; months?: number }
@@ -56,8 +56,12 @@ export function defaultRange(tz: TimeZoneMode): { from: string; to: string } {
   return { from: `${toInputValue(start, tz).slice(0, 10)}T00:00`, to: `${toInputValue(now, tz).slice(0, 10)}T23:59` }
 }
 
-// The from/to a preset means right now, in the chosen timezone.
-function presetRange(p: RangePreset, tz: TimeZoneMode): { from: string; to: string } {
+// The from/to a preset means right now, in the chosen timezone. `dateOnly` snaps it to whole days (00:00 → 23:59).
+function presetRange(p: RangePreset, tz: TimeZoneMode, dateOnly = false): { from: string; to: string } {
+  const range = rawPresetRange(p, tz)
+  return dateOnly ? { from: `${range.from.slice(0, 10)}T00:00`, to: `${range.to.slice(0, 10)}T23:59` } : range
+}
+function rawPresetRange(p: RangePreset, tz: TimeZoneMode): { from: string; to: string } {
   const now = new Date()
   const to = toInputValue(now, tz)
   if (p.today) return { from: `${to.slice(0, 10)}T00:00`, to }
@@ -73,7 +77,7 @@ function presetRange(p: RangePreset, tz: TimeZoneMode): { from: string; to: stri
 // One "Date & time" filter: a button showing the current range that opens a popover
 // with From / To (date + time, to the minute), quick presets and Clear. Values are in
 // the "Times in" timezone the viewer picked.
-export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChange, align = 'right', buttonClassName = 'min-w-[220px]' }: {
+export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChange, align = 'right', buttonClassName = 'min-w-[220px]', dateOnly = false }: {
   from: string; to: string; tz: TimeZoneMode; invalid: boolean
   onChange: (range: { from: string; to: string }) => void
   onTzChange: (tz: TimeZoneMode) => void
@@ -81,6 +85,8 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
   align?: 'left' | 'right'
   /** Size classes for the button that opens the popover (default: the Audit Trail's). */
   buttonClassName?: string
+  /** Pick whole days only: no times shown or asked for (a range runs from 00:00 on the first day to 23:59 on the last). */
+  dateOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -97,10 +103,10 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
   }, [open])
 
   const label =
-    from && to ? `${shortWhen(from)} → ${shortWhen(to)}` :
-    from       ? `From ${shortWhen(from)}` :
-    to         ? `Until ${shortWhen(to)}` :
-                 'Date & time range'
+    from && to ? `${shortWhen(from, dateOnly)} → ${shortWhen(to, dateOnly)}` :
+    from       ? `From ${shortWhen(from, dateOnly)}` :
+    to         ? `Until ${shortWhen(to, dateOnly)}` :
+                 (dateOnly ? 'Date range' : 'Date & time range')
 
   // Which preset produced the current range. It stays highlighted only while the
   // range is untouched — editing From/To, clearing or Reset un-highlights it.
@@ -108,7 +114,7 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
   const activePreset = picked && picked.from === from && picked.to === to ? picked.label : null
 
   const applyPreset = (p: RangePreset) => {
-    const range = presetRange(p, tz)
+    const range = presetRange(p, tz, dateOnly)
     setPicked({ label: p.label, ...range })
     onChange(range)
     setOpen(false)
@@ -132,9 +138,9 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
       </button>
 
       {open && (
-        <div role="dialog" aria-label="Date and time range" className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} z-20 mt-1 w-[320px] rounded-lg border border-slate-200 bg-white p-4 shadow-xl`}>
+        <div role="dialog" aria-label={dateOnly ? 'Date range' : 'Date and time range'} className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} z-20 mt-1 w-[320px] rounded-lg border border-slate-200 bg-white p-4 shadow-xl`}>
           <div className="flex flex-wrap gap-1.5">
-            {RANGE_PRESETS.map(p => {
+            {RANGE_PRESETS.filter(p => !dateOnly || !p.ms || p.ms >= 24 * 60 * 60 * 1000 * 2).map(p => {
               const active = activePreset === p.label
               return (
                 <button key={p.label} type="button" onClick={() => applyPreset(p)}
@@ -153,13 +159,15 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
           <div className="mt-3 flex flex-col gap-3">
             <label className={fieldLabel}>
               From
-              <input type="datetime-local" className={`${inputClass} w-full`} value={from} max={to || undefined}
-                onChange={e => onChange({ from: e.target.value, to })} data-field="from" />
+              <input type={dateOnly ? 'date' : 'datetime-local'} className={`${inputClass} w-full`} value={dateOnly ? from.slice(0, 10) : from}
+                max={(dateOnly ? to.slice(0, 10) : to) || undefined}
+                onChange={e => onChange({ from: dateOnly && e.target.value ? `${e.target.value}T00:00` : e.target.value, to })} data-field="from" />
             </label>
             <label className={fieldLabel}>
               To
-              <input type="datetime-local" className={`${inputClass} w-full`} value={to} min={from || undefined}
-                onChange={e => onChange({ from, to: e.target.value })} data-field="to" />
+              <input type={dateOnly ? 'date' : 'datetime-local'} className={`${inputClass} w-full`} value={dateOnly ? to.slice(0, 10) : to}
+                min={(dateOnly ? from.slice(0, 10) : from) || undefined}
+                onChange={e => onChange({ from, to: dateOnly && e.target.value ? `${e.target.value}T23:59` : e.target.value })} data-field="to" />
             </label>
           </div>
 
@@ -174,7 +182,7 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
               <option value="utc">UTC</option>
             </select>
           </label>
-          <p className="mt-1.5 font-mono text-[10px] text-slate-500">"To" includes that whole minute.</p>
+          {!dateOnly && <p className="mt-1.5 font-mono text-[10px] text-slate-500">"To" includes that whole minute.</p>}
 
           <div className="mt-3 flex justify-between border-t border-slate-200 pt-3">
             <button type="button" onClick={() => onChange({ from: '', to: '' })} disabled={!from && !to}

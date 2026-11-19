@@ -11,6 +11,12 @@ interface DocumentStore {
   selectedForRestore: string[]
   presence: PresenceState[]
   versions: DocumentVersion[]
+  // TBD panel → editor hand-off. When the writer clicks a TBD occurrence
+  // the panel sets this to { sectionId, placeholder }; DocumentEditor's
+  // effect scrolls the TBD text into view after the section renders,
+  // then clears the field. `nonce` forces re-firing when the same TBD
+  // is clicked twice in a row.
+  pendingTbdFocus: { sectionId: string; placeholder: string; nonce: number } | null
   setDocuments: (docs: Document[]) => void
   setActiveDocument: (doc: Document | null) => void
   setActiveSection: (id: string | null) => void
@@ -22,6 +28,8 @@ interface DocumentStore {
   clearRestoreSelection: () => void
   setPresence: (presence: PresenceState[]) => void
   setVersions: (versions: DocumentVersion[]) => void
+  focusTbd: (sectionId: string, placeholder: string) => void
+  clearTbdFocus: () => void
 }
 
 export const useDocumentStore = create<DocumentStore>(set => ({
@@ -34,6 +42,7 @@ export const useDocumentStore = create<DocumentStore>(set => ({
   selectedForRestore: [],
   presence: [],
   versions: [],
+  pendingTbdFocus: null,
   setDocuments: (documents) => set({ documents }),
   setActiveDocument: (activeDocument) => set({ activeDocument }),
   setActiveSection: (activeSection) => set({ activeSection }),
@@ -50,4 +59,7 @@ export const useDocumentStore = create<DocumentStore>(set => ({
   clearRestoreSelection: () => set({ selectedForRestore: [] }),
   setPresence: (presence) => set({ presence }),
   setVersions: (versions) => set({ versions }),
+  focusTbd: (sectionId, placeholder) =>
+    set({ pendingTbdFocus: { sectionId, placeholder, nonce: Date.now() } }),
+  clearTbdFocus: () => set({ pendingTbdFocus: null }),
 }))

@@ -75,7 +75,7 @@ export const crmApi = {
     api.get<{
       meetingId: string
       drafts: Array<{ commentId: string; draftText: string; aiModel: string; generatedAt: string }>
-      transcript: { wordCount: number; source: string; uploadedAt: string } | null
+      transcript: { wordCount: number; source: string; uploadedAt: string; rawText?: string } | null
     }>(`/crm/${meetingId}/ai-drafts`),
   generateMinutes: (meetingId: string) =>
     api.post<{ meetingId: string; minutesHtml: string; generatedAt: string | null }>(

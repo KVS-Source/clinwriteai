@@ -55,38 +55,21 @@ export async function initialiseRegulatoryDocumentVersion(
     },
   })
   if (args.sections.length > 0) {
-    // SectionTemplate snapshot (migration 91 — NL rules). Same pattern as clinical.
-    const tplBySection = new Map<string, { id: string; formatRules: string }>()
-    if (args.docType) {
-      const docType = args.docType.replace(/-/g, '_')
-      const sectionKeys = args.sections.map(s => s.sectionId)
-      try {
-        const templates = await tx.sectionTemplate.findMany({
-          where:   { docType, sectionKey: { in: sectionKeys }, status: 'approved' },
-          orderBy: { version: 'desc' },
-          select:  { id: true, sectionKey: true, formatRules: true },
-        })
-        for (const t of templates) {
-          if (!tplBySection.has(t.sectionKey)) {
-            tplBySection.set(t.sectionKey, { id: t.id, formatRules: t.formatRules })
-          }
-        }
-      } catch { /* model absent on test mocks — fine */ }
-    }
+    // Per-section formatRules snapshot is populated by the clinical
+    // distill-template worker only (migration 94). Non-clinical modules
+    // leave templateFormatRules null until each module's template
+    // distiller is extended to merge formatRules into its own
+    // sections[] JSON.
     await tx.regulatoryDocumentSection.createMany({
-      data: args.sections.map(s => {
-        const tpl = tplBySection.get(s.sectionId)
-        return {
-          regulatoryDocumentVersionId: version.id,
-          sectionId:     s.sectionId,
-          sectionNumber: s.sectionNumber,
-          sectionTitle:  s.sectionTitle,
-          contentHtml:   s.contentHtml ?? '',
-          wordCount:     wordsIn(s.contentHtml ?? ''),
-          sectionTemplateRecordId: tpl?.id ?? null,
-          templateFormatRules:     tpl?.formatRules ?? null,
-        }
-      }),
+      data: args.sections.map(s => ({
+        regulatoryDocumentVersionId: version.id,
+        sectionId:     s.sectionId,
+        sectionNumber: s.sectionNumber,
+        sectionTitle:  s.sectionTitle,
+        contentHtml:   s.contentHtml ?? '',
+        wordCount:     wordsIn(s.contentHtml ?? ''),
+        templateFormatRules: null,
+      })),
     })
   }
   await tx.regulatoryDocument.update({

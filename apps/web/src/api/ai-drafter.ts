@@ -13,6 +13,7 @@ export type AiDraftState =
   | 'validating'   // validation-pass loop is running
   | 'complete'     // loop ended cleanly (may have residual flags; see confidence)
   | 'failed'       // worker threw; writer should regenerate from the editor
+  | 'cancelled'    // writer hit Stop on the toast; worker exits at next section boundary
   | 'not_configured' // no AI provider set up; nothing was drafted, sections left empty
 
 export interface AiDraftSectionStatus {
@@ -57,4 +58,12 @@ export const aiDrafterApi = {
   // renders this as JSON with a Copy button.
   debug: (documentId: string) =>
     api.get<Record<string, unknown>>(`/documents/${encodeURIComponent(documentId)}/ai-debug`),
+  // Stop an in-flight draft or validation chain. Flips the document's
+  // aiDraftState to 'cancelled' so the worker bails at the next
+  // section boundary. Safe to call while state is 'pending', 'drafting',
+  // or 'validating'; no-op otherwise.
+  stopDraft: (documentId: string) =>
+    api.post<{ state: AiDraftState; cancelled: boolean }>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/stop`, {},
+    ),
 }

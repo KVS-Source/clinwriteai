@@ -15,7 +15,7 @@ import { randomBytes } from 'node:crypto'
 import type { User } from '@prisma/client'
 import { z } from 'zod'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
-import { requireAuth, type ModuleKey, type Role } from './rbac.js'
+import { requireAuth, enabledModules, type ModuleKey, type Role } from './rbac.js'
 import { INVITE_COOKIE } from './invitation-routes.js'
 import { checkInvitation, hashInvitationToken, TERMS_VERSION } from '../modules/platform/users/invitations.js'
 import { transition, type UserStatus } from '../modules/platform/users/status-machine.js'
@@ -272,6 +272,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       status: profile?.status ?? 'active',
       lastActiveAt: profile?.lastActiveAt?.toISOString() ?? null,
       mustChangePassword: profile?.mustChangePassword ?? false,
+      // Modules this install is licensed for (Phase 2 — the web client
+      // reads this instead of VITE_MODULES_ENABLED env). The signed-JWT
+      // licence subsystem populates this on boot + after every import.
+      enabledModules: Array.from(enabledModules()).sort(),
     }
   })
 

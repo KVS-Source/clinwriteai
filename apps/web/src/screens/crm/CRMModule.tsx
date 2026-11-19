@@ -25,6 +25,7 @@ import { dateLocale, isPastDate, localToday } from '../../utils/formatDate'
 import { PastDateError } from '../../components/ui/PastDateError'
 import { crmApi, documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
+import { SlidePanel, StatusPill } from '../../components/ui'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
 import { useProjectPeople } from '../../hooks/useProjectPeople'
@@ -113,17 +114,50 @@ function MonoLabel({ children, color = '#64748B' }: { children: React.ReactNode;
   return <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color }}>{children}</p>
 }
 
-function MetaRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+// The right-hand detail panel's building blocks: the same bordered cards as the other detail panels
+// (Master Documents): a mono caps title, then label / value rows.
+const PANEL_LABEL = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
+
+function PanelSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-2.5 py-1.5 text-[13px]">
-      <span className="flex-none text-slate-500">{label}</span>
-      <span
-        className="truncate text-right"
-        style={mono ? { fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#475569', fontWeight: 500 } : { fontWeight: 600, color: '#1E293B' }}
-      >
-        {value}
-      </span>
-    </div>
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white">
+      <div className="px-3.5 py-2.5"><span className={PANEL_LABEL}>{title}</span></div>
+      <div className="border-t border-slate-100 px-3.5 py-3">{children}</div>
+    </section>
+  )
+}
+
+function FieldGrid({ children }: { children: React.ReactNode }) {
+  return <dl className="grid grid-cols-[minmax(84px,120px)_minmax(0,1fr)] items-baseline gap-x-3 gap-y-2">{children}</dl>
+}
+
+function Field({ label, children }: { label: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <>
+      <dt className={`${PANEL_LABEL} break-words`}>{label}</dt>
+      <dd className="min-w-0 break-words text-[12px] text-slate-800">{children}</dd>
+    </>
+  )
+}
+
+// Columns of the meetings list: meeting, when, chair, attendees, comments, status.
+const MEETING_COLS = 'minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.2fr) 90px 120px 170px'
+
+const MEETING_STATUS_STYLE: Record<string, { bg: string; fg: string; border: string }> = {
+  scheduled:   { bg: '#EFF6FF', fg: '#2563EB', border: '#BFDBFE' },
+  in_progress: { bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' },
+  complete:    { bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' },
+  cancelled:   { bg: '#F1F5F9', fg: '#64748B', border: '#E2E8F0' },
+}
+
+function MeetingStatusPill({ status }: { status: string }) {
+  const { t } = useTranslation()
+  const s = MEETING_STATUS_STYLE[status] ?? MEETING_STATUS_STYLE.scheduled!
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: s.bg, color: s.fg, border: `1px solid ${s.border}` }}>
+      {status === 'in_progress' && <span className="h-1.5 w-1.5 rounded-full animate-pulse-green" style={{ backgroundColor: '#16A34A' }} />}
+      {t(`page.crm_module.status_${status}`)}
+    </span>
   )
 }
 
@@ -132,7 +166,7 @@ function MetaRow({ label, value, mono }: { label: string; value: string; mono?: 
 function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment; resolution?: CRMResolutionRow; resolverName?: string }) {
   const { t } = useTranslation()
   return (
-    <div className="flex flex-col gap-2 rounded-lg p-4" style={{ border: '1px solid #BBF7D0', backgroundColor: '#F0FDF4' }} data-crm-comment={comment.id} data-state="resolved">
+    <div className="flex flex-col gap-2 rounded-lg p-4" style={{ border: '1px solid #BBF7D0', backgroundColor: '#F0FDF4' }} data-crm-comment={comment.id} data-crm-log-entry={comment.id} data-state="resolved">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
         <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{cleanSectionRef(comment.sectionRef)}</span>
@@ -339,7 +373,7 @@ function TranscriptUploadModal({
 
 // --- Schedule form (no active meeting yet) ---
 
-function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; onScheduled: () => void }) {
+function ScheduleMeetingForm({ documentId, onScheduled, bare = false }: { documentId: string; onScheduled: () => void; bare?: boolean }) {
   const { t } = useTranslation()
   const { data: me } = useCurrentUser()
   // The document's own people and the project's PM (not every user): the chair is a PM, Author, Reviewer
@@ -377,10 +411,10 @@ function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; 
   })
 
   return (
-    <div className="flex w-full max-w-[560px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-crm-schedule>
+    <div className={bare ? 'flex w-full flex-col gap-4 p-5 text-left' : 'flex w-full max-w-[560px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left'} data-crm-schedule>
       <div>
-        <p className="text-sm font-bold text-slate-900">{t('page.crm_module.schedule_title')}</p>
-        <p className="mt-1 text-xs text-slate-500">{t('page.crm_module.schedule_intro')}</p>
+        {!bare && <p className="text-sm font-bold text-slate-900">{t('page.crm_module.schedule_title')}</p>}
+        <p className={bare ? 'text-xs text-slate-500' : 'mt-1 text-xs text-slate-500'}>{t('page.crm_module.schedule_intro')}</p>
       </div>
       <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
         {t('page.crm_module.chair')}
@@ -634,6 +668,8 @@ export function CRMModule() {
   const endMut   = useMutation({ mutationFn: () => crmApi.completeMeeting(meeting!.id), onSuccess: refresh })
   // Finish CRM and send for approval: the document moves to Pending signature and signing starts.
   const [finishOpen, setFinishOpen] = useState(false)
+  // The meeting-details panel opens on a row click.
+  const [detailOpen, setDetailOpen] = useState(false)
   const finishMut = useMutation({
     mutationFn: () => crmApi.finishCrm(activeDocId!),
     onSuccess: () => {
@@ -661,6 +697,24 @@ export function CRMModule() {
     return () => clearTimeout(t)
   }, [stuckInCrm, qc, projectId, activeDocId])
 
+  // No meeting yet: open the schedule form straight away (once per document) for someone who may schedule.
+  const [autoOpenedFor, setAutoOpenedFor] = useState<string | null>(null)
+  useEffect(() => {
+    if (!activeDocId || meetingsLoading || meetings.length > 0 || autoOpenedFor === activeDocId) return
+    if (!SCHEDULABLE.has(String(activeDoc?.status)) || !crmAccess || crmAccess.canSchedule === false) return
+    setAutoOpenedFor(activeDocId)
+    setScheduling(true)
+  }, [activeDocId, meetingsLoading, meetings.length, autoOpenedFor, activeDoc?.status, crmAccess])
+
+  // A meeting that is scheduled or running opens in the details panel straight away (once per document): its
+  // queue, Start / End buttons and transcript are all there.
+  const [detailAutoFor, setDetailAutoFor] = useState<string | null>(null)
+  useEffect(() => {
+    if (!activeDocId || meetingsLoading || !openMeeting || detailAutoFor === activeDocId) return
+    setDetailAutoFor(activeDocId)
+    setDetailOpen(true)
+  }, [activeDocId, meetingsLoading, openMeeting, detailAutoFor])
+
   const docPicker = routeDocumentId ? null : (
     <label className="flex items-center gap-2 text-xs text-slate-500">
       {t('page.crm_module.document')}
@@ -679,173 +733,388 @@ export function CRMModule() {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{projectDocs.length === 0 && !meetingsLoading ? t('page.crm_module.no_documents') : t('page.crm_module.loading_meeting')}</p></div>
   }
 
-  // An older meeting picked from the history list: a record to look at, not the document's current state.
+  // The meeting last held or open is the document's current one; an older row picked from the list is a record.
   const latestMeeting = [...meetings].reverse().find(m => m.status !== 'cancelled')
   const viewingPast = !!meeting && !!latestMeeting && meeting.id !== latestMeeting.id
 
-  // Another meeting may be scheduled while none is open and the document is still in review or authoring.
-  const canScheduleAnother = !openMeeting && (activeDoc?.status === 'in-review' || activeDoc?.status === 'in-authoring')
-    && crmAccess?.canSchedule !== false
-  // Finish CRM and send for approval: in review, nothing open, and a meeting held. The server also checks
-  // this review round, the Reviewers' "review done" marks and unresolved comments, and says which is missing.
-  const canFinish = !openMeeting && activeDoc?.status === 'in-review' && crmAccess?.canFinish === true
-    && heldMeetings.some(m => !m.heldDuringAuthoring)
+  const docStatus = String(activeDoc?.status)
+  const canSchedulePerm = crmAccess?.canSchedule !== false
+  const schedulableStatus = SCHEDULABLE.has(docStatus)
+  const afterCrm = docStatus === 'pending-signature' || docStatus === 'signed'
+  const heldInReview = heldMeetings.some(m => !m.heldDuringAuthoring)
 
-  // No meeting to show (none yet, or the only one was cancelled), or the user asked to schedule another → schedule.
-  if (!meeting || meeting.status === 'cancelled' || (scheduling && canScheduleAnother)) {
-    const canSchedule = SCHEDULABLE.has(String(activeDoc?.status))
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-10 text-center" data-screen="crm-module">
-        {docPicker}
-        {meeting && (
-          <button type="button" onClick={() => setScheduling(false)} className="text-xs font-semibold text-blue-700 hover:underline" data-crm-schedule-back>
-            {t('page.crm_module.back_to_meeting', { ref: meeting.meetingRef })}
-          </button>
-        )}
-        {canSchedule && crmAccess?.canSchedule === false ? (
-          <div className="flex flex-col items-center gap-2" data-crm-schedule-not-allowed>
-            <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
-            <p className="max-w-md text-xs text-slate-500">
-              {t('page.crm_module.schedule_not_allowed')}
-            </p>
-          </div>
-        ) : canSchedule ? (
-          <ScheduleMeetingForm documentId={activeDocId} onScheduled={() => { setScheduling(false); setViewMeetingId(null); refresh() }} />
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
-            <p className="max-w-md text-xs text-slate-500">
-              {t('page.crm_module.schedule_after_review', { status: documentStatusLabel(activeDoc?.status, '—') })}
-            </p>
-          </div>
-        )}
-      </div>
-    )
-  }
+  // New meeting: for whoever may schedule, while the document is in authoring, review or a meeting. One open at a time.
+  const showNewMeeting = schedulableStatus && canSchedulePerm
+  const newMeetingBlocked = openMeeting ? t('page.crm_module.blocked_open', { ref: openMeeting.meetingRef }) : null
+  // Finish CRM and send for approval: for the Author, PM or a chair. The server also checks this review round, the
+  // Reviewers' "review done" marks and unresolved comments, and says which is missing.
+  const showFinish = crmAccess?.canFinish === true && (docStatus === 'in-review' || docStatus === 'crm-in-progress')
+  const finishBlocked = openMeeting ? t('page.crm_module.blocked_open', { ref: openMeeting.meetingRef })
+    : docStatus !== 'in-review' ? t('page.crm_module.finish_blocked_status')
+    : !heldInReview ? t('page.crm_module.finish_blocked_none')
+    : null
 
   // Informed (I) changes nothing in a meeting they don't chair; the API refuses it too.
   // Starting, ending and the note-taker belong to the chair (action table row 18: Close only if chair); the
   // API also lets an admin, so the screen does too. Everyone else watches and, where allowed, logs resolutions.
-  const informedNonChair = !(meeting.chair.userId === me?.id || (!!me && ['admin', 'tenant-admin', 'super-admin'].includes(me.role)))
+  const informedNonChair = !meeting || !(meeting.chair.userId === me?.id || (!!me && ['admin', 'tenant-admin', 'super-admin'].includes(me.role)))
 
-  const statusPill =
-    isComplete ? { label: t('page.crm_module.status_complete'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
-    : inProgress ? { label: t('page.crm_module.status_in_progress'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
-    : { label: t('page.crm_module.status_scheduled'), bg: '#EFF6FF', fg: '#2563EB', border: '#BFDBFE' }
-  const meetingDateLabel = new Date(meeting.date).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short', year: 'numeric' })
+  const meetingDateLabel = (iso: string) => new Date(iso).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short', year: 'numeric' })
+  const rows = [...meetings].reverse()   // newest first
 
   return (
-    <div className="relative flex h-full flex-col" data-screen="crm-module" data-meeting-status={meeting.status}>
+    <div className="relative flex h-full flex-col" data-screen="crm-module" data-meeting-status={meeting?.status}>
 
-      {/* Page header */}
-      <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 bg-white px-8 py-5">
-        {/* Breadcrumb moved to TopNav; the doc picker it used to share this
-            row with now sits on its own, right-aligned, so the layout grid
-            doesn't change height. */}
-        <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
-          {meetings.length > 1 && (
-            <label className="flex items-center gap-2 text-xs text-slate-500">
-              {t('page.crm_module.meetings_label')}
-              <select
-                value={meeting.id}
-                onChange={e => setViewMeetingId(e.currentTarget.value)}
-                className="h-8 max-w-[320px] rounded-md border border-slate-300 bg-white px-2 text-[12px] text-slate-800"
-                data-crm-meeting-picker
-              >
-                {[...meetings].reverse().map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.meetingRef} · {new Date(m.date).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short' })} · {t(`page.crm_module.status_${m.status ?? 'scheduled'}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {docPicker}
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="text-2xl font-bold tracking-tight">{t('page.crm_module.title')}</h1>
-            <p className="text-[13px] text-slate-500">
-              {meeting.meetingRef} · {meeting.documentTitle} · {meetingDateLabel} · {meeting.startTime}–{meeting.endTime}
-            </p>
+      {/* ============ Page header ============ */}
+      <div className="flex flex-none flex-col gap-4 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+          <div className="flex min-w-0 flex-col gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: '#2563EB' }} />
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">{t('page.crm_module.title')}</h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-slate-500">
+              <span className="font-semibold text-slate-700">{activeDoc?.title ?? meeting?.documentTitle ?? '—'}</span>
+              {activeDoc && <StatusPill status={activeDoc.status} size="sm" />}
+              <span>· {t('page.crm_module.meetings_count', { count: meetings.length })}</span>
+            </div>
           </div>
-          <div className="flex-1" />
-          {routeDocumentId && <MyRaciRole documentId={routeDocumentId} />}
-          <div className="flex flex-none items-center gap-2 rounded-full px-3.5 py-1.5" style={{ backgroundColor: statusPill.bg, border: `1px solid ${statusPill.border}` }} data-crm-status-pill>
-            {inProgress && <span className="h-2 w-2 rounded-full animate-pulse-green" style={{ backgroundColor: '#16A34A' }} />}
-            <span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: statusPill.fg }}>{statusPill.label}</span>
+          {/* Right side: the document picker (project-level screen only), then my role and the actions in one row. */}
+          <div className="flex min-w-0 flex-col items-end gap-2.5">
+            {docPicker && <div className="flex items-center gap-2 text-xs text-slate-500">{docPicker}</div>}
+            <div className="flex flex-wrap items-center justify-end gap-2.5">
+            {routeDocumentId && <MyRaciRole documentId={routeDocumentId} />}
+            {showNewMeeting && (
+              <button
+                type="button"
+                onClick={() => setScheduling(true)}
+                disabled={!!newMeetingBlocked}
+                title={newMeetingBlocked ?? undefined}
+                className="rounded-md bg-blue-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                data-crm-schedule-another
+                data-crm-new-meeting
+              >+ {t('page.crm_module.new_meeting')}</button>
+            )}
+            {showFinish && (
+              <button
+                type="button"
+                onClick={() => { finishMut.reset(); setFinishOpen(true) }}
+                disabled={!!finishBlocked}
+                title={finishBlocked ?? undefined}
+                className="rounded-md bg-slate-900 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                data-crm-finish
+              >{t('page.crm_module.finish_crm')}</button>
+            )}
+            {afterCrm && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${activeDocId}/sign`)}
+                className="rounded-md bg-blue-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-blue-700"
+                data-crm-to-signature
+              >{t('page.crm_module.go_to_signature')}</button>
+            )}
+            </div>
           </div>
-          {meeting.status === 'scheduled' && !informedNonChair && (
-            <button
-              type="button"
-              onClick={() => startMut.mutate()}
-              disabled={startMut.isPending}
-              className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              data-crm-start
-            >{startMut.isPending ? t('page.crm_module.starting') : t('page.crm_module.start_meeting')}</button>
-          )}
-          {inProgress && !informedNonChair && (
-            <button
-              type="button"
-              onClick={() => endMut.mutate()}
-              disabled={endMut.isPending}
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
-              data-crm-end
-            >{endMut.isPending ? t('page.crm_module.ending') : t('page.crm_module.end_meeting')}</button>
-          )}
-          {canScheduleAnother && (
-            <button
-              type="button"
-              onClick={() => setScheduling(true)}
-              className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-              data-crm-schedule-another
-            >{t('page.crm_module.schedule_another')}</button>
-          )}
-          {canFinish && (
-            <button
-              type="button"
-              onClick={() => { finishMut.reset(); setFinishOpen(true) }}
-              className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
-              data-crm-finish
-            >{t('page.crm_module.finish_crm')}</button>
-          )}
-          {(activeDoc?.status === 'pending-signature' || activeDoc?.status === 'signed') && (
-            <button
-              type="button"
-              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${activeDocId}/sign`)}
-              className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
-              data-crm-to-signature
-            >{t('page.crm_module.go_to_signature')}</button>
-          )}
         </div>
         {(startMut.isError || endMut.isError) && (
           <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-crm-error>
             {startMut.isError ? apiMessage(startMut.error, t('page.crm_module.start_failed')) : apiMessage(endMut.error, t('page.crm_module.end_failed'))}
           </p>
         )}
-        {/* The completion banners describe where the document stands now, so only for the current meeting.
-            An older meeting picked from the history list is just a record: no status message. */}
-        {isComplete && viewingPast && (
-          <p className="flex flex-wrap items-center gap-2 rounded-md bg-slate-50 p-2 text-[12px] text-slate-600" data-crm-past>
-            {t('page.crm_module.viewing_past', { ref: meeting.meetingRef })}
-            <button type="button" onClick={() => setViewMeetingId(null)} className="font-semibold text-blue-700 hover:underline" data-crm-back-to-latest>
-              {t('page.crm_module.back_to_latest')}
-            </button>
-          </p>
-        )}
-        {isComplete && !viewingPast && (activeDoc?.status === 'crm-in-progress' && !openMeeting ? (
-          <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-800" data-crm-complete-pending>
-            {t('page.crm_module.complete_pending')}
-          </p>
-        ) : (
-          <p className="rounded-md bg-green-50 p-2 text-[12px] text-green-800" data-crm-complete>
-            {activeDoc?.status === 'in-authoring' ? t('page.crm_module.complete_done_authoring')
-              : activeDoc?.status === 'in-review' ? t('page.crm_module.complete_done_review')
-              : t('page.crm_module.complete_done')}
-          </p>
-        ))}
       </div>
+
+      {/* A meeting left "in progress" for more than a day is probably finished: say so. */}
+      {inProgress && meeting?.startedAt && Date.now() - new Date(meeting.startedAt).getTime() > STALE_MEETING_MS && (
+        <div role="status" className="flex-none border-b border-amber-200 bg-amber-50 px-8 py-2 text-[13px] text-amber-900" data-crm-stale>
+          {t('page.crm_module.stale_warning', { days: Math.max(1, Math.floor((Date.now() - new Date(meeting.startedAt).getTime()) / 86_400_000)), chair: meeting.chair.name })}
+        </div>
+      )}
+
+      {/* ============ Content: meetings list + resolution queue, details on the right ============ */}
+      <div className="flex flex-1 items-start gap-6 overflow-auto px-8 py-6">
+
+        {/* Left column */}
+        <div className="flex min-w-0 flex-1 flex-col gap-5">
+
+          {/* Meetings list */}
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-crm-meetings>
+            <div className="overflow-x-auto">
+              <div className="min-w-[760px]">
+                <div
+                  className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500"
+                  style={{ display: 'grid', gridTemplateColumns: MEETING_COLS }}
+                >
+                  <div>{t('page.crm_module.col_meeting')}</div>
+                  <div>{t('page.crm_module.col_when')}</div>
+                  <div>{t('page.crm_module.chair')}</div>
+                  <div>{t('page.crm_module.col_attendees')}</div>
+                  <div>{t('page.crm_module.col_comments')}</div>
+                  <div>{t('page.crm_module.col_status')}</div>
+                </div>
+
+                {rows.length === 0 && (
+                  <div className="flex flex-col items-center gap-2 px-5 py-12 text-center" data-crm-empty data-crm-schedule-not-allowed={schedulableStatus && !canSchedulePerm ? '' : undefined}>
+                    <p className="text-sm font-semibold text-slate-900">{t('page.crm_module.no_meeting')}</p>
+                    <p className="max-w-md text-xs text-slate-500">
+                      {!schedulableStatus ? t('page.crm_module.schedule_after_review', { status: documentStatusLabel(activeDoc?.status, '—') })
+                        : !canSchedulePerm ? t('page.crm_module.schedule_not_allowed')
+                        : t('page.crm_module.no_meetings_yet')}
+                    </p>
+                  </div>
+                )}
+
+                {rows.map((m, i) => {
+                  const resolved = m.resolvedIds.length
+                  const total = resolved + m.pendingIds.filter(id => !m.resolvedIds.includes(id)).length
+                  const selected = m.id === meeting?.id
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => { setViewMeetingId(m.id); setActiveCommentId(null); setDetailOpen(open => !(open && selected)) }}
+                      aria-selected={selected}
+                      data-crm-row={m.id}
+                      data-panel-trigger
+                      className={`cursor-pointer items-center border-b border-slate-100 px-5 py-4 text-sm transition-colors hover:bg-slate-50 ${selected ? 'bg-blue-50/50' : ''}`}
+                      style={{ display: 'grid', gridTemplateColumns: MEETING_COLS, borderBottom: i === rows.length - 1 ? 'none' : undefined }}
+                    >
+                      <div className="min-w-0 pr-4">
+                        <p className="truncate font-semibold text-slate-900">{m.meetingRef}</p>
+                        {m.heldDuringAuthoring && <p className="truncate text-[11px] text-slate-500">{t('page.crm_module.held_in_authoring')}</p>}
+                      </div>
+                      <div className="min-w-0 pr-4">
+                        <p className="truncate text-slate-900">{meetingDateLabel(m.date)}</p>
+                        <p className="truncate text-xs text-slate-500">{m.startTime}–{m.endTime}</p>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-2 pr-4">
+                        <Avatar initials={m.chair.initials} size={20} />
+                        <span className="truncate text-slate-900">{m.chair.name}</span>
+                      </div>
+                      <div className="text-slate-900">{m.attendees.length}</div>
+                      <div className="text-slate-900">
+                        {m.status === 'cancelled' ? <span className="text-slate-400">—</span>
+                          : m.status === 'complete' ? t('page.crm_module.comments_resolved_count', { count: resolved })
+                          : t('page.crm_module.comments_x_of_y', { resolved, total })}
+                      </div>
+                      <div><MeetingStatusPill status={m.status ?? 'scheduled'} /></div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Meeting details: a right-hand panel like the other detail panels (Master Documents, document details). */}
+      <SlidePanel
+        open={detailOpen && !!meeting}
+        onClose={() => setDetailOpen(false)}
+        title={meeting?.meetingRef ?? ''}
+        wrapTitle
+        eyebrow={t('page.crm_module.detail_eyebrow')}
+        subtitle={meeting && (
+          <>
+            <span className="mt-1 flex flex-wrap items-center gap-2" data-crm-status-pill>
+              <MeetingStatusPill status={meeting.status ?? 'scheduled'} />
+              {meeting.heldDuringAuthoring && <span className="font-mono text-[11px] text-slate-500">{t('page.crm_module.held_in_authoring')}</span>}
+            </span>
+            <span className="mt-1 block truncate font-mono text-[11px]">{meetingDateLabel(meeting.date)} · {meeting.startTime}–{meeting.endTime}</span>
+          </>
+        )}
+        storageKey="panel-width-crm-detail"
+        defaultWidth={600}
+        belowTopBar
+        closeOnOutsideClick
+      >
+        {meeting && (
+          // One scroll area (the panel body). pb-20 keeps the last card clear of the floating pill at the bottom.
+          <div className="flex min-w-0 flex-col gap-3 px-4 pb-20 pt-4 sm:px-5" data-crm-detail>
+            {/* The resolution queue of this meeting: its controls, where the document stands, and every comment. */}
+            {meeting.status !== 'cancelled' && (
+              <div data-crm-queue>
+                <PanelSection title={`${t('page.crm_module.queue_title')} (${queueIds.length})`}>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {meeting.status === 'scheduled' && !informedNonChair && (
+                      <button
+                        type="button"
+                        onClick={() => startMut.mutate()}
+                        disabled={startMut.isPending}
+                        className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                        data-crm-start
+                      >{startMut.isPending ? t('page.crm_module.starting') : t('page.crm_module.start_meeting')}</button>
+                    )}
+                    {inProgress && !informedNonChair && (
+                      <button
+                        type="button"
+                        onClick={() => endMut.mutate()}
+                        disabled={endMut.isPending}
+                        className="rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
+                        style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
+                        data-crm-end
+                      >{endMut.isPending ? t('page.crm_module.ending') : t('page.crm_module.end_meeting')}</button>
+                    )}
+                    <div className="flex-1" />
+                    <p className="whitespace-nowrap text-[11px] text-slate-500">{t('page.crm_module.queue_counts', { total: totalCount, resolved: resolvedCount, remaining: totalCount - resolvedCount })}</p>
+                    <button
+                      type="button"
+                      onClick={() => setDocViewerOpen(true)}
+                      className="whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      data-action="open-doc-viewer"
+                    >{t('page.crm_module.view_document')}</button>
+                  </div>
+
+                  {/* Where the document stands after this meeting: only the current one, not an older record. */}
+                  {isComplete && !viewingPast && (docStatus === 'crm-in-progress' && !openMeeting ? (
+                    <p className="mb-3 rounded-md bg-amber-50 p-2 text-[12px] text-amber-800" data-crm-complete-pending>
+                      {t('page.crm_module.complete_pending')}
+                    </p>
+                  ) : (
+                    <p className="mb-3 rounded-md bg-green-50 p-2 text-[12px] text-green-800" data-crm-complete>
+                      {docStatus === 'in-authoring' ? t('page.crm_module.complete_done_authoring')
+                        : docStatus === 'in-review' ? t('page.crm_module.complete_done_review')
+                        : t('page.crm_module.complete_done')}
+                    </p>
+                  ))}
+
+                  <div className="flex flex-col gap-3">
+                    {queueIds.length === 0 && <p className="text-[12px] italic text-slate-500">{t('page.crm_module.no_open_comments')}</p>}
+                    {queueIds.map(cid => {
+                      const c = commentsById.get(cid)
+                      if (!c) return null
+                      if (resolvedIds.includes(cid)) {
+                        const r = resolutionByComment.get(cid)
+                        return <ResolvedCard key={cid} comment={c} resolution={r} resolverName={r ? nameOf(r.resolvedBy) : undefined} />
+                      }
+                      if (effectiveActive === cid) {
+                        const aiDraft = draftNoteByCommentId.get(cid) ?? null
+                        return (
+                          <ActiveCard
+                            key={cid}
+                            comment={c}
+                            meetingRunning={inProgress}
+                            aiDraftNote={aiDraft}
+                            onResolve={type => setResolutionDraft({ commentId: cid, type, note: aiDraft ?? '' })}
+                            informedParticipant={signatureAccess.isInformedOnly && meeting.attendees.some(a => a.userId === me?.id)}
+                          />
+                        )
+                      }
+                      return <PendingCard key={cid} comment={c} onSelect={() => setActiveCommentId(cid)} />
+                    })}
+                  </div>
+                </PanelSection>
+              </div>
+            )}
+
+            <PanelSection title={t('page.crm_module.details_label')}>
+              <FieldGrid>
+                <Field label={t('page.crm_module.chair')}>{meeting.chair.name}</Field>
+                <Field label={t('page.crm_module.document')}>{meeting.documentTitle}</Field>
+                <Field label={t('page.crm_module.version')}>{meeting.version}</Field>
+                <Field label={t('page.crm_module.started')}>{meeting.startedAt ? fmtTime(meeting.startedAt) : t('page.crm_module.not_started')}</Field>
+                {meeting.endedAt && <Field label={t('page.crm_module.ended')}>{fmtTime(meeting.endedAt)}</Field>}
+              </FieldGrid>
+            </PanelSection>
+
+            <PanelSection title={`${t('page.crm_module.attendees')} (${meeting.attendees.length})`}>
+              <div className="flex flex-col gap-1.5">
+                {meeting.attendees.map(a => (
+                  <div key={a.userId} className="flex min-w-0 items-center gap-2">
+                    <Avatar initials={a.initials} />
+                    <p className="min-w-0 flex-1 truncate text-[12px] text-slate-800">{a.name}</p>
+                    <p className="font-mono text-[10px] tracking-wider text-slate-500">{ATTENDEE_ROLE_KEY[a.role] ? t(ATTENDEE_ROLE_KEY[a.role]!) : a.role}</p>
+                  </div>
+                ))}
+              </div>
+            </PanelSection>
+
+            <PanelSection title={t('page.crm_module.progress_label')}>
+              <div className="flex items-baseline justify-between">
+                <p className="text-[12px] text-slate-800" data-crm-progress>{t('page.crm_module.progress_value', { resolved: resolvedCount, total: totalCount })}</p>
+                <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{pct}%</p>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
+                <div className="h-full" style={{ width: `${pct}%`, backgroundColor: '#2563EB' }} />
+              </div>
+              {totalCount === 0 && <p className="mt-2 text-[11px] italic text-slate-500">{t('page.crm_module.no_open_comments')}</p>}
+            </PanelSection>
+
+            {/* AI Note-Taker (Phase 1). Audio is never stored; the chair pastes
+                a pre-transcribed text. Server extracts per-comment draft notes
+                + an optional minutes HTML. Phase 3 adds a Recall.ai bot that
+                feeds the transcript automatically. */}
+            <PanelSection title={t('page.crm_module.ai_note_taker')}>
+              {aiNoteTaker?.transcript ? (
+                <>
+                  <p className="text-[12px] text-slate-700">
+                    {t('page.crm_module.transcript_loaded', { words: aiNoteTaker.transcript.wordCount.toLocaleString() })}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {TRANSCRIPT_SOURCE_KEY[aiNoteTaker.transcript.source] ? t(TRANSCRIPT_SOURCE_KEY[aiNoteTaker.transcript.source]!) : aiNoteTaker.transcript.source.replace(/_/g, ' ')} · {fmtTime(aiNoteTaker.transcript.uploadedAt)}
+                  </p>
+                  <p className="mt-1 text-[12px] font-semibold text-emerald-700">
+                    {t('page.crm_module.drafts_ready', { count: aiNoteTaker.drafts.length })}
+                  </p>
+                  {aiNoteTaker.transcript.rawText && (
+                    <details className="mt-2 rounded-md border border-slate-200 bg-slate-50" data-crm-transcript>
+                      <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[12px] font-semibold text-blue-700">{t('page.crm_module.view_transcript')}</summary>
+                      <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words border-t border-slate-200 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-slate-800" data-crm-transcript-text>{aiNoteTaker.transcript.rawText}</pre>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <p className="text-[12px] italic text-slate-500">{t('page.crm_module.no_transcript')}</p>
+              )}
+              {!informedNonChair && (
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptModalOpen(true)}
+                    className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                    data-action="upload-transcript"
+                  >
+                    {aiNoteTaker?.transcript ? t('page.crm_module.replace_transcript') : t('page.crm_module.upload_transcript')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => minutesMut.mutate()}
+                    disabled={minutesMut.isPending || meeting.status === 'scheduled'}
+                    className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    title={meeting.status === 'scheduled' ? t('page.crm_module.start_first') : t('page.crm_module.minutes_tooltip')}
+                    data-action="generate-minutes"
+                  >
+                    {minutesMut.isPending ? t('page.crm_module.generating') : t('page.crm_module.generate_minutes')}
+                  </button>
+                </div>
+              )}
+              {minutesMut.isError && (
+                <p className="mt-1.5 text-[11px] text-rose-600" role="alert">{t('page.crm_module.minutes_failed')}</p>
+              )}
+              {minutesMut.isSuccess && minutesMut.data?.minutesHtml && (
+                <a
+                  href={URL.createObjectURL(new Blob([minutesMut.data.minutesHtml], { type: 'text/html' }))}
+                  download={`${meeting.meetingRef ?? 'crm'}-minutes.html`}
+                  className="mt-1.5 inline-block text-[11px] font-semibold text-blue-600 underline"
+                >
+                  {t('page.crm_module.download_minutes')}
+                </a>
+              )}
+            </PanelSection>
+          </div>
+        )}
+      </SlidePanel>
+
+      {/* New meeting: a slide-in form, like the other "New …" forms in the system. */}
+      <SlidePanel
+        open={scheduling && showNewMeeting}
+        onClose={() => setScheduling(false)}
+        title={t('page.crm_module.schedule_title')}
+        storageKey="panel-width-crm-schedule"
+        defaultWidth={460}
+        belowTopBar
+      >
+        <ScheduleMeetingForm documentId={activeDocId} onScheduled={() => { setScheduling(false); setViewMeetingId(null); refresh() }} bare />
+      </SlidePanel>
 
       {/* Finish CRM and send for approval — confirmation. */}
       {finishOpen && (
@@ -887,190 +1156,9 @@ export function CRMModule() {
         </div>
       )}
 
-      {/* A meeting left "in progress" for more than a day is probably finished: say so. */}
-      {inProgress && meeting.startedAt && Date.now() - new Date(meeting.startedAt).getTime() > STALE_MEETING_MS && (
-        <div role="status" className="flex-none border-b border-amber-200 bg-amber-50 px-8 py-2 text-[13px] text-amber-900" data-crm-stale>
-          {t('page.crm_module.stale_warning', { days: Math.max(1, Math.floor((Date.now() - new Date(meeting.startedAt).getTime()) / 86_400_000)), chair: meeting.chair.name })}
-        </div>
-      )}
-
-      {/* 3-panel row */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* Left panel */}
-        <div className="flex w-[280px] flex-none flex-col overflow-y-auto border-r border-slate-200" style={{ backgroundColor: '#F8FAFC' }}>
-          <div className="border-b border-slate-200 p-4">
-            <div className="mb-2.5"><MonoLabel>{t('page.crm_module.details_label')}</MonoLabel></div>
-            <MetaRow label={t('page.crm_module.chair')}    value={meeting.chair.name} />
-            <MetaRow label={t('page.crm_module.document')} value={meeting.documentTitle} />
-            <MetaRow label={t('page.crm_module.version')}  value={meeting.version} mono />
-            <MetaRow label={t('page.crm_module.started')}  value={meeting.startedAt ? fmtTime(meeting.startedAt) : t('page.crm_module.not_started')} />
-            {meeting.endedAt && <MetaRow label={t('page.crm_module.ended')} value={fmtTime(meeting.endedAt)} />}
-          </div>
-
-          <div className="border-b border-slate-200 p-4">
-            <div className="mb-2.5"><MonoLabel>{t('page.crm_module.attendees')}</MonoLabel></div>
-            {meeting.attendees.map(a => (
-              <div key={a.userId} className="flex min-w-0 items-center gap-2 py-1">
-                <Avatar initials={a.initials} />
-                <p className="min-w-0 flex-1 truncate text-[13px]">{a.name}</p>
-                <p className="font-mono text-[9px] tracking-wider text-slate-500">{ATTENDEE_ROLE_KEY[a.role] ? t(ATTENDEE_ROLE_KEY[a.role]!) : a.role}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* AI Note-Taker (Phase 1). Audio is never stored; the chair pastes
-              a pre-transcribed text. Server extracts per-comment draft notes
-              + an optional minutes HTML. Phase 3 adds a Recall.ai bot that
-              feeds the transcript automatically. */}
-          <div className="border-b border-slate-200 p-4">
-            <div className="mb-2.5 flex items-center gap-2">
-              <MonoLabel>{t('page.crm_module.ai_note_taker')}</MonoLabel>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-blue-700">{t('page.crm_module.beta')}</span>
-            </div>
-            {aiNoteTaker?.transcript ? (
-              <>
-                <p className="text-[11px] text-slate-700">
-                  {t('page.crm_module.transcript_loaded', { words: aiNoteTaker.transcript.wordCount.toLocaleString() })}
-                </p>
-                <p className="text-[10px] text-slate-500">
-                  {TRANSCRIPT_SOURCE_KEY[aiNoteTaker.transcript.source] ? t(TRANSCRIPT_SOURCE_KEY[aiNoteTaker.transcript.source]!) : aiNoteTaker.transcript.source.replace(/_/g, ' ')} · {fmtTime(aiNoteTaker.transcript.uploadedAt)}
-                </p>
-                <p className="mt-1 text-[11px] font-semibold text-emerald-700">
-                  {t('page.crm_module.drafts_ready', { count: aiNoteTaker.drafts.length })}
-                </p>
-              </>
-            ) : (
-              <p className="text-[11px] italic text-slate-500">
-                {t('page.crm_module.no_transcript')}
-              </p>
-            )}
-            {!informedNonChair && <div className="mt-2.5 flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setTranscriptModalOpen(true)}
-                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                data-action="upload-transcript"
-              >
-                {aiNoteTaker?.transcript ? t('page.crm_module.replace_transcript') : t('page.crm_module.upload_transcript')}
-              </button>
-              <button
-                type="button"
-                onClick={() => minutesMut.mutate()}
-                disabled={minutesMut.isPending || meeting.status === 'scheduled'}
-                className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                title={meeting.status === 'scheduled' ? t('page.crm_module.start_first') : t('page.crm_module.minutes_tooltip')}
-                data-action="generate-minutes"
-              >
-                {minutesMut.isPending ? t('page.crm_module.generating') : t('page.crm_module.generate_minutes')}
-              </button>
-            </div>}
-            {minutesMut.isError && (
-              <p className="mt-1.5 text-[10px] text-rose-600" role="alert">{t('page.crm_module.minutes_failed')}</p>
-            )}
-            {minutesMut.isSuccess && minutesMut.data?.minutesHtml && (
-              <a
-                href={URL.createObjectURL(new Blob([minutesMut.data.minutesHtml], { type: 'text/html' }))}
-                download={`${meeting.meetingRef ?? 'crm'}-minutes.html`}
-                className="mt-1.5 inline-block text-[11px] font-semibold text-blue-600 underline"
-              >
-                {t('page.crm_module.download_minutes')}
-              </a>
-            )}
-          </div>
-
-          <div className="p-4">
-            <div className="mb-2.5"><MonoLabel>{t('page.crm_module.progress_label')}</MonoLabel></div>
-            <div className="flex items-baseline justify-between">
-              <p className="text-xs text-slate-900" data-crm-progress>{t('page.crm_module.progress_value', { resolved: resolvedCount, total: totalCount })}</p>
-              <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{pct}%</p>
-            </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
-              <div className="h-full" style={{ width: `${pct}%`, backgroundColor: '#2563EB' }} />
-            </div>
-            {totalCount === 0 && (
-              <p className="mt-2 text-[11px] italic text-slate-500">{t('page.crm_module.no_open_comments')}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Centre panel — resolution queue */}
-        <div className="flex flex-1 min-w-0 flex-col overflow-y-auto border-r border-slate-200 bg-white p-6">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <h2 className="text-base font-bold">{t('page.crm_module.queue_title')}</h2>
-            <div className="flex-1" />
-            <p className="whitespace-nowrap text-xs text-slate-500">{t('page.crm_module.queue_counts', { total: totalCount, resolved: resolvedCount, remaining: totalCount - resolvedCount })}</p>
-            <button
-              onClick={() => setDocViewerOpen(true)}
-              className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
-              data-action="open-doc-viewer"
-            >{t('page.crm_module.view_document')}</button>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            {queueIds.map(cid => {
-              const c = commentsById.get(cid)
-              if (!c) return null
-              if (resolvedIds.includes(cid)) {
-                const r = resolutionByComment.get(cid)
-                return <ResolvedCard key={cid} comment={c} resolution={r} resolverName={r ? nameOf(r.resolvedBy) : undefined} />
-              }
-              if (effectiveActive === cid) {
-                const aiDraft = draftNoteByCommentId.get(cid) ?? null
-                return (
-                  <ActiveCard
-                    key={cid}
-                    comment={c}
-                    meetingRunning={inProgress}
-                    aiDraftNote={aiDraft}
-                    onResolve={type => setResolutionDraft({ commentId: cid, type, note: aiDraft ?? '' })}
-                    informedParticipant={signatureAccess.isInformedOnly && meeting.attendees.some(a => a.userId === me?.id)}
-                  />
-                )
-              }
-              return <PendingCard key={cid} comment={c} onSelect={() => setActiveCommentId(cid)} />
-            })}
-          </div>
-        </div>
-
-        {/* Right panel — resolution log */}
-        <div className="flex w-[280px] flex-none flex-col overflow-y-auto" style={{ backgroundColor: '#F8FAFC' }}>
-          <div className="flex-none border-b border-slate-200 p-4">
-            <MonoLabel>{t('page.crm_module.log_label')}</MonoLabel>
-            <p className="mt-0.5 text-[11px] italic text-slate-500">{t('page.crm_module.log_note')}</p>
-          </div>
-          {resolutions.map(r => (
-            <div key={r.id} className="mx-3 mt-3 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-3" data-crm-log-entry>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[9px] tracking-wider text-slate-500">{r.commentId}</span>
-                <div className="flex-1" />
-                <p className="text-[11px] text-slate-500">{fmtTime(r.resolvedAt)}</p>
-              </div>
-              <div>
-                <span className="inline-block rounded border px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}>
-                  {t(RESOLUTION_LABEL_KEY[r.resolutionType])}
-                </span>
-              </div>
-              <p className="text-xs leading-relaxed text-slate-900">{r.resolutionNote}</p>
-              <p className="text-[11px] text-slate-500">{t('page.crm_module.logged_resolution', { name: nameOf(r.resolvedBy) ?? r.resolvedBy })}</p>
-            </div>
-          ))}
-          {pendingIds.filter(id => !resolvedIds.includes(id)).map(cid => (
-            <div key={`placeholder-${cid}`} className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-dashed px-3 py-3" style={{ borderColor: '#E2E8F0' }}>
-              <span className="font-mono text-[9px] tracking-wider text-slate-400">{cid}</span>
-              <div className="flex-1" />
-              <span className="text-[11px] text-slate-400">{t('page.crm_module.awaiting_resolution')}</span>
-            </div>
-          ))}
-          {resolutions.length === 0 && pendingIds.length === 0 && (
-            <p className="m-4 text-[12px] text-slate-500">{t('page.crm_module.no_resolutions')}</p>
-          )}
-        </div>
-      </div>
-
       {/* Comment Resolution Panel — note + confirm, then POST /crm/:id/resolve */}
-      {resolutionDraft !== null && (
-        <div ref={resolvePanelRef} className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200 bg-white" style={{ width: 400, zIndex: 10, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)' }}>
+      {resolutionDraft !== null && meeting && (
+        <div ref={resolvePanelRef} data-slide-panel className="fixed top-0 right-0 bottom-0 flex flex-col border-l border-slate-200 bg-white" style={{ width: 400, zIndex: 40, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)' }}>
           <CommentResolutionPanel
             documentId={activeDocId}
             meetingId={meeting.id}
@@ -1083,6 +1171,7 @@ export function CRMModule() {
           mounted when open so the heavy document render + section-jump
           side-effects don't fire for chairs who never ask for it. */}
       {docViewerOpen && activeDocId && (
+        <div data-slide-panel>
         <CRMDocumentViewer
           documentId={activeDocId}
           jumpToSectionRef={activeCommentSectionRef}
@@ -1091,9 +1180,11 @@ export function CRMModule() {
           commentLabel={activeCommentLabel}
           onClose={() => setDocViewerOpen(false)}
         />
+        </div>
       )}
 
       {transcriptModalOpen && meeting && (
+        <div data-slide-panel>
         <TranscriptUploadModal
           onClose={() => setTranscriptModalOpen(false)}
           onSubmit={(rawText, source) => uploadTranscriptMut.mutate({ rawText, source })}
@@ -1102,6 +1193,7 @@ export function CRMModule() {
             ? t('page.crm_module.upload_failed_http', { status: uploadTranscriptMut.error.status })
             : t('page.crm_module.upload_failed')) : null}
         />
+        </div>
       )}
     </div>
   )

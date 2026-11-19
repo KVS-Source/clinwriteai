@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
-import { isAdminRole, isPlatformAdmin, holdsRole } from '../../config/roles'
+import { isAdminRole, holdsRole } from '../../config/roles'
 import { useShowProjectCrm } from '../../hooks/useProjectCrmAccess'
 
 // Module accent colours — design-system.md Decision 10 (Platform = navy per PM00 §7 rule 1)
@@ -60,14 +60,13 @@ const PM_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
   // Reports cover the projects the PM manages (moved off the IT Admin nav).
   { labelKey: 'component.sidebar.platform_reports',     href: '/reports',        icon: <ChartIcon /> },
 ]
-const SUPER_ADMIN_NAV: PlatformNavItem[] = [
-  { labelKey: 'component.sidebar.super_admin_panel',       href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },
-  { labelKey: 'component.sidebar.super_admin_tenants',     href: '/super-admin/tenants',    roles: ['admin'] as const, icon: <BuildingIcon /> },
-  // Frameworks (ICH registry) relocated under Master Library — a PM
-  // content-management concern, not a platform-infra one. The /super-admin/frameworks
-  // URL redirects there (router index.tsx) for existing bookmarks.
-  { labelKey: 'component.sidebar.super_admin_rate_card',   href: '/super-admin/rate-card',  roles: ['admin'] as const, icon: <ReceiptIcon /> },
-]
+// Super Admin section retired 2026-11-19 — per-customer installs don't
+// use the multi-tenant / rate-card surface. Module + feature enablement
+// now flows from the signed licensing token (migration 92) shown on
+// Settings → Licensing. The screens (SuperAdminPanel, TenantDirectory,
+// RateCardAdmin) + their API routes stay on disk for now; the sidebar
+// entry is gone and the URLs redirect to a 404 in router/index.tsx.
+const SUPER_ADMIN_NAV: PlatformNavItem[] = []
 
 // NavLink matches by path prefix, so "/admin" would stay highlighted on
 // "/admin/users" (and "/library" on "/library/best-practices", ...). Items whose
@@ -93,9 +92,9 @@ function BookIcon()        { return <svg {...icon16}><path d="M2 3h4a2 2 0 012 2
 function LayersIcon()      { return <svg {...icon16}><path d="M8 1.8l6.5 3.4L8 8.6 1.5 5.2 8 1.8ZM1.5 8.2L8 11.6l6.5-3.4M1.5 11l6.5 3.4 6.5-3.4"/></svg> }
 function CardIcon()        { return <svg {...icon16}><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13M4 10h3"/></svg> }
 function ChartIcon()       { return <svg {...icon16}><path d="M2 14V2M2 14h12M5 11V8M8.5 11V5M12 11V7"/></svg> }
-function ShieldCheckIcon() { return <svg {...icon16}><path d="M8 1.5l5.5 2.5v4c0 3-2.5 5.5-5.5 6.5C5 13.5 2.5 11 2.5 8V4L8 1.5Z"/><path d="M5.7 8l1.6 1.6 3-3.3"/></svg> }
-function BuildingIcon()    { return <svg {...icon16}><path d="M3 14.5V2.5h7v12M10 6.5h3v8M1.5 14.5h13M5.5 5h2M5.5 8h2M5.5 11h2"/></svg> }
-function ReceiptIcon()     { return <svg {...icon16}><path d="M3.5 1.5h9v13l-1.8-1.2-1.7 1.2-1.7-1.2-1.7 1.2-2.1-1.2V1.5ZM6 5.5h4M6 8.5h4"/></svg> }
+// ShieldCheckIcon / BuildingIcon / ReceiptIcon retired with the
+// Super Admin section (2026-11-19). Add them back if sidebar entries
+// need the glyphs again.
 function ChevronsLeftIcon({ flip }: { flip?: boolean }) {
   return <svg {...icon16} style={flip ? { transform: 'rotate(180deg)' } : undefined}><path d="M9 4L5 8l4 4M13 4L9 8l4 4"/></svg>
 }
@@ -208,9 +207,8 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   // section (Tenants / Framework Registry / Rate Card) is platform-admin-only.
   // The API reports 'tenant-admin'; personas still say 'admin' — both count.
   const isAdmin      = isAdminRole(currentUser.role)
-  const isSuperAdmin = isPlatformAdmin(currentUser)
   const platformItems   = isAdmin      ? PLATFORM_NAV    : []
-  const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV : []
+  const superAdminItems = SUPER_ADMIN_NAV                             // retired 2026-11-19 — kept as [] placeholder
   const showPlatform   = platformItems.length   > 0
   // Master Library is everyone's content surface — PM edits, contributor
   // + author + auditor read. Hidden from IT Admin: admins are not

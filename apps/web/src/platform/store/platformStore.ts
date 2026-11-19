@@ -2,7 +2,7 @@
 // Holds the current-user context (used by role guards) and platform-wide config.
 import { create } from 'zustand'
 import type { PlatformConfig, PlatformUser, PlatformUserRole } from '@platform/types'
-import usersFixture from '../../data/users.json'
+import usersFixture from '../../data/users.json'
 import { holdsRole } from '../../config/roles'
 
 // Full demo persona roster — Alex Thornton is synthetic (not in the
@@ -87,11 +87,22 @@ interface PlatformStore {
   hasRole:        (roles: PlatformUserRole[]) => boolean
 }
 
+// Keep the licence-driven module override in sync with whichever user
+// is currently resolved. /auth/me's response seeds `user.enabledModules`;
+// sidebar + <ModuleGate /> read from `isModuleEnabled` which checks this
+// override first and falls back to VITE_MODULES_ENABLED only when the
+// server hasn't told us anything yet. See apps/web/src/config/modules.ts.
+import { setLicenseModulesOverride } from '../../config/modules'
+
+function syncLicenseOverride(u: PlatformUser) {
+  setLicenseModulesOverride(u.enabledModules ?? null)
+}
+
 export const usePlatformStore = create<PlatformStore>((set, get) => ({
-  currentUser:    loadPersistedUser(),
+  currentUser:    (() => { const u = loadPersistedUser(); syncLicenseOverride(u); return u })(),
   config:         null,
-  setCurrentUser: (currentUser) => { persistUser(currentUser); set({ currentUser }) },
-  setSessionUser: (currentUser) => set({ currentUser }),
+  setCurrentUser: (currentUser) => { persistUser(currentUser); syncLicenseOverride(currentUser); set({ currentUser }) },
+  setSessionUser: (currentUser) => { syncLicenseOverride(currentUser); set({ currentUser }) },
   setConfig:      (config)      => set({ config }),
   hasRole:        (roles)       => holdsRole(get().currentUser, ...roles),
 }))

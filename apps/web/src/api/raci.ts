@@ -89,7 +89,10 @@ export const raciApi = {
     api.post<{
       row:      DocumentRaciRow
       document: { id: string; status: string }
-      version:  { id: string; versionNumber: string }
+      // Absent when a Reviewer's return was only recorded (`deferred`): the document moves once every Reviewer has finished.
+      version?:  { id: string; versionNumber: string }
+      deferred?: boolean
+      waitingFor?: Array<{ userId: string; name: string }>
     }>(`/documents/${documentId}/raci/${raciId}/reject`, body),
 }
 

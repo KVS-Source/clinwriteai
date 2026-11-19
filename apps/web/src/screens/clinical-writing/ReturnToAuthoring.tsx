@@ -30,10 +30,12 @@ function pickRow(rows: DocumentRaciRow[], userId: string | undefined, status: st
   return undefined
 }
 
-export function ReturnToAuthoring({ documentId, status, onReturned }: {
+export function ReturnToAuthoring({ documentId, status, onReturned, onRecorded }: {
   documentId: string
   status: string
   onReturned: (versionNumber: string) => void
+  // A Reviewer's return during review is recorded and the document waits for the other Reviewers.
+  onRecorded?: (waitingFor: string[]) => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -53,6 +55,13 @@ export function ReturnToAuthoring({ documentId, status, onReturned }: {
     onSuccess: (res) => {
       setOpen(false)
       setNote('')
+      // Recorded only: the document stays where it is until every Reviewer has finished.
+      if (res.deferred || !res.version) {
+        qc.invalidateQueries({ queryKey: ['document-raci', documentId] })
+        qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
+        onRecorded?.((res.waitingFor ?? []).map(w => w.name))
+        return
+      }
       // Put the new status in the cache at once: a screen that changes route next
       // (E-Signature → editor) would otherwise be redirected by the tab guard on the
       // old "awaiting signature" status before the refetch lands.
@@ -87,7 +96,13 @@ export function ReturnToAuthoring({ documentId, status, onReturned }: {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="return-doc-title" data-return-dialog>
           <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
             <h2 id="return-doc-title" className="text-[15px] font-bold text-slate-900">{t(row.letter === 'A' ? 'page.reviewer_view.return_doc_title_a' : 'page.reviewer_view.return_doc_title')}</h2>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-600">{t('page.reviewer_view.return_doc_explainer')}</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-slate-600">
+              {row.letter === 'C' && (status === 'in-review' || status === 'crm-in-progress')
+                ? t('page.reviewer_view.return_doc_explainer_reviewer')
+                : row.letter === 'A' && status === 'pending-signature'
+                  ? t('page.reviewer_view.return_doc_explainer_approver')
+                  : t('page.reviewer_view.return_doc_explainer')}
+            </p>
             <label htmlFor="return-doc-note" className="mt-4 block text-[12px] font-semibold text-slate-700">
               {t(row.letter === 'A' ? 'page.reviewer_view.return_doc_note_label_a' : 'page.reviewer_view.return_doc_note_label')}<span className="ml-0.5 text-red-600" aria-hidden="true">*</span>
             </label>

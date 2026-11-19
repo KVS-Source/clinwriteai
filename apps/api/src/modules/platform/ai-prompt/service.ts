@@ -16,17 +16,20 @@ import type { PrismaClient, Prisma } from '@prisma/client'
 
 export type AiPromptStatus = 'draft' | 'approved' | 'retired'
 
-export type SectionRulesMap = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+export type SectionRulesMap     = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+export type CrossCuttingRules   = Array<{ severity: 'must' | 'should' | 'nice'; text: string }>
 
 export interface CreateInput {
-  docType:      string
-  smePrompt:    string
-  sectionRules?: SectionRulesMap
+  docType:            string
+  smePrompt:          string
+  sectionRules?:      SectionRulesMap
+  crossCuttingRules?: CrossCuttingRules
 }
 
 export interface UpdateDraftInput {
-  smePrompt?:    string
-  sectionRules?: SectionRulesMap
+  smePrompt?:          string
+  sectionRules?:       SectionRulesMap
+  crossCuttingRules?:  CrossCuttingRules
 }
 
 export class AiPromptService {
@@ -59,6 +62,32 @@ export class AiPromptService {
     })
   }
 
+  /** Visible rows for the admin list: the most meaningful row per
+   *  docType. Preference order:
+   *    1. approved (if the docType has one)
+   *    2. draft    (if no approved — makes brand-new drafts show up
+   *                 instead of "disappearing" between create + approve)
+   *  Retired rows are always hidden (they're audit snapshots, not
+   *  navigation). Returns one row per docType; UI shows the status
+   *  chip so admins can tell draft from approved at a glance. */
+  async listVisible() {
+    const rows = await this.prisma.aiPromptRecord.findMany({
+      where:   { status: { in: ['approved', 'draft'] } },
+      orderBy: [{ docType: 'asc' }, { version: 'desc' }],
+    })
+    const scoreOf = (s: string) => (s === 'approved' ? 2 : 1)
+    const byDocType = new Map<string, typeof rows[number]>()
+    for (const row of rows) {
+      const existing = byDocType.get(row.docType)
+      if (!existing || scoreOf(row.status) > scoreOf(existing.status)) {
+        byDocType.set(row.docType, row)
+      }
+    }
+    // Deterministic order: docType asc, same as listAllApproved so the
+    // UI doesn't jump around when a draft lands.
+    return Array.from(byDocType.values()).sort((a, b) => a.docType.localeCompare(b.docType))
+  }
+
   async findById(id: string) {
     return this.prisma.aiPromptRecord.findUnique({ where: { id } })
   }
@@ -88,12 +117,13 @@ export class AiPromptService {
     return this.prisma.aiPromptRecord.create({
       data: {
         docType,
-        version:      nextVersion,
-        status:       'draft',
-        smePrompt:    input.smePrompt,
-        sectionRules: (input.sectionRules ?? {}) as unknown as Prisma.InputJsonValue,
-        createdBy:    actorId,
-        updatedBy:    actorId,
+        version:           nextVersion,
+        status:            'draft',
+        smePrompt:         input.smePrompt,
+        sectionRules:      (input.sectionRules ?? {}) as unknown as Prisma.InputJsonValue,
+        crossCuttingRules: (input.crossCuttingRules ?? []) as unknown as Prisma.InputJsonValue,
+        createdBy:         actorId,
+        updatedBy:         actorId,
       },
     })
   }
@@ -112,8 +142,9 @@ export class AiPromptService {
     return this.prisma.aiPromptRecord.update({
       where: { id },
       data:  {
-        ...(input.smePrompt    !== undefined && { smePrompt:    input.smePrompt }),
-        ...(input.sectionRules !== undefined && { sectionRules: input.sectionRules as unknown as Prisma.InputJsonValue }),
+        ...(input.smePrompt          !== undefined && { smePrompt:          input.smePrompt }),
+        ...(input.sectionRules       !== undefined && { sectionRules:       input.sectionRules as unknown as Prisma.InputJsonValue }),
+        ...(input.crossCuttingRules  !== undefined && { crossCuttingRules:  input.crossCuttingRules as unknown as Prisma.InputJsonValue }),
         updatedBy: actorId,
       },
     })

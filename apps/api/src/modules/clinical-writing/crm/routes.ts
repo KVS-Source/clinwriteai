@@ -888,6 +888,8 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
             wordCount:  transcript.wordCount,
             source:     transcript.source,
             uploadedAt: transcript.uploadedAt.toISOString(),
+            // The uploaded text itself, so the meeting's participants can read what the drafts came from.
+            rawText:    transcript.rawText,
           }
         : null,
     }

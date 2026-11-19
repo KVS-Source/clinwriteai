@@ -43,6 +43,8 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
   // button's place. The document moves on only when the whole cohort has finished.
   const iMarkedDone = mine.length > 0 && mine.every(r => r.reviewedAt !== null) && !isReadOnlyUser(me)
   const othersPending = cohort.filter(r => r.userId !== me?.id && r.reviewedAt === null && r.rejectedAt === null).map(r => r.userName ?? r.userId)
+  // I returned the document: it goes back to authoring once the other Reviewers have finished too.
+  const iReturned = mine.length > 0 && mine.some(r => r.rejectedAt !== null) && !isReadOnlyUser(me)
 
   const complete = useMutation({
     mutationFn: async () => {
@@ -83,6 +85,15 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
             data-review-marked-by-you
           >
             {t('page.reviewer_view.you_marked_done')}
+          </span>
+        )}
+        {iReturned && (
+          <span
+            className="whitespace-nowrap rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-red-800"
+            title={othersPending.length > 0 ? t('page.reviewer_view.you_returned_waiting', { names: othersPending.join(', ') }) : undefined}
+            data-review-returned-by-you
+          >
+            {t('page.reviewer_view.you_returned')}
           </span>
         )}
         {canAct && !confirming && (

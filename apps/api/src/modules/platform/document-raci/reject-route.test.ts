@@ -57,22 +57,161 @@ async function build(status: string, me = 'u-rev') {
       }),
     },
     project: { findUnique: vi.fn(async () => ({ status: 'ongoing' })) },
-    user: { findUnique: vi.fn(async () => ({ name: 'Rita Reviewer' })) },
+    user: {
+      findUnique: vi.fn(async () => ({ name: 'Rita Reviewer' })),
+      findMany:   vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, name: 'Rita Reviewer' }))),
+    },
   } as never)
   app.decorate('audit', { append: vi.fn(async (e: { action: string; details: Row }) => { audit.push(e); return {} }) } as never)
   const notify = vi.fn(async (_n: Row) => ({}))
   app.decorate('notifications', { send: notify } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: me, email: `${me}@x`, role: 'contributor', modules: ['A'], tenantId: null }
+    // A test with several people sends `x-user` to act as someone else.
+    const id = (req.headers['x-user'] as string | undefined) ?? me
+    const user: AuthenticatedUser = { id, email: `${id}@x`, role: 'contributor', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })
   await app.ready()
-  const reject = (raciId: string, body: unknown) =>
-    app.inject({ method: 'POST', url: `/documents/${DOC}/raci/${raciId}/reject`, payload: body as never })
-  return { doc, rows, chains, audit, reject, notify }
+  const reject = (raciId: string, body: unknown, as?: string) =>
+    app.inject({ method: 'POST', url: `/documents/${DOC}/raci/${raciId}/reject`, payload: body as never, headers: as ? { 'x-user': as } : {} })
+  const complete = (raciId: string, as?: string) =>
+    app.inject({ method: 'POST', url: `/documents/${DOC}/raci/${raciId}/complete`, payload: {}, headers: as ? { 'x-user': as } : {} })
+  return { doc, rows, chains, audit, reject, complete, notify }
 }
+
+// With more than one Reviewer (C) the document waits for all of them: each marks their review done or returns it.
+// A return among otherwise-approving Reviewers still sends it back, but only once the last Reviewer has finished.
+describe('several Reviewers: the document moves only when all have finished', () => {
+  const twoReviewers = async (status = 'in_review') => {
+    const t = await build(status, 'u-rev')
+    for (const r of t.rows) if (r.letter === 'C') r.approvalOrder = null
+    t.rows.push({ id: 'c-2', documentId: DOC, userId: 'u-rev2', letter: 'C', sectionId: null, approvalOrder: null, submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null, rejectionNote: null, removedAt: null })
+    return t
+  }
+
+  it('one Reviewer returns it while another is still reviewing: recorded, nothing moves', async () => {
+    const t = await twoReviewers()
+    const res = await t.reject('c-1', { note: 'Dose table is wrong.' }, 'u-rev')
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ deferred: true, document: { id: DOC, status: 'in_review' } })
+    expect(res.json().waitingFor).toEqual([{ userId: 'u-rev2', name: 'Rita Reviewer' }])
+    expect(t.doc.status).toBe('in_review')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(t.rows.find(r => r.id === 'c-1')).toMatchObject({ rejectedAt: expect.any(Date), rejectionNote: 'Dose table is wrong.' })
+    expect(t.audit.map(e => e.action)).toContain('document_raci.rejection_recorded')
+    expect(t.audit.map(e => e.action)).not.toContain('document_status_changed')
+  })
+
+  it('the other Reviewer then marks done: the document goes back to authoring, with the first one\'s note', async () => {
+    const t = await twoReviewers()
+    await t.reject('c-1', { note: 'Dose table is wrong.' }, 'u-rev')
+    const res = await t.complete('c-2', 'u-rev2')
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ returnedToAuthoring: true, document: { status: 'in_authoring' }, version: { versionNumber: 'v0.3' } })
+    expect(t.doc.status).toBe('in_authoring')
+    expect(snapshot).toHaveBeenCalledWith({ documentId: DOC, createdBy: 'u-rev', reason: 'review_bounce', note: 'Dose table is wrong.' })
+    // A new round: nobody is left marked done or returned.
+    expect(t.rows.find(r => r.id === 'c-1')).toMatchObject({ rejectedAt: null })
+    expect(t.rows.find(r => r.id === 'c-2')).toMatchObject({ reviewedAt: null })
+  })
+
+  it('the other Reviewer returns it too: goes back as soon as the last one has finished', async () => {
+    const t = await twoReviewers()
+    expect((await t.reject('c-1', { note: 'First reason.' }, 'u-rev')).json().deferred).toBe(true)
+    const res = await t.reject('c-2', { note: 'Second reason.' }, 'u-rev2')
+    expect(res.json()).toMatchObject({ document: { status: 'in_authoring' } })
+    expect(t.doc.status).toBe('in_authoring')
+    expect(snapshot).toHaveBeenCalledOnce()
+  })
+
+  it('a Reviewer who already marked done, then the last one returns it: back to authoring at once', async () => {
+    const t = await twoReviewers()
+    expect((await t.complete('c-1', 'u-rev')).json().returnedToAuthoring).toBeUndefined()
+    expect(t.doc.status).toBe('in_review')
+    const res = await t.reject('c-2', { note: 'Needs a rewrite.' }, 'u-rev2')
+    expect(res.json()).toMatchObject({ document: { status: 'in_authoring' } })
+    expect(t.doc.status).toBe('in_authoring')
+  })
+
+  it('everyone marks done: no one returned it, so the document is not sent back', async () => {
+    const t = await twoReviewers()
+    await t.complete('c-1', 'u-rev')
+    const res = await t.complete('c-2', 'u-rev2')
+    expect(res.statusCode).toBe(200)
+    expect(res.json().returnedToAuthoring).toBeUndefined()
+    expect(t.doc.status).toBe('in_review')
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('a Reviewer who returned it cannot also mark their review done', async () => {
+    const t = await twoReviewers()
+    await t.reject('c-1', { note: 'No.' }, 'u-rev')
+    const res = await t.complete('c-1', 'u-rev')
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('row_rejected')
+  })
+
+  it('QC still sends it back straight away, whatever the Reviewers are doing', async () => {
+    const qc = await twoReviewers('in_review')
+    expect((await qc.reject('q-1', { note: 'Listings incomplete.' }, 'u-qc')).json()).toMatchObject({ document: { status: 'in_authoring' } })
+  })
+
+  it('a Reviewer returning it while the document awaits signature still sends it back at once (they are not the gate there)', async () => {
+    const t = await twoReviewers('pending_signature')
+    expect((await t.reject('c-1', { note: 'Spotted late.' }, 'u-rev')).json()).toMatchObject({ document: { status: 'in_authoring' } })
+  })
+})
+
+// The same rule for Approvers (A) while the document awaits signature: a return is recorded, signing carries on for
+// the others, and the document goes back only when every Approver has approved (signed) or returned it.
+describe('several Approvers: the document moves only when all have finished', () => {
+  const twoApprovers = async () => {
+    const t = await build('pending_signature', 'u-app')
+    t.rows.push({ id: 'a-2', documentId: DOC, userId: 'u-app2', letter: 'A', sectionId: null, approvalOrder: null, submittedAt: null, reviewedAt: null, approvedAt: null, documentApprovedAt: null, signatureId: null, rejectedAt: null, rejectionNote: null, removedAt: null })
+    const a1 = t.rows.find(r => r.id === 'a-1')!
+    a1.documentApprovedAt = null   // a-1 has not approved yet in these scenarios
+    return t
+  }
+
+  it('one Approver returns it while another has not decided: recorded, the document stays awaiting signature and the chain stays open', async () => {
+    const t = await twoApprovers()
+    const res = await t.reject('a-1', { note: 'Wrong signatory.' }, 'u-app')
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ deferred: true, document: { id: DOC, status: 'pending_signature' } })
+    expect(res.json().waitingFor).toEqual([{ userId: 'u-app2', name: 'Rita Reviewer' }])
+    expect(t.doc.status).toBe('pending_signature')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(t.chains.find(c => c.id === 'ch-open')).toMatchObject({ status: 'in_progress' })
+    expect(t.rows.find(r => r.id === 'a-1')).toMatchObject({ rejectedAt: expect.any(Date), rejectionNote: 'Wrong signatory.' })
+  })
+
+  it('the other Approver returns it too: goes back to authoring, signing is cancelled, with a signature-bounce snapshot', async () => {
+    const t = await twoApprovers()
+    expect((await t.reject('a-1', { note: 'First.' }, 'u-app')).json().deferred).toBe(true)
+    const res = await t.reject('a-2', { note: 'Second.' }, 'u-app2')
+    expect(res.json()).toMatchObject({ document: { status: 'in_authoring' } })
+    expect(t.doc.status).toBe('in_authoring')
+    expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ reason: 'signature_bounce' }))
+    expect(t.chains.find(c => c.id === 'ch-open')).toMatchObject({ status: 'cancelled' })
+    expect(t.rows.find(r => r.id === 'a-1')).toMatchObject({ rejectedAt: null })   // a new round
+  })
+
+  it('the other Approver already approved and signed: the return sends it back at once', async () => {
+    const t = await twoApprovers()
+    t.rows.find(r => r.id === 'a-2')!.documentApprovedAt = done
+    const res = await t.reject('a-1', { note: 'Needs another look.' }, 'u-app')
+    expect(res.json()).toMatchObject({ document: { status: 'in_authoring' } })
+    expect(t.doc.status).toBe('in_authoring')
+  })
+
+  it('an Approver who returned it cannot return it twice', async () => {
+    const t = await twoApprovers()
+    await t.reject('a-1', { note: 'First.' }, 'u-app')
+    expect((await t.reject('a-1', { note: 'Again.' }, 'u-app')).json().error).toBe('already_rejected')
+  })
+})
 
 describe('returning a document to authoring', () => {
   it('a reviewer (C) returns it from review: back to authoring, new version snapshot, new round', async () => {

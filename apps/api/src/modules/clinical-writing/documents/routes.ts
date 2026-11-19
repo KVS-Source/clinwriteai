@@ -125,6 +125,15 @@ const sectionUpdateSchema = z.object({
   { message: 'aiModel is required when aiDrafted is true (Part 11 provenance)' },
 )
 
+// POST /:documentId/tbd-replace body. `find` is the exact placeholder text
+// (including the brackets, e.g. "[TBD: protocol number]") so the server
+// doesn't guess format; `replace` is the user's chosen value. Length caps
+// match the section-edit protection against pathological payloads.
+const tbdReplaceSchema = z.object({
+  find:    z.string().min(1).max(500),
+  replace: z.string().max(2_000),
+})
+
 // Shape doc rows for the UI's packages/types `Document` interface.
 // Prisma stores version + sections on currentVersion; UI flattens them
 // onto the document itself with aliased section field names:
@@ -691,7 +700,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       select: {
-        id: true, type: true, aiInstructions: true, policyVersionAtCreate: true,
+        id: true, type: true, templateId: true, aiInstructions: true, policyVersionAtCreate: true,
         aiPromptRecordId: true, bestPracticeRecordId: true, deletedAt: true,
         currentVersion: {
           select: {
@@ -699,7 +708,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
               where:  { OR: [{ sectionId }, { id: sectionId }] },
               select: {
                 sectionId: true, sectionNumber: true, sectionTitle: true,
-                sectionTemplateRecordId: true, templateFormatRules: true,
+                templateFormatRules: true,
               },
             },
           },
@@ -721,20 +730,27 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return null
     })
 
-    // Section template (migration 91). Prefer the NL snapshot pinned on
-    // the section at create-time; fall back to the currently-approved
-    // template for sections authored before the snapshot existed.
-    // Wrapped in try/catch so test mocks without sectionTemplate still work.
+    // Section template formatRules — prefer the snapshot pinned on the
+    // section at create time (migration 94). Fall back to reading the
+    // live template's matching section for documents created before
+    // the snapshot column was populated. Wrapped in try/catch so
+    // test mocks without documentTemplate still pass.
     let sectionTemplateFormatRules: string | null = section.templateFormatRules ?? null
-    if (!sectionTemplateFormatRules) {
+    if (!sectionTemplateFormatRules && doc.templateId) {
       try {
-        const approved = await app.prisma.sectionTemplate.findFirst({
-          where:   { docType: doc.type.replace(/-/g, '_'), sectionKey: section.sectionId, status: 'approved' },
-          orderBy: { version: 'desc' },
-          select:  { formatRules: true },
+        const tpl = await app.prisma.documentTemplate.findUnique({
+          where:  { id: doc.templateId },
+          select: { sections: true },
         })
-        sectionTemplateFormatRules = approved?.formatRules ?? null
-      } catch { /* model absent on test mocks or pre-migration — fine */ }
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          const match = (tpl.sections as Array<Record<string, unknown>>).find(
+            s => typeof s.id === 'string' && s.id === section.sectionId,
+          )
+          if (match && typeof match.formatRules === 'string' && match.formatRules.trim().length > 0) {
+            sectionTemplateFormatRules = match.formatRules.trim()
+          }
+        }
+      } catch { /* template missing or test mock — fine */ }
     }
 
     const renderedPromptBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
@@ -1002,6 +1018,69 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return svc.getWithSections(documentId)
   })
 
+  // POST /:documentId/tbd-replace — swap an exact placeholder (e.g.
+  // "[TBD: protocol number]") with a user-chosen value everywhere it
+  // appears in the current version. One transaction, one hash recompute,
+  // one audit line. Powers the TBD panel's Replace-all button.
+  app.post('/:documentId/tbd-replace', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const parsed = tbdReplaceSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+
+    const locked = await authoringLock(documentId)
+    if (locked) return reply.code(409).send(locked)
+
+    const result = await svc.replaceAcrossSections({
+      documentId,
+      find:         parsed.data.find,
+      replace:      parsed.data.replace,
+      editorUserId: request.user!.id,
+    }).catch((err: Error) => {
+      if (err.message === 'version_sealed') return 'sealed' as const
+      if (err.message.includes('not found')) return 'notfound' as const
+      throw err
+    })
+
+    if (result === 'notfound') return reply.code(404).send({ error: 'not_found' })
+    if (result === 'sealed')   return reply.code(409).send({ error: 'version_sealed', message: 'The current version is signed and cannot be edited.' })
+
+    const totalOccurrences = result.updated.reduce((n, u) => n + u.occurrences, 0)
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'section_tbd_replaced',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    {
+        find:              parsed.data.find,
+        replace:           parsed.data.replace,
+        sectionsAffected:  result.updated.length,
+        totalOccurrences,
+        sectionIds:        result.updated.map(u => u.sectionId),
+      },
+      ipAddress:  request.ip ?? null,
+    })
+
+    // Autocheck may change outcome (references-complete etc.) when any
+    // section's text changed. Fire-and-forget, same pattern as section edit.
+    if (result.updated.length > 0) {
+      void runAutocheckForDocument(app.prisma, {
+        documentId,
+        triggeredBy: `system:autocheck-tbd-replace:${request.user!.id}`,
+        audit:       app.audit,
+      }).catch((err: unknown) => {
+        app.log.warn({ err, documentId }, 'autocheck after tbd replace failed')
+      })
+    }
+
+    return {
+      sectionsAffected: result.updated.length,
+      totalOccurrences,
+      updated:          result.updated,
+    }
+  })
+
   // Whether the caller may see versions — lets the screens hide the tab and menu instead of failing them.
   app.get('/:documentId/versions/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId } = request.params as { documentId: string }
@@ -1128,6 +1207,51 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         flagsJson:       p.flagsJson,
       })),
     }
+  })
+
+  // --- POST /:documentId/ai-draft/stop -----------------------------------
+  //
+  // Cancel an in-flight draft / validation chain. Flips the document's
+  // aiDraftState to 'cancelled' so the worker exits at the next section
+  // boundary (checked between sections in ai-initial-draft.ts). Already-
+  // drafted sections are left intact — this is a soft stop, not a wipe.
+  //
+  // Access: author (RACI Responsible), PM on the project, or admin. Same
+  // gate as the write side of the editor.
+  app.post('/:documentId/ai-draft/stop', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, aiDraftState: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const inFlight = doc.aiDraftState === 'pending'
+                  || doc.aiDraftState === 'drafting'
+                  || doc.aiDraftState === 'validating'
+    if (!inFlight) {
+      // No-op: nothing to stop. Return current state so the client
+      // can resync without surfacing an error.
+      return { state: doc.aiDraftState, cancelled: false }
+    }
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'cancelled' },
+    })
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_cancelled',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { previousState: doc.aiDraftState },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'cancelled', cancelled: true }
   })
 
   // --- GET /:documentId/ai-debug ------------------------------------------
@@ -2565,20 +2689,26 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       app.log.warn({ err, documentId }, 'policy resolve failed — falling back to no-policy prompt')
       return null
     })
-    // Section template (migration 91). Snapshot pinned on the section
-    // wins; else the latest approved SectionTemplate for (docType, key).
-    // Wrapped in try/catch so test mocks without sectionTemplate still work.
+    // Section template formatRules — snapshot pinned on the section at
+    // create time (migration 94) wins; otherwise fall back to the live
+    // template's matching section. try/catch keeps test mocks working.
     let sectionTemplateFormatRules: string | null =
       ((section as { templateFormatRules?: string | null }).templateFormatRules) ?? null
-    if (!sectionTemplateFormatRules) {
+    if (!sectionTemplateFormatRules && doc.templateId) {
       try {
-        const approved = await app.prisma.sectionTemplate.findFirst({
-          where:   { docType: doc.type.replace(/-/g, '_'), sectionKey: section.sectionId, status: 'approved' },
-          orderBy: { version: 'desc' },
-          select:  { formatRules: true },
+        const tpl = await app.prisma.documentTemplate.findUnique({
+          where:  { id: doc.templateId },
+          select: { sections: true },
         })
-        sectionTemplateFormatRules = approved?.formatRules ?? null
-      } catch { /* model absent on test mocks or pre-migration — fine */ }
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          const match = (tpl.sections as Array<Record<string, unknown>>).find(
+            s => typeof s.id === 'string' && s.id === section.sectionId,
+          )
+          if (match && typeof match.formatRules === 'string' && match.formatRules.trim().length > 0) {
+            sectionTemplateFormatRules = match.formatRules.trim()
+          }
+        }
+      } catch { /* template missing or test mock — fine */ }
     }
     const policyBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
 

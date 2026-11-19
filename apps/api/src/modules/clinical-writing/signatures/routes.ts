@@ -37,6 +37,7 @@ import { recordsToRelease, type ChainType, type SignatureStatus } from './chain-
 import { makeNotifySigners, startSignatureChain } from './start-chain.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain } from './access.js'
 import { resetRaciRound } from '../../platform/document-raci/access.js'
+import { approvalRoundState, bounceToAuthoring } from '../../platform/document-raci/return-to-authoring.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { autoPushSignedDocument } from '../../platform/library/auto-push.js'
 import { nextCommentId } from '../comments/routes.js'
@@ -232,6 +233,20 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     if (record.chain.status !== 'in_progress') {
       return reply.code(409).send({ error: 'chain_closed', message: `Chain is ${record.chain.status}` })
     }
+    // An Approver who returned the document cannot also sign it: their part is closed, and the document goes back
+    // to authoring once the other Approvers have finished.
+    if (record.meaning === 'approved') {
+      const returned = await app.prisma.documentRaci.findFirst({
+        where:  { documentId: record.chain.documentId, userId: record.signerId, letter: 'A', removedAt: null, rejectedAt: { not: null } },
+        select: { id: true },
+      })
+      if (returned) {
+        return reply.code(409).send({
+          error:   'returned_document',
+          message: 'You returned this document, so you cannot sign it. It goes back to authoring once the other approvers have finished.',
+        })
+      }
+    }
 
     // §11.70 — bind the signature to the exact document state. We hash the
     // current version's sections, same shape as DocumentVersion.contentHash.
@@ -314,7 +329,11 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       const released: Array<{ signerId: string; step: number }> = []
       const chainRecords = (await tx.signatureRecord.findMany({ where: { chainId: record.chainId } }))
         .map(r => ({ id: r.id, step: r.step, status: r.status as SignatureStatus, signerId: r.signerId, meaning: r.meaning }))
-      for (const next of recordsToRelease(chainRecords, record.chain.chainType as ChainType, record.id)) {
+      // While any Approver has returned the document nobody else is asked to sign: it goes back to authoring
+      // once every Approver has finished (below).
+      const approverReturned = record.meaning === 'approved'
+        && (await tx.documentRaci.count({ where: { documentId: record.chain.documentId, letter: 'A', removedAt: null, rejectedAt: { not: null } } })) > 0
+      for (const next of approverReturned ? [] : recordsToRelease(chainRecords, record.chain.chainType as ChainType, record.id)) {
         await tx.signatureRecord.update({ where: { id: next.id }, data: { status: 'awaiting' } })
         released.push({ signerId: next.signerId, step: next.step })
       }
@@ -433,7 +452,24 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       await autoPushSignedDocument(app, record.chain.documentId, { trigger: 'signing', signedBy: request.user!.id, ipAddress: request.ip ?? null })
     }
 
-    return { ...result.signed, credentialHash: undefined, auditEntryId: auditEntry ? String(auditEntry.id) : null }
+    // Every Approver has now finished (signed or returned) and at least one returned the document: it goes back
+    // to authoring, as if the last of them had returned it. The signature above stays on the trail.
+    let returnedToAuthoring = false
+    if (record.meaning === 'approved' && result.chainStatus !== 'complete') {
+      const state = await approvalRoundState(app.prisma, record.chain.documentId)
+      if (state.allIn && state.rejected.length > 0) {
+        const trigger = state.rejected[state.rejected.length - 1]!
+        await bounceToAuthoring(app, new DocumentService(app.prisma), {
+          documentId: record.chain.documentId, from: 'pending_signature', actorId: request.user!.id, ip: request.ip ?? null,
+          returnedBy: { raciId: trigger.id, userId: trigger.userId, letter: 'A', sectionId: trigger.sectionId },
+          note: trigger.rejectionNote ?? 'Returned by an Approver',
+          doc: { title: doc.title, projectId: doc.projectId, assigneeId: doc.assigneeId },
+        })
+        returnedToAuthoring = true
+      }
+    }
+
+    return { ...result.signed, credentialHash: undefined, auditEntryId: auditEntry ? String(auditEntry.id) : null, ...(returnedToAuthoring && { returnedToAuthoring: true }) }
   })
 
   // --- Cancellation -------------------------------------------------------

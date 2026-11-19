@@ -21,6 +21,7 @@ import { requireAuth, hasAnyRole, type AuthenticatedUser } from '../../../auth/r
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { startChainWhenReviewDone } from '../signatures/auto-start.js'
+import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { actorCanResolveComments, actorHoldsLetter, actorCanScheduleCrm, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { crmPeople, CRM_PEOPLE_INVALID } from './people.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
@@ -228,11 +229,13 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
   // Whether the caller may schedule a meeting — lets the screen explain up front instead of failing the form.
   app.get('/documents/:documentId/crm/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId } = request.params as { documentId: string }
-    const [canSchedule, canFinish] = await Promise.all([
+    const [canSchedule, canFinish, checklist] = await Promise.all([
       actorCanScheduleCrm(app.prisma, request.user!, documentId),
       actorCanFinishCrm(request.user!, documentId),
+      checkSignatureGate(app.prisma, documentId),
     ])
-    return { canSchedule, canFinish }
+    // Mandatory checklist items still open: signing can't start, so Finish CRM is held back until they are done.
+    return { canSchedule, canFinish, checklistBlocking: checklist.blocking.map(b => ({ id: b.id, text: b.text, stage: b.stage })) }
   })
 
   // Who can be chair or attend: the document's own people and the project's PM (CW-098).
@@ -596,6 +599,11 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // Signing can't start with mandatory checklist items open, so the CRM can't finish either: the document
+    // stays in review instead of waiting in Pending signature with no signature chain.
+    const checklist = await checkSignatureGate(app.prisma, documentId)
+    if (!checklist.ok) return reply.code(422).send(blockedBody('signature', checklist))
+
     // updateMany with the status predicate makes this a no-op if someone else already moved the document.
     const moved = await app.prisma.document.updateMany({
       where: { id: documentId, status: 'in_review' },
@@ -614,7 +622,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // Review and CRM are done: signing starts, Approvers first. The status move already happened, so a
-    // failure here must not fail it (the chain can still be started by hand from the E-Signature tab).
+    // failure here must not fail it (the E-Signature tab shows why signing hasn't started).
     await startSigning(documentId, user.id, request.ip ?? null)
 
     return { status: 'pending_signature' }

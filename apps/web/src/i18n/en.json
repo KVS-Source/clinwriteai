@@ -3815,6 +3815,10 @@
       "start": "Start signature chain"
     },
     "e_signature": {
+      "not_started_title": "Signing hasn't started",
+      "not_started_body": "Signing starts automatically once every Reviewer has marked their review done and the CRM is finished. Approvers sign first with Approve & E-sign in the Approver View; then the Authors, Reviewers and Informed sign.",
+      "not_started_blocked": "The CRM is finished, but signing could not start automatically:",
+      "not_started_blocked_next": "An Approver can reject the document to send it back to authoring, where this can be fixed. Signing starts again after the next CRM is finished.",
       "meaning_authored": "I have authored this document",
       "meaning_reviewed": "I have reviewed this document",
       "meaning_approved": "I approve this document for submission",
@@ -4142,7 +4146,9 @@
       "meetings_count": "{{count}} meetings",
       "blocked_open": "{{ref}} is still open. Complete or cancel it first.",
       "finish_blocked_status": "The document must be in review.",
-      "finish_blocked_none": "Hold a CRM meeting first.",
+      "finish_blocked_none": "Hold and complete a CRM meeting in this review round first. Meetings held while the document was in authoring, or before it was last submitted for review, don't count.",
+      "finish_blocked_checklist": "Complete the checklist first: {{count}} mandatory item(s) still open.",
+      "finish_checklist_warning": "Finish CRM is disabled: {{count}} mandatory checklist item(s) must be completed or waived before signing can start.",
       "col_meeting": "Meeting",
       "col_when": "Date and time",
       "col_attendees": "Attendees",

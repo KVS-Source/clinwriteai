@@ -4022,6 +4022,10 @@
       "start": "署名チェーンを開始"
     },
     "e_signature": {
+      "not_started_title": "署名は開始されていません",
+      "not_started_body": "すべてのレビュアーがレビュー完了を記録し、CRM が終了すると、署名は自動的に開始されます。まず承認者が承認者ビューで「承認して電子署名」を行い、その後、作成者・レビュアー・情報共有者が署名します。",
+      "not_started_blocked": "CRM は終了しましたが、署名を自動的に開始できませんでした:",
+      "not_started_blocked_next": "承認者がドキュメントを却下して作成中に戻すと、この問題を修正できます。次の CRM が終了すると、署名が再び開始されます。",
       "meaning_authored": "私はこのドキュメントを作成しました",
       "meaning_reviewed": "私はこのドキュメントをレビューしました",
       "meaning_approved": "私はこのドキュメントの提出を承認します",
@@ -4349,7 +4353,9 @@
       "meetings_count": "会議 {{count}} 件",
       "blocked_open": "{{ref}} はまだ開いています。先に完了またはキャンセルしてください。",
       "finish_blocked_status": "ドキュメントがレビュー中である必要があります。",
-      "finish_blocked_none": "先に CRM 会議を開催してください。",
+      "finish_blocked_none": "このレビューラウンドで CRM 会議を開催・完了してください。作成中、または最後にレビューに提出する前に開催された会議は対象外です。",
+      "finish_blocked_checklist": "先にチェックリストを完了してください: 必須項目が {{count}} 件残っています。",
+      "finish_checklist_warning": "CRM を終了できません: 署名を開始する前に、必須チェックリスト項目 {{count}} 件を完了または免除する必要があります。",
       "col_meeting": "会議",
       "col_when": "日時",
       "col_attendees": "参加者",

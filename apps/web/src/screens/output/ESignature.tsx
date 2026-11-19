@@ -21,7 +21,7 @@ import { signerRoleLabel } from '../../utils/documentLabels'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
 import { useDocumentStore } from '../../store'
-import { InitiateSignatureChain } from './InitiateSignatureChain'
+import { SigningNotStarted } from './SigningNotStarted'
 // import { ReturnToAuthoring } from '../clinical-writing/ReturnToAuthoring'
 import { useSignatureAccess } from './useSignatureAccess'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
@@ -542,7 +542,8 @@ export function ESignature() {
   //   />
   // ) : null
 
-  // No active chain → initiate (or explain why not yet).
+  // No active chain: signing starts by itself when the CRM is finished (Approvers first), so there is
+  // nothing to start here. Say so, or why the automatic start was blocked.
   if (!chain || chain.status === 'cancelled') {
     return (
       <div className="flex h-full flex-col items-start gap-4 overflow-y-auto px-8 py-7" data-screen="e-signature">
@@ -555,7 +556,7 @@ export function ESignature() {
             {chain.cancelReason ? t('page.e_signature.previous_cancelled_reason', { reason: chain.cancelReason }) : t('page.e_signature.previous_cancelled')}
           </p>
         )}
-        <InitiateSignatureChain documentId={documentId!} projectId={projectId!} documentStatus={document?.status} />
+        <SigningNotStarted documentId={documentId!} />
       </div>
     )
   }

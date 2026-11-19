@@ -608,6 +608,32 @@ describe('signature chain — who may start it', () => {
   })
 })
 
+describe('signature chain — why signing has not started (E-Signature tab)', () => {
+  it('reports the last blocked automatic start while the document awaits signature with no chain', async () => {
+    const t = await build()
+    t.as(USERS.author)
+    ;(t.app as unknown as { audit: Row }).audit.pageForEntity = async (_t: string, _id: string, opts: Row) => ({
+      rows: opts.action === 'signature_auto_start_blocked'
+        ? [{ details: { status: 409, reason: { error: 'content_incomplete', message: '3 sections are empty.' } } }]
+        : [],
+    })
+    const res = await t.app.inject({ method: 'GET', url: '/documents/DOC-1/signature-chains/start-status' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ status: 'pending_signature', blocked: { error: 'content_incomplete', message: '3 sections are empty.' } })
+  })
+
+  it('reports nothing once a chain is running, or before the document awaits signature', async () => {
+    const t = await build()
+    t.as(USERS.author)
+    ;(t.app as unknown as { audit: Row }).audit.pageForEntity = async () => ({ rows: [{ details: { reason: { error: 'x', message: 'y' } } }] })
+    t.db.chains.push({ id: 'chain-x', documentId: 'DOC-1', status: 'in_progress' })
+    expect((await t.app.inject({ method: 'GET', url: '/documents/DOC-1/signature-chains/start-status' })).json().blocked).toBeNull()
+    t.db.chains.length = 0
+    t.db.documents[0]!.status = 'in_review'
+    expect((await t.app.inject({ method: 'GET', url: '/documents/DOC-1/signature-chains/start-status' })).json()).toEqual({ status: 'in_review', blocked: null })
+  })
+})
+
 describe('signature chain — who may read the record', () => {
   let t: Awaited<ReturnType<typeof build>>
   let chainId: string

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { AiConnectionTestResult, AiEngineSaveBody, PlatformConfig, Subscription } from '@platform/types'
+import type { AiConnectionTestResult, AiEngineSaveBody, PlatformConfig } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { describeApiError } from '../../api'
@@ -13,8 +13,7 @@ import { LocalisationTab } from './LocalisationTab'
 import { SsoTab } from './SsoTab'
 
 type TabKey =
-  | 'ai-engine' | 'voice' | 'ectd' | 'payment-gateways'
-  | 'document-templates' | 'subscription' | 'external-apis' | 'licensing'
+  | 'ai-engine' | 'voice' | 'ectd' | 'external-apis' | 'licensing'
   | 'branding' | 'localisation' | 'sso'
 
 const TABS: { key: TabKey; labelKey: string }[] = [
@@ -26,12 +25,11 @@ const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'ai-engine',          labelKey: 'page.admin_panel.tab_ai_engine' },
   { key: 'voice',              labelKey: 'page.admin_panel.tab_voice' },
   { key: 'ectd',               labelKey: 'page.admin_panel.tab_ectd' },
-  { key: 'payment-gateways',   labelKey: 'page.admin_panel.tab_payment_gateways' },
-  { key: 'document-templates', labelKey: 'page.admin_panel.tab_document_templates' },
   // Licensing (migration 92) — IT admin pastes the signed JWT issued by
-  // GenBioCa to enable modules/features for this install.
+  // GenBioCa to enable modules/features (+ plan + renewal) for this install.
+  // Payments are invoiced out-of-band; no self-serve payment or subscription
+  // surface lives here.
   { key: 'licensing',          labelKey: 'page.admin_panel.tab_licensing' },
-  { key: 'subscription',       labelKey: 'page.admin_panel.tab_subscription' },
   { key: 'external-apis',      labelKey: 'page.admin_panel.tab_external_apis' },
 ]
 
@@ -56,12 +54,6 @@ function formatDay(iso: string): string {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
-  if (n >= 1_000)     return `${Math.round(n / 1_000)}K`
-  return String(n)
-}
-
 function StatusChip({ status, label }: { status: 'ok' | 'warn' | 'off' | 'info'; label: string }) {
   const palette = {
     ok:   { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0' },
@@ -406,158 +398,6 @@ function EctdTab({ config }: { config: PlatformConfig }) {
   )
 }
 
-function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
-  const { t } = useTranslation()
-  return (
-    <div className="flex flex-col gap-5" data-tab-panel="payment-gateways">
-      <SectionHeader
-        eyebrow={t('page.admin_panel.tab_payment_gateways')}
-        title={t('page.admin_panel.gateways_count', { count: config.paymentGateways.length })}
-        subtitle={t('page.admin_panel.gateways_subtitle')}
-      />
-
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-gateways-table>
-        <table className="w-full text-[13px]">
-          <thead style={{ backgroundColor: '#F8FAFC' }}>
-            <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-              <th className="px-4 py-2">{t('page.admin_panel.col_gateway')}</th>
-              <th className="px-4 py-2">{t('page.admin_panel.col_status')}</th>
-              <th className="px-4 py-2">{t('page.admin_panel.col_last_tested')}</th>
-              <th className="px-4 py-2 text-right">{t('page.admin_panel.col_actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {config.paymentGateways.map(g => (
-              <tr key={g.id} className="border-t border-slate-200" data-gateway-row={g.id}>
-                <td className="px-4 py-3 font-semibold text-slate-900">{g.label}</td>
-                <td className="px-4 py-3">
-                  {g.status === 'active'
-                    ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_active')}`} />
-                    : <StatusChip status="off" label={`○ ${t('page.admin_panel.chip_inactive')}`} />}
-                </td>
-                <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{g.lastTested ?? '—'}</td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={onChange}
-                    className="text-[12px] font-semibold hover:underline"
-                    style={{ color: PLATFORM_ACCENT.primary }}
-                    data-gateway-action={g.status === 'active' ? 'edit' : 'activate'}
-                  >{g.status === 'active' ? t('page.admin_panel.edit_deactivate') : t('page.admin_panel.activate')}</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white p-4" data-webhook-row>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.stripe_webhook_url')}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <code className="flex-1 rounded-md bg-slate-100 px-3 py-2 font-mono text-[12px] text-slate-800">
-            https://api.clinwrite.ai/webhooks/stripe
-          </code>
-          <button
-            type="button"
-            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-          >{t('page.admin_panel.copy_button')}</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DocumentTemplatesTab() {
-  const { t } = useTranslation()
-  const templates = [
-    { id: 'tmpl-genbioca-v2', name: 'GenBioCa Corporate v2.1', moduleKey: 'page.admin_panel.tmpl_module_slide_deck',     metaKey: 'page.admin_panel.tmpl_meta_uploaded_date', status: 'applied' as const, actionKey: 'page.admin_panel.tmpl_action_replace' },
-    { id: 'tmpl-ich-e3',      name: 'ICH E3 CSR shell',        moduleKey: 'nav.clinical_writing',                        metaKey: 'page.admin_panel.tmpl_meta_platform_default', status: 'default' as const, actionKey: 'page.admin_panel.tmpl_action_override' },
-    { id: 'tmpl-ectd-cover',  name: 'eCTD cover letter',       moduleKey: 'nav.regulatory_writing',                      metaKey: 'page.admin_panel.tmpl_meta_system_generated', status: 'default' as const, actionKey: 'page.admin_panel.tmpl_action_override' },
-  ]
-  return (
-    <div className="flex flex-col gap-5" data-tab-panel="document-templates">
-      <SectionHeader
-        eyebrow={t('page.admin_panel.tab_document_templates')}
-        title={t('page.admin_panel.templates_section_title')}
-        subtitle={t('page.admin_panel.templates_section_subtitle')}
-      />
-
-      <div className="flex flex-col gap-3" data-templates-list>
-        {templates.map(tpl => (
-          <div key={tpl.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4" data-template-row={tpl.id}>
-            <div>
-              <p className="text-[14px] font-semibold text-slate-900">{tpl.name}</p>
-              <p className="mt-0.5 font-mono text-[11px] text-slate-500">{t(tpl.moduleKey)} · {t(tpl.metaKey)}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {tpl.status === 'applied'
-                ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_applied')}`} />
-                : <StatusChip status="off" label={t('page.admin_panel.chip_platform_default')} />}
-              <button
-                type="button"
-                className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-              >{t(tpl.actionKey)}</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function SubscriptionTab({ config, subscription }: { config: PlatformConfig; subscription: Subscription | null }) {
-  const { t } = useTranslation()
-  const currency  = config.currency
-  const seats     = config.seats
-  const running   = subscription?.currentMonthRunningTotal ?? subscription?.currentPeriod?.tokensConsumed ?? 0
-  return (
-    <div className="flex flex-col gap-5" data-tab-panel="subscription">
-      <SectionHeader
-        eyebrow={t('page.admin_panel.tab_subscription')}
-        title={t('page.admin_panel.plan_section_title', { plan: config.plan ?? t('page.admin_panel.plan_none'), client: config.clientName })}
-        subtitle={config.contractedTokensPerMonth != null && config.renewalDate
-          ? t('page.admin_panel.plan_section_subtitle', { tokens: formatTokens(config.contractedTokensPerMonth), date: formatDay(config.renewalDate) })
-          : t('page.admin_panel.plan_section_subtitle_none')}
-      />
-
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-subscription-stats>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_plan')}</p>
-          <p className="mt-1 text-[18px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-plan-value>{config.plan ?? '—'}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_seats')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900" data-seats-value>
-            {seats ? `${seats.used}/${seats.total}` : '—'}
-          </p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_tokens_this_month')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900" data-tokens-value>
-            {formatTokens(running)}
-          </p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_renews')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900">{config.renewalDate ? formatDay(config.renewalDate) : '—'}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_currency')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900" data-currency-value>{currency}</p>
-        </div>
-      </div>
-
-      <p
-        className="rounded-lg p-3 text-[12px]"
-        style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-        data-immutability-note
-      >
-        {t('page.admin_panel.invoices_immutable_note')}
-      </p>
-    </div>
-  )
-}
-
 // Credentials entered in the Configure modal. Persisted to the API via
 // GET/PUT /admin/external-apis/:apiId/credentials. The GET response
 // masks every apiKey; this component never shows the raw secret back
@@ -881,11 +721,6 @@ export function AdminPanel() {
     queryKey: ['platform-config'],
     queryFn:  () => platformApi.getConfig(),
   })
-  const { data: subscription = null } = useQuery({
-    queryKey: ['platform-subscription'],
-    queryFn:  () => platformApi.getSubscription(),
-  })
-
   useEffect(() => { if (config) setConfig(config) }, [config, setConfig])
 
   const aiDraftEffective = aiDraft ?? (config ? draftOf(config) : null)
@@ -995,9 +830,6 @@ export function AdminPanel() {
             {config && aiDraftEffective && activeTab === 'ai-engine' && <AIEngineTab config={config} draft={aiDraftEffective} onDraft={d => { setSaveNote(null); setAiDraft(d) }} />}
             {config && activeTab === 'voice'              && <VoiceTab             config={config} onChange={markUnsaved} />}
             {config && activeTab === 'ectd'               && <EctdTab              config={config} />}
-            {config && activeTab === 'payment-gateways'   && <PaymentGatewaysTab   config={config} onChange={markUnsaved} />}
-            {config && activeTab === 'document-templates' && <DocumentTemplatesTab />}
-            {config && activeTab === 'subscription'       && <SubscriptionTab      config={config} subscription={subscription} />}
             {config && activeTab === 'external-apis'      && <ExternalApisTab      config={config} onChange={markUnsaved} />}
             {activeTab === 'licensing'                     && <LicensingTab />}
             {activeTab === 'branding'                      && <BrandingTab />}

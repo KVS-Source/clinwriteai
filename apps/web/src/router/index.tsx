@@ -96,7 +96,6 @@ import { RegulatoryFrameworkAdmin }     from '../platform/screens/RegulatoryFram
 import { MasterLibrary }                from '../platform/screens/MasterLibrary'
 import { BestPracticesLibrary }         from '../platform/screens/BestPracticesLibrary'
 import { ServicesDashboard }            from '../platform/screens/ServicesDashboard'
-import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
 import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
 import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePolicies'
@@ -214,7 +213,12 @@ export const router = createBrowserRouter([
       { path: 'services',               element: <AdminGuard><ServicesDashboard /></AdminGuard> },
       // Rate card URL retired alongside the rest of the Super Admin surface.
       { path: 'super-admin/rate-card',  element: <Navigate to="/projects" replace /> },
-      { path: 'admin/subscription',     element: <AdminGuard><SubscriptionPayment /></AdminGuard> },
+      // Subscription-payment surface retired with the licensing refactor —
+      // module entitlements + plan metadata ride on the signed JWT token;
+      // payments are invoiced out-of-band. Redirect any bookmarked URL back
+      // to the Settings screen so writers who saved the old link still land
+      // somewhere sensible.
+      { path: 'admin/subscription',     element: <Navigate to="/admin" replace /> },
       // Reports are the PM's (moved off the IT Admin), covering the projects they manage.
       { path: 'reports',                element: <PmGuard><ReportsAnalytics /></PmGuard> },
       {

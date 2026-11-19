@@ -43,7 +43,9 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.platform_services',             href: '/services',                  roles: ['admin'] as const, icon: <LayersIcon /> },
   // Settings sits last, below Services.
   { labelKey: 'component.sidebar.platform_admin_panel',          href: '/admin',                     roles: ['admin'] as const, icon: <GearIcon /> },
-  // Reports moved to the PM nav; Subscription hidden from IT Admin (page and route stay).
+  // Reports moved to the PM nav. Subscription removed entirely — the
+  // concept lives inside the Licensing tab now (signed JWT carries plan +
+  // renewal); the /admin/subscription URL redirects to /admin.
 ]
 // Master Library — single entry for non-admin users (PM = content
 // admin, contributor / author / auditor = readers). Replaces the old

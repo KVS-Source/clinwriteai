@@ -234,13 +234,9 @@ export const platformHandlers = [
     })))
   }),
 
-  // --- sPM11 Services Dashboard + sPM13 Subscription & Payment ---
+  // --- sPM11 Services Dashboard (subscription payment surface retired) ---
   http.get(`${BASE}/services/dashboard`, async () => {
     await delay(150)
-    return HttpResponse.json(mockSubscriptionView)
-  }),
-  http.get(`${BASE}/admin/subscription`, async () => {
-    await delay(120)
     return HttpResponse.json(mockSubscriptionView)
   }),
 

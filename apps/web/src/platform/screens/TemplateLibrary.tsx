@@ -277,6 +277,123 @@ export function TemplateLibrary() {
   )
 }
 
+// ---- sections as plain language -----------------------------------------
+
+type SectionRec = DocumentTemplateSection & Record<string, unknown>
+
+/** The field that holds a section's instructions in plain words: `instructions` (headings), else `guidance`. */
+const instructionKey = (s: SectionRec): 'instructions' | 'guidance' =>
+  'instructions' in s ? 'instructions' : 'guidance' in s ? 'guidance' : 'instructions'
+
+/** The default text a new document would start from for these instructions (only used to keep it in step). */
+function defaultFor(s: SectionRec, text: string): string {
+  if (instructionKey(s) === 'instructions') return `<p>AUTHORING INSTRUCTIONS | ${text}</p>`
+  const ph = typeof s.placeholder === 'string' ? s.placeholder : ''
+  return `<p>${ph ? `${ph} ` : ''}${text}</p>`
+}
+
+/** Edits the instructions; the section's default text and template text follow only if they still matched the old ones. */
+function withInstructions(s: SectionRec, text: string): SectionRec {
+  const key = instructionKey(s)
+  const old = typeof s[key] === 'string' ? (s[key] as string) : ''
+  const next: SectionRec = { ...s, [key]: text }
+  if (s.defaultContentHtml === defaultFor(s, old)) next.defaultContentHtml = defaultFor(s, text)
+  const ph = typeof s.placeholder === 'string' ? s.placeholder : ''
+  if (ph && s.templateText === `${ph} ${old}`) next.templateText = `${ph} ${text}`
+  return next
+}
+
+function SectionsOutline({ sections, onChange }: { sections: DocumentTemplateSection[]; onChange: (s: DocumentTemplateSection[]) => void }) {
+  const list = sections as SectionRec[]
+  const update = (i: number, patch: Partial<SectionRec>) => onChange(list.map((s, j) => (j === i ? { ...s, ...patch } : s)))
+  const move = (i: number, by: -1 | 1) => {
+    const j = i + by
+    if (j < 0 || j >= list.length) return
+    const copy = [...list]; [copy[i], copy[j]] = [copy[j]!, copy[i]!]
+    onChange(copy)
+  }
+  const remove = (i: number) => onChange(list.filter((_, j) => j !== i))
+  const add = () => onChange([...list, { id: `s-${Date.now().toString(36)}`, number: '', title: '', level: 1, style: 'Heading1', instructions: '' } as SectionRec])
+
+  return (
+    <div className="flex flex-col gap-2" data-sections-outline>
+      <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+        {list.length === 0 && <p className="p-3 text-[12px] text-slate-500">No sections yet. Add the first one below.</p>}
+        {list.map((s, i) => {
+          const level = typeof s.level === 'number' ? s.level : 1
+          const key = instructionKey(s)
+          const tables = Array.isArray(s.tables) ? s.tables.length : 0
+          return (
+            <div key={s.id} className="rounded-md border border-slate-200 bg-white p-2.5" style={{ marginLeft: Math.min(level - 1, 3) * 18 }} data-section-card={s.id}>
+              <div className="flex items-center gap-2">
+                <input
+                  value={s.number}
+                  onChange={e => update(i, { number: e.currentTarget.value })}
+                  placeholder="No."
+                  aria-label="Section number"
+                  className="h-8 w-16 flex-none rounded-md border border-slate-300 px-2 text-[12px] font-semibold"
+                />
+                <input
+                  value={s.title}
+                  onChange={e => update(i, { title: e.currentTarget.value })}
+                  placeholder="Section title"
+                  aria-label="Section title"
+                  className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] font-semibold text-slate-900"
+                />
+                <div className="flex flex-none items-center">
+                  <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" className="h-7 w-7 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30">↑</button>
+                  <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1} aria-label="Move down" className="h-7 w-7 rounded text-slate-500 hover:bg-slate-100 disabled:opacity-30">↓</button>
+                  <button type="button" onClick={() => remove(i)} aria-label="Remove section" className="h-7 w-7 rounded text-rose-600 hover:bg-rose-50">✕</button>
+                </div>
+              </div>
+              <textarea
+                value={typeof s[key] === 'string' ? (s[key] as string) : ''}
+                onChange={e => onChange(list.map((x, j) => (j === i ? withInstructions(x, e.currentTarget.value) : x)))}
+                rows={2}
+                placeholder="What the author writes here, in plain words"
+                aria-label="Instructions"
+                className="mt-2 w-full resize-y rounded-md border border-slate-200 px-2 py-1.5 text-[12px] leading-relaxed text-slate-800"
+              />
+              {/* The plain-language rules for this section: copied into every new document when it is created, and
+                  followed by the AI drafter. One rule per line. */}
+              <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                How it should be written (rules copied into new documents)
+                <textarea
+                  value={typeof s.formatRules === 'string' ? s.formatRules : ''}
+                  onChange={e => update(i, { formatRules: e.currentTarget.value })}
+                  rows={4}
+                  placeholder="One rule per line: heading style, font, paragraphs, tables, references…"
+                  aria-label="Formatting rules"
+                  className="mt-1 w-full resize-y rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[12px] font-normal normal-case leading-relaxed tracking-normal text-slate-800"
+                  data-field="format-rules"
+                />
+              </label>
+              {(tables > 0 || s.frontMatter === true || s.autoGenerated === true || s.usOnly === true) && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] font-semibold text-slate-500">
+                  {s.frontMatter === true && <span className="rounded bg-slate-100 px-1.5 py-0.5">Front matter</span>}
+                  {s.autoGenerated === true && <span className="rounded bg-slate-100 px-1.5 py-0.5">Built on export</span>}
+                  {tables > 0 && <span className="rounded bg-slate-100 px-1.5 py-0.5">{tables} table{tables === 1 ? '' : 's'}</span>}
+                  {s.usOnly === true && <span className="rounded bg-slate-100 px-1.5 py-0.5">US only</span>}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div>
+        <button
+          type="button"
+          onClick={add}
+          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+          data-action="add-section"
+        >
+          + Add section
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ---- editor -------------------------------------------------------------
 
 function TemplateEditor({
@@ -290,7 +407,11 @@ function TemplateEditor({
   const [label,        setLabel]        = useState(template.label)
   const [description,  setDescription]  = useState(template.description)
   const [framework,    setFramework]    = useState(template.framework)
-  const [sectionsText, setSectionsText] = useState(JSON.stringify(template.sections ?? [], null, 2))
+  // The sections are edited as a readable list (number, title, instructions). The raw JSON stays available under
+  // "Advanced" for fields the list does not show (tables, cross references…), which the list never strips.
+  const [sections, setSections] = useState<DocumentTemplateSection[]>(() => template.sections ?? [])
+  const [advancedText, setAdvancedText] = useState('')
+  const [advancedErr,  setAdvancedErr]  = useState<string | null>(null)
   const [pdfFile,      setPdfFile]      = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Clears the chosen file everywhere: our copy of it AND the name the browser's file box is still showing.
@@ -308,7 +429,7 @@ function TemplateEditor({
 
   const [confirmRetire, setConfirmRetire] = useState(false)
 
-  const parse = useMemo(() => parseSections(sectionsText), [sectionsText])
+  const parse = useMemo(() => parseSections(JSON.stringify(sections)), [sections])
   const sectionsOk = 'ok' in parse
 
   const save = useMutation({
@@ -371,7 +492,7 @@ function TemplateEditor({
       {actionError && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{actionError}</p>}
       {actionInfo  && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{actionInfo}</p>}
 
-      <Field label="Parse a PDF exemplar" help="Upload a completed / final document of this type. The parser extracts its section outline into JSON below. Overwrites the current sections on success.">
+      <Field label="Parse a PDF exemplar" help="Upload a completed / final document of this type. The parser extracts its section outline into the sections below. Overwrites the current sections on success.">
         <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3" data-parse-upload>
           <div className="flex items-center gap-2">
             <input
@@ -406,14 +527,44 @@ function TemplateEditor({
         </div>
       </Field>
 
-      <Field label="Sections (JSON)" help={`One row per heading. ${sectionsOk ? 'Valid.' : (parse as { err: string }).err}`}>
-        <textarea
-          value={sectionsText}
-          onChange={e => setSectionsText(e.currentTarget.value)}
-          rows={16}
-          className={`w-full resize-y rounded-md border px-3 py-2 font-mono text-[12px] ${sectionsOk ? 'border-slate-300' : 'border-rose-400 bg-rose-50'}`}
-          data-field="sections-json"
-        />
+      <Field
+        label={`Sections (${sections.length})`}
+        help={sectionsOk
+          ? 'One card per heading: its number, its title, what to write, and the plain-language rules that are copied into each new document and followed by the AI drafter.'
+          : (parse as { err: string }).err}
+      >
+        <SectionsOutline sections={sections} onChange={setSections} />
+        <details
+          className="mt-2 rounded-md border border-slate-200"
+          onToggle={e => { if ((e.currentTarget as HTMLDetailsElement).open) { setAdvancedText(JSON.stringify(sections, null, 2)); setAdvancedErr(null) } }}
+          data-advanced-json
+        >
+          <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-slate-600">Advanced: raw JSON</summary>
+          <div className="flex flex-col gap-2 border-t border-slate-200 p-3">
+            <textarea
+              value={advancedText}
+              onChange={e => { setAdvancedText(e.currentTarget.value); setAdvancedErr(null) }}
+              rows={14}
+              className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px]"
+              data-field="sections-json"
+            />
+            {advancedErr && <p className="text-[11px] text-rose-700">{advancedErr}</p>}
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  const res = parseSections(advancedText)
+                  if ('err' in res) { setAdvancedErr(res.err); return }
+                  setSections(res.ok); setAdvancedErr(null)
+                }}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                data-action="apply-json"
+              >
+                Apply JSON to the list
+              </button>
+            </div>
+          </div>
+        </details>
       </Field>
 
       <ConfirmDialog

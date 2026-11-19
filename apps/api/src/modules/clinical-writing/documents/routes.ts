@@ -457,10 +457,17 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const resolved = policy
       ? await resolvePolicyAssets(app.prisma, policy)
       : null
+    //   5. the current template of the document's own type, when there is no policy for the type (the protocol has
+    //      none): the document still records which template it came from, and gets that template's plain-language
+    //      rules for every section.
     const effectiveTemplateId =
       parsed.data.templateId
       ?? policy?.templateId
       ?? resolved?.template.auto?.id
+      ?? (await app.prisma.documentTemplate.findFirst({
+        where:  { type: parsed.data.type, isCurrent: true, retiredAt: null },
+        select: { id: true },
+      }).catch(() => null))?.id
       ?? undefined
 
     // Phase-1 pointer refactor (migration 73): pin the latest-approved

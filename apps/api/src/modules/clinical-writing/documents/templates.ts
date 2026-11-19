@@ -218,14 +218,18 @@ export function templateSectionsFromRow(
   const out: SectionPayload[] = []
   for (const raw of sectionsJson) {
     if (!raw || typeof raw !== 'object') continue
-    const s = raw as { id?: unknown; number?: unknown; title?: unknown; usOnly?: unknown }
+    const s = raw as { id?: unknown; number?: unknown; title?: unknown; usOnly?: unknown; seedContent?: unknown; defaultContentHtml?: unknown }
     if (typeof s.id !== 'string' || typeof s.number !== 'string' || typeof s.title !== 'string') continue
     if (s.usOnly === true && !isUs) continue
     out.push({
       sectionId:     s.id,
       sectionNumber: s.number,
       sectionTitle:  s.title,
-      contentHtml:   '',
+      // Only a section that opts in (`seedContent: true`) starts with the template's own content: the protocol's
+      // front pages (title page, approval and version tables, abbreviations), which are forms to fill in. Every other
+      // section starts empty and is written by the author or drafted by the AI, which follows the section's
+      // plain-language `formatRules` (copied into the document when it is created).
+      contentHtml:   s.seedContent === true && typeof s.defaultContentHtml === 'string' ? s.defaultContentHtml : '',
       ichStatus:     'not_started',
     })
   }

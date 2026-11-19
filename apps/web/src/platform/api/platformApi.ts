@@ -538,6 +538,15 @@ export const platformApi = {
       ruleCount:    number
     }>(`/ai-prompts/${encodeURIComponent(id)}/extract-section-rules`, {}),
 
+  // --- Licensing (migration 92) ----------------------------------------
+  // Per-install signed-JWT licence. GET re-verifies on every call, so
+  // the response is fresh truth; never cache stale values client-side
+  // beyond react-query's normal staleTime.
+  getLicense: () =>
+    api.get<LicenseView>(`/license`),
+  importLicense: (token: string) =>
+    api.post<LicenseView>(`/license/import`, { token }),
+
   // --- SectionTemplate (migration 90) ----------------------------------
   // Per-section formatting JSON that flows into every AI call so Claude
   // preserves authored styling. Versioned per (docType, sectionKey) with
@@ -1066,6 +1075,34 @@ export interface AiPromptCreateBody {
 export interface AiPromptPatchBody {
   smePrompt?:    string
   sectionRules?: AiPromptSectionRules
+}
+
+// --- License (platform/licensing, migration 92) -------------------------
+// Per-install view of the signed licence JWT. Re-verified on every GET,
+// so a stale response from the browser cache is still safe — the UI
+// only ever sees state the server reaffirmed. `modules` + `features`
+// here come from the signed claim, NEVER the DB snapshot columns.
+export type LicenseState =
+  | 'active'
+  | 'expired'
+  | 'invalid'
+  | 'dev_mode_unlicensed'
+  | 'unlicensed'
+
+export interface LicenseView {
+  state:            LicenseState
+  publicKeySource:  'env' | 'dev_fallback'
+  installId:        string | null
+  customerName:     string | null
+  modules:          string[]
+  features:         string[]
+  issuedAt:         string | null
+  expiry:           string | null
+  importedAt:       string | null
+  importedBy:       string | null
+  daysToExpiry:     number | null
+  invalidReason?:   string
+  invalidDetail?:   string
 }
 
 // --- SectionTemplate (platform/section-template, migration 91) ----------

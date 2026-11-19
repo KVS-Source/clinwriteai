@@ -294,6 +294,12 @@ async function buildServer() {
   const { sectionTemplateRoutes } = await import('./modules/platform/section-template/routes.js')
   await app.register(sectionTemplateRoutes, { prefix: '/section-templates' })
 
+  // Licensing (migration 92) — per-install signed-JWT licence. IT admin
+  // imports the token on Settings → Licensing; the verifier re-reads
+  // the token on every GET so a tampered DB row doesn't widen trust.
+  const { licenseRoutes } = await import('./modules/platform/licensing/routes.js')
+  await app.register(licenseRoutes, { prefix: '/license' })
+
   // Scientific-Writing Policy admin (Phase M-B.1, migration 75) — mirror
   // of the clinical-writing policy stack scoped to publication doctypes
   // (manuscript_full_research, review_systematic, abstract, poster,
@@ -692,6 +698,27 @@ async function buildServer() {
 
   // Automatic ICH sync — keeps the ICH Frameworks registry in step with ich.org once a day (ICH_AUTO_SYNC=off to stop).
   await app.register(import('./modules/platform/frameworks/ich-auto-sync-plugin.js'))
+
+  // Licensing boot check (migration 92) — read the active license once
+  // so the operator sees the state in the startup log. Does NOT cache
+  // the result: the GET /license path re-verifies on every read so
+  // DB tamper attempts fail at request time, not just at boot.
+  try {
+    const { LicenseService } = await import('./modules/platform/licensing/service.js')
+    const view = await new LicenseService(app.prisma).getActive()
+    if (view.publicKeySource === 'dev_fallback') {
+      app.log.warn(
+        { licenseState: view.state, publicKeySource: view.publicKeySource },
+        'LICENSE_PUBLIC_KEY env var not set — using embedded dev public key. DO NOT RUN IN PRODUCTION.',
+      )
+    }
+    app.log.info(
+      { licenseState: view.state, customer: view.customerName, modules: view.modules, daysToExpiry: view.daysToExpiry },
+      'licensing: boot check complete',
+    )
+  } catch (err) {
+    app.log.warn({ err }, 'licensing: boot check failed (non-fatal)')
+  }
 
   return app
 }

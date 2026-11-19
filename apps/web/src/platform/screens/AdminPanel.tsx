@@ -7,10 +7,11 @@ import { platformApi } from '../api/platformApi'
 import { describeApiError } from '../../api'
 import { usePlatformStore } from '../store'
 import { useTopNavSection } from '../../components/layout/topNavSection'
+import { LicensingTab } from './LicensingTab'
 
 type TabKey =
   | 'ai-engine' | 'voice' | 'ectd' | 'payment-gateways'
-  | 'document-templates' | 'subscription' | 'external-apis'
+  | 'document-templates' | 'subscription' | 'external-apis' | 'licensing'
 
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'ai-engine',          labelKey: 'page.admin_panel.tab_ai_engine' },
@@ -18,6 +19,9 @@ const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'ectd',               labelKey: 'page.admin_panel.tab_ectd' },
   { key: 'payment-gateways',   labelKey: 'page.admin_panel.tab_payment_gateways' },
   { key: 'document-templates', labelKey: 'page.admin_panel.tab_document_templates' },
+  // Licensing (migration 92) — IT admin pastes the signed JWT issued by
+  // GenBioCa to enable modules/features for this install.
+  { key: 'licensing',          labelKey: 'page.admin_panel.tab_licensing' },
   { key: 'subscription',       labelKey: 'page.admin_panel.tab_subscription' },
   { key: 'external-apis',      labelKey: 'page.admin_panel.tab_external_apis' },
 ]
@@ -986,6 +990,7 @@ export function AdminPanel() {
             {config && activeTab === 'document-templates' && <DocumentTemplatesTab />}
             {config && activeTab === 'subscription'       && <SubscriptionTab      config={config} subscription={subscription} />}
             {config && activeTab === 'external-apis'      && <ExternalApisTab      config={config} onChange={markUnsaved} />}
+            {activeTab === 'licensing'                     && <LicensingTab />}
           </section>
         </div>
       </div>

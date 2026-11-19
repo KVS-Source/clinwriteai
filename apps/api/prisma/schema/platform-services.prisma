@@ -300,6 +300,48 @@ model SectionTemplate {
 }
 
 // --------------------------------------------------------------------------
+// License — per-install licensing token (migration 92).
+//
+// Each customer install receives a signed JWT from GenBioCa HQ containing
+// the modules + features they're licensed for. IT admin imports the token
+// on Settings → Licensing. The server re-verifies the JWT on every read
+// using the embedded GenBioCa public key — the DB row itself is UNTRUSTED
+// because customers have DB access on self-hosted installs. Only what's
+// inside the signed token is authoritative.
+//
+// `modulesSnapshot` + `featuresSnapshot` are display-only caches so the
+// admin UI can render without re-verifying on every request. The auth
+// path never reads them — it always re-decodes `token`.
+// --------------------------------------------------------------------------
+
+model License {
+  id               String    @id @default(uuid())
+
+  // Raw signed JWT — only authoritative module/feature list.
+  token            String
+
+  // Display-only cache (populated at import time from the decoded JWT).
+  installId        String
+  customerName     String
+  issuedAt         DateTime
+  expiry           DateTime
+  modulesSnapshot  String[]  @default([])
+  featuresSnapshot String[]  @default([])
+
+  importedBy       String
+  importedAt       DateTime  @default(now())
+
+  isActive         Boolean   @default(false)
+  revokedAt        DateTime?
+  revokedBy        String?
+  revokeReason     String?
+
+  @@map("licenses")
+  @@index([importedAt])
+  @@index([installId])
+}
+
+// --------------------------------------------------------------------------
 // Notifications — in-app + email + SMS fan-out
 // --------------------------------------------------------------------------
 

@@ -15,10 +15,11 @@ import { z } from 'zod'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { notifyRaciAssigned } from './notify-assigned.js'
+import { approvalRoundState, bounceToAuthoring, reviewRoundState } from './return-to-authoring.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
+import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
 import { listPendingCohort, nudgePendingCohort } from './nudge.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
@@ -555,7 +556,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     // round that hasn't started; one made later has nothing left to affect.
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      select: { status: true, title: true, projectId: true },
+      select: { status: true, title: true, projectId: true, assigneeId: true },
     })
     if ((row.letter === 'C' || row.letter === 'Q') && doc?.status !== 'in_review' && doc?.status !== 'crm_in_progress') {
       return reply.code(409).send({
@@ -615,6 +616,26 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     if (row.letter === 'C' && sequentialReview) {
       const after = reviewersWhoseTurnItIs(await reviewOrderRows(documentId))
       await notifyReviewTurn({ documentId, title: doc?.title ?? 'a document', projectId: doc?.projectId ?? '', userIds: after.filter(id => !turnBefore.has(id)), sequential: true })
+    }
+
+    // Every Reviewer has now finished (done or returned) and at least one returned the document: it goes back to
+    // authoring, as if the last of them had returned it. (A document everyone approved carries on as before.)
+    if (row.letter === 'C' && (doc?.status === 'in_review' || doc?.status === 'crm_in_progress')) {
+      const state = await reviewRoundState(app.prisma, documentId)
+      if (state.allIn && state.rejected.length > 0) {
+        const trigger = state.rejected[state.rejected.length - 1]!
+        const { snap } = await bounceToAuthoring(app, svc, {
+          documentId, from: doc.status as DocumentStatus, actorId: actor.id, ip: request.ip ?? null,
+          returnedBy: { raciId: trigger.id, userId: trigger.userId, letter: 'C', sectionId: trigger.sectionId },
+          note: trigger.rejectionNote ?? 'Returned by a Reviewer',
+          doc: { title: doc.title, projectId: doc.projectId, assigneeId: doc.assigneeId },
+        })
+        return reply.send({
+          row: updated, transitioned: false, returnedToAuthoring: true,
+          document: { id: documentId, status: 'in_authoring' },
+          version:  { id: snap.version.id, versionNumber: snap.version.versionNumber },
+        })
+      }
     }
 
     // Evaluate the stage transition. If the gating cohort is complete AND
@@ -722,73 +743,40 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
-    const now = new Date()
-    await app.prisma.document.update({ where: { id: documentId }, data: { status: 'in_authoring' } })
-    const cancelledChains = await app.prisma.signatureChain.updateMany({
-      where: { documentId, status: { in: ['initiated', 'in_progress'] } },
-      data:  { status: 'cancelled', cancelledAt: now, cancelReason: `Returned to authoring: ${note}` },
-    })
-    const reason = from === 'in_review' ? 'review_bounce' : from === 'crm_in_progress' ? 'crm_bounce' : 'signature_bounce'
-    const snap = await svc.createVersionSnapshot({ documentId, createdBy: actor.id, reason, note })
-    await resetRaciRound(app.prisma, documentId)
-    const updated = await app.prisma.documentRaci.update({ where: { id: raciId }, data: { rejectionNote: note } })
-
-    await app.audit.append({
-      timestamp: now.toISOString(),
-      actorId: actor.id,
-      action: 'document_raci.rejected',
-      entityType: 'document_raci',
-      entityId: raciId,
-      details: { documentId, letter: row.letter, sectionId: row.sectionId, note },
-      ipAddress: request.ip ?? null,
-    })
-    await app.audit.append({
-      timestamp: now.toISOString(),
-      actorId: actor.id,
-      action: 'document_status_changed',
-      entityType: 'document',
-      entityId: documentId,
-      details: {
-        from, to: 'in_authoring', trigger: 'raci_reject', raciId, letter: row.letter, note,
-        snapshotVersionId: snap.version.id, snapshotVersionNumber: snap.version.versionNumber,
-        cancelledSignatureChains: cancelledChains.count,
-      },
-      ipAddress: request.ip ?? null,
-    })
-
-    // Tell the authors: every active R, or the assignee on a document with no R rows yet.
-    // The return is already saved, so a failed notification must not fail it.
-    if (doc && app.hasDecorator('notifications')) {
-      try {
-        const authorRows = await app.prisma.documentRaci.findMany({
-          where:  { documentId, letter: 'R', removedAt: null },
-          select: { userId: true },
+    // A Reviewer (C) returning the document during review, or an Approver (A) while it awaits signature, is one voice
+    // among their group. It is recorded now, and the document goes back to authoring only once everyone in the group
+    // has finished: Reviewers by marking their review done or returning it, Approvers by approving (signing) or
+    // returning it. One return among otherwise-approving people still sends it back, after everyone is done.
+    const reviewerHold = row.letter === 'C' && (from === 'in_review' || from === 'crm_in_progress')
+    const approverHold = row.letter === 'A' && from === 'pending_signature'
+    if (reviewerHold || approverHold) {
+      const recorded = await app.prisma.documentRaci.update({ where: { id: raciId }, data: { rejectedAt: new Date(), rejectionNote: note } })
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: actor.id,
+        action: 'document_raci.rejection_recorded',
+        entityType: 'document_raci',
+        entityId: raciId,
+        details: { documentId, letter: row.letter, sectionId: row.sectionId, note },
+        ipAddress: request.ip ?? null,
+      })
+      const state = reviewerHold ? await reviewRoundState(app.prisma, documentId) : await approvalRoundState(app.prisma, documentId)
+      if (!state.allIn) {
+        const names = await userNamesById([...new Set(state.waiting.map(r => r.userId))])
+        return reply.send({
+          row:       recorded,
+          document:  { id: documentId, status: from },
+          deferred:  true,
+          waitingFor: state.waiting.map(r => ({ userId: r.userId, name: names.get(r.userId) ?? r.userId })),
         })
-        const authorIds = authorRows.length > 0 ? authorRows.map(r => r.userId) : [doc.assigneeId]
-        const recipients = [...new Set(authorIds)].filter(id => id !== actor.id)
-        if (recipients.length > 0) {
-          const returnedBy = await app.prisma.user.findUnique({ where: { id: actor.id }, select: { name: true } })
-          const reasonText = note.length > 200 ? `${note.slice(0, 200)}…` : note
-          for (const recipientId of recipients) {
-            try {
-              await app.notifications.send({
-                recipientId,
-                kind:     'document.returned_to_authoring',
-                severity: 'warning',
-                title:    `${returnedBy?.name ?? 'A colleague'} returned "${doc.title}" to authoring`,
-                body:     `Now ${snap.version.versionNumber}. Reason: ${reasonText}`,
-                linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${documentId}`,
-                payload:  { documentId, projectId: doc.projectId, versionNumber: snap.version.versionNumber, letter: row.letter, returnedBy: actor.id },
-              })
-            } catch (err) {
-              request.log.warn({ err, documentId, recipientId }, 'returned_to_authoring notification failed')
-            }
-          }
-        }
-      } catch (err) {
-        request.log.warn({ err, documentId }, 'returned_to_authoring notifications failed')
       }
     }
+
+    const { row: updated, snap } = await bounceToAuthoring(app, svc, {
+      documentId, from, actorId: actor.id, ip: request.ip ?? null,
+      returnedBy: { raciId, userId: actor.id, letter: row.letter, sectionId: row.sectionId },
+      note, doc,
+    })
 
     return reply.send({
       row:      updated,

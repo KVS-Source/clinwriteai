@@ -19,7 +19,8 @@ export function ApproveAndSign({ documentId, record, onSigned }: {
   documentId: string
   /** This Approver's record in the running chain: awaiting (can sign) or signed (already done). */
   record: SignatureRecord
-  onSigned: () => void
+  /** `returnedToAuthoring`: this was the last Approver to finish and another had returned the document, so it went back. */
+  onSigned: (returnedToAuthoring: boolean) => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -35,14 +36,14 @@ export function ApproveAndSign({ documentId, record, onSigned }: {
       deviceInfo: navigator.userAgent.slice(0, 200),
       ...(comment.trim() ? { approvalComment: comment.trim() } : {}),
     }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setStep('closed')
       setComment('')
       setPassword('')
       for (const key of [['signature-chains', documentId], ['signature-chain', documentId], ['document', documentId], ['document-raci', documentId], ['comments', documentId], ['documents']]) {
         qc.invalidateQueries({ queryKey: key })
       }
-      onSigned()
+      onSigned(!!(res as { returnedToAuthoring?: boolean }).returnedToAuthoring)
     },
     onError: () => setPassword(''),
   })

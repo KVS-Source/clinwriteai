@@ -396,11 +396,21 @@ export function ReviewerView() {
 
             {/* Approvers approve and sign in one step, only once the document awaits signature (review and
                 the CRM meeting complete). They stay here; nothing moves them to the E-Signature tab. */}
+            {/* I returned the document as an Approver: my signing step is closed; it goes back once the others finish. */}
+            {document.status === 'pending-signature' && !!me && raciRows.some(r => r.letter === 'A' && r.userId === me.id && !r.removedAt && r.rejectedAt) && (
+              <span
+                className="whitespace-nowrap rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-red-800"
+                title={t('page.reviewer_view.you_returned_approver_waiting')}
+                data-approver-returned-by-you
+              >
+                {t('page.reviewer_view.you_returned')}
+              </span>
+            )}
             {canGiveVerdict && !!myLetters?.has('A') && document.status === 'pending-signature' && documentId && myApproveRecord && (
               <ApproveAndSign
                 documentId={documentId}
                 record={myApproveRecord}
-                onSigned={() => setApproveNote(t('page.reviewer_view.approve_sign_done_toast'))}
+                onSigned={returned => setApproveNote(t(returned ? 'page.reviewer_view.approve_sign_returned_toast' : 'page.reviewer_view.approve_sign_done_toast'))}
               />
             )}
             {canGiveVerdict && (<>
@@ -439,6 +449,9 @@ export function ReviewerView() {
                 documentId={documentId}
                 status={document.status}
                 onReturned={version => setApproveNote(t('page.reviewer_view.return_doc_done_toast', { version }))}
+                onRecorded={names => setApproveNote(names.length > 0
+                  ? t('page.reviewer_view.return_doc_recorded_toast', { names: names.join(', ') })
+                  : t('page.reviewer_view.return_doc_recorded_toast_all'))}
               />
             )}
             </>)}

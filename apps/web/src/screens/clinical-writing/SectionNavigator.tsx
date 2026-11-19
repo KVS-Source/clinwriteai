@@ -4,6 +4,8 @@ import type { Section } from '@platform/types'
 import { useDocumentStore } from '../../store'
 import { usePlatformStore } from '../../platform/store/platformStore'
 import { AiSectionConfidenceBadge } from '../../components/ai-drafter/AiSectionConfidenceBadge'
+import { TbdsPanel } from './TbdsPanel'
+import { scanDocumentForTbds, countAllTbds } from './tbd-scanner'
 
 interface AiSectionStatus {
   confidence: number | null
@@ -12,6 +14,10 @@ interface AiSectionStatus {
 
 interface Props {
   sections: Section[]
+  // Passed when the panel should expose the TBDs tab (needs the document id
+  // for POST /documents/:id/tbd-replace). Reviewer view omits it so the
+  // reviewer never sees the Replace UI.
+  documentId?: string
   loggedInUser?: { initials: string; colourKey: 'MW' | 'SC' | 'JO' | 'EV' | 'PN' | 'AH' | 'RT' | 'LP' | 'AI' }
   activeSectionBadge?: string  // e.g. "IN REVIEW" for reviewer view
   progressLabelSuffix?: string // e.g. "reviewed" so footer reads "N of M sections reviewed · X%"
@@ -20,6 +26,8 @@ interface Props {
   // nothing (section was never AI-evaluated). See AI-1 / AI-2 arcs.
   aiConfidenceBySectionId?: Map<string, AiSectionStatus>
 }
+
+type SectionNavTab = 'sections' | 'tbds'
 
 // Presence avatar colours — matches design-system Pattern 7
 const USER_AVATAR: Record<string, { bg: string; fg: string }> = {
@@ -60,6 +68,7 @@ const TEAM_INITIALS: Record<string, string> = {
 
 export function SectionNavigator({
   sections,
+  documentId,
   loggedInUser,
   activeSectionBadge,
   progressLabelSuffix,
@@ -74,6 +83,16 @@ export function SectionNavigator({
   }
   const activeSection    = useDocumentStore(s => s.activeSection)
   const setActiveSection = useDocumentStore(s => s.setActiveSection)
+
+  // Tab switcher — "Sections" (default) or "TBDs". The TBD tab is only
+  // offered when the panel is mounted with a documentId (author view;
+  // reviewer view hides it to keep Replace-all away from reviewers).
+  const [tab, setTab] = useState<SectionNavTab>('sections')
+  const tbdGroups = useMemo(
+    () => (documentId ? scanDocumentForTbds(sections) : []),
+    [documentId, sections],
+  )
+  const tbdCount = useMemo(() => countAllTbds(tbdGroups), [tbdGroups])
 
   // Filter — writers wanted to jump to a section by name/number instead of
   // scrolling the full ToC. Case-insensitive, matches on both "11.4" and
@@ -95,15 +114,69 @@ export function SectionNavigator({
   return (
     <div className="flex w-[220px] flex-none flex-col border-r border-slate-200" style={{ backgroundColor: '#F8FAFC', minHeight: 0 }} data-section-nav>
 
-      {/* Header */}
-      <div className="flex flex-none items-center justify-between px-5 pt-4 pb-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-        <span>{t('page.section_navigator.header')}</span>
-        {query && (
-          <span className="font-sans text-[10px] font-normal normal-case text-slate-400">
-            {t('page.section_navigator.filter_count', { visible: visibleSections.length, total: sections.length })}
-          </span>
-        )}
-      </div>
+      {/* Tab bar — Sections (default) + TBDs (only when documentId is passed).
+          Reviewer view mounts without documentId so no Replace-all is exposed. */}
+      {documentId ? (
+        <div className="flex flex-none border-b border-slate-200 bg-white">
+          <button
+            type="button"
+            onClick={() => setTab('sections')}
+            data-tab="sections"
+            data-active={tab === 'sections' || undefined}
+            className="flex-1 border-b-2 px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest"
+            style={{
+              borderColor:     tab === 'sections' ? '#2563EB' : 'transparent',
+              color:           tab === 'sections' ? '#1E293B' : '#64748B',
+              backgroundColor: tab === 'sections' ? '#F8FAFC' : 'transparent',
+            }}
+          >
+            {t('page.section_navigator.header')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('tbds')}
+            data-tab="tbds"
+            data-active={tab === 'tbds' || undefined}
+            className="flex flex-1 items-center justify-center gap-1 border-b-2 px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest"
+            style={{
+              borderColor:     tab === 'tbds' ? '#2563EB' : 'transparent',
+              color:           tab === 'tbds' ? '#1E293B' : '#64748B',
+              backgroundColor: tab === 'tbds' ? '#F8FAFC' : 'transparent',
+            }}
+          >
+            TBDs
+            {tbdCount > 0 && (
+              <span
+                className="flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold"
+                style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
+              >
+                {tbdCount}
+              </span>
+            )}
+          </button>
+        </div>
+      ) : (
+        /* Reviewer / embedded views keep the legacy header. */
+        <div className="flex flex-none items-center justify-between px-5 pt-4 pb-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
+          <span>{t('page.section_navigator.header')}</span>
+          {query && (
+            <span className="font-sans text-[10px] font-normal normal-case text-slate-400">
+              {t('page.section_navigator.filter_count', { visible: visibleSections.length, total: sections.length })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {tab === 'tbds' && documentId ? (
+        <TbdsPanel documentId={documentId} sections={sections} />
+      ) : (
+      <>
+      {/* Filter-count shown on tabbed header when a query is active. */}
+      {documentId && query && (
+        <div className="flex flex-none items-center justify-end px-3 pt-2 font-mono text-[10px] font-normal normal-case text-slate-400">
+          {t('page.section_navigator.filter_count', { visible: visibleSections.length, total: sections.length })}
+        </div>
+      )}
 
       {/* Section search — filters by number ("11.4") or title ("efficacy").
           Esc clears the query so the writer can abort without reaching for
@@ -243,6 +316,8 @@ export function SectionNavigator({
           )
         })}
       </div>
+      </>
+      )}
 
       {/* Footer — progress */}
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 px-4 py-3.5">

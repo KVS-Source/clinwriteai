@@ -188,6 +188,39 @@ export function DocumentEditor() {
     aiCallRecordRef.current = null
   }, [activeSectionData?.id])
 
+  // TBD panel hand-off — after the writer clicks a TBD occurrence, the
+  // panel puts { sectionId, placeholder } into pendingTbdFocus. Here, once
+  // the matching section is active and rendered, scroll its first TBD
+  // occurrence into view + flash its container. One-shot: cleared after
+  // firing so a second click on the same TBD (same nonce would no-op) can
+  // re-trigger via the TbdsPanel bumping the nonce.
+  const pendingTbdFocus = useDocumentStore(s => s.pendingTbdFocus)
+  const clearTbdFocus   = useDocumentStore(s => s.clearTbdFocus)
+  useEffect(() => {
+    if (!pendingTbdFocus) return
+    if (pendingTbdFocus.sectionId !== activeSectionData?.id) return
+    const root = sectionContentRef.current
+    if (!root) return
+    // Give the active section one paint to render before scanning text nodes.
+    const handle = requestAnimationFrame(() => {
+      const walker = window.document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      let node: Node | null
+      while ((node = walker.nextNode())) {
+        const text = node.textContent ?? ''
+        const idx = text.indexOf(pendingTbdFocus.placeholder)
+        if (idx < 0) continue
+        const parent = (node as Text).parentElement
+        if (!parent) continue
+        parent.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        parent.classList.add('tbd-flash')
+        window.setTimeout(() => parent.classList.remove('tbd-flash'), 1600)
+        break
+      }
+      clearTbdFocus()
+    })
+    return () => cancelAnimationFrame(handle)
+  }, [pendingTbdFocus, activeSectionData?.id, clearTbdFocus])
+
   // When the server's contentHtml changes AND it's not what we just saved
   // (i.e. an admin force-release let another writer edit mid-session, or
   // the demo-persona switcher reloaded the fixture), re-hydrate the draft.
@@ -1023,7 +1056,7 @@ export function DocumentEditor() {
       {/* ============ Three-panel row ============ */}
       <div className="flex flex-1 min-h-0">
 
-        <SectionNavigator sections={document.sections} aiConfidenceBySectionId={aiSectionsByKey} />
+        <SectionNavigator sections={document.sections} documentId={documentId ?? undefined} aiConfidenceBySectionId={aiSectionsByKey} />
 
         {/* Editor pane — split: section content column + right panel column.
             Toolbar and AI prompt dock span full editor-pane width; the

@@ -442,6 +442,98 @@ export class DocumentService {
   }
 
   /**
+   * Replace an exact placeholder string (e.g. "[TBD: protocol number]") with
+   * a user-chosen value across every section of the current document version.
+   * One transaction, one contentHash recompute, one EditHistory row per
+   * affected section. Powers the TBD panel's "Replace all" button.
+   *
+   * Returns a list of { sectionId, occurrences } for the sections that
+   * actually changed; when `find` is not present anywhere the method is a
+   * no-op and returns `updated: []`.
+   */
+  async replaceAcrossSections(args: {
+    documentId:   string
+    find:         string
+    replace:      string
+    editorUserId: string
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.documentId}))`
+
+      const doc = await tx.document.findUnique({
+        where:   { id: args.documentId },
+        include: { currentVersion: { include: { sections: true } } },
+      })
+      if (!doc?.currentVersion) throw new Error(`Document ${args.documentId} not found or has no current version`)
+
+      const current  = doc.currentVersion
+      const affected = current.sections.filter(s => s.contentHtml.includes(args.find))
+      if (affected.length === 0) {
+        return { updated: [] as Array<{ sectionId: string; occurrences: number }>, versionId: current.id }
+      }
+
+      // Signed versions can't be mutated in place — Part 11 binds the hash.
+      const sealed = await isVersionSealed(tx, doc.id, current.versionNumber)
+      if (sealed) throw new Error('version_sealed')
+
+      const updated: Array<{ sectionId: string; occurrences: number }> = []
+      for (const s of affected) {
+        const occurrences = s.contentHtml.split(args.find).length - 1
+        const nextHtml    = s.contentHtml.split(args.find).join(args.replace)
+        await tx.sectionContent.update({
+          where: { documentVersionId_sectionId: { documentVersionId: current.id, sectionId: s.sectionId } },
+          data:  {
+            contentHtml:    nextHtml,
+            ichStatus:      'in_progress',
+            wordCount:      countWords(nextHtml),
+            lastEditedBy:   args.editorUserId,
+            lastEditedAt:   new Date(),
+            humanSpanCount: { increment: 1 },
+          },
+        })
+        await tx.editHistory.create({
+          data: {
+            entityType:        'clinical_section',
+            entityId:          doc.id,
+            subUnitId:         s.sectionId,
+            documentId:        doc.id,
+            sectionId:         s.sectionId,
+            documentVersionId: current.id,
+            actorId:           args.editorUserId,
+            origin:            'manual',
+            beforeHtml:        s.contentHtml,
+            afterHtml:         nextHtml,
+          },
+        })
+        updated.push({ sectionId: s.sectionId, occurrences })
+      }
+
+      // Recompute version hash from the in-memory next state (avoids a
+      // second round-trip to re-read SectionContent rows).
+      const nextSections: SectionPayload[] = current.sections.map(s => {
+        const hit = updated.find(u => u.sectionId === s.sectionId)
+        return {
+          sectionId:     s.sectionId,
+          sectionNumber: s.sectionNumber,
+          sectionTitle:  s.sectionTitle,
+          contentHtml:   hit ? s.contentHtml.split(args.find).join(args.replace) : s.contentHtml,
+          ichStatus:     hit ? 'in_progress' : s.ichStatus,
+        }
+      })
+      await tx.documentVersion.update({
+        where: { id: current.id },
+        data:  { contentHash: hashSections(nextSections) },
+      })
+
+      if (doc.status === 'not_started') {
+        await tx.document.update({ where: { id: doc.id }, data: { status: 'in_authoring' } })
+      }
+
+      return { updated, versionId: current.id }
+    })
+  }
+
+  /**
    * Revert a section to the state captured by a specific
    * SectionEditHistory row. Mutates SectionContent in place on the current
    * version (same mechanism as the normal in-place save path), writes a

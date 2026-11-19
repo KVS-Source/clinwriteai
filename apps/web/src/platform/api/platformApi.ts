@@ -547,6 +547,14 @@ export const platformApi = {
   importLicense: (token: string) =>
     api.post<LicenseView>(`/license/import`, { token }),
 
+  // --- Platform Settings — Branding + Localisation (migration 93) -----
+  getPlatformSettings: () =>
+    api.get<PlatformSettingsView>(`/platform-settings`),
+  updateBranding: (body: Partial<BrandingSettings>) =>
+    api.patch<PlatformSettingsView>(`/platform-settings/branding`, body),
+  updateLocalisation: (body: Partial<LocalisationSettings>) =>
+    api.patch<PlatformSettingsView>(`/platform-settings/localisation`, body),
+
   // --- SectionTemplate (migration 90) ----------------------------------
   // Per-section formatting JSON that flows into every AI call so Claude
   // preserves authored styling. Versioned per (docType, sectionKey) with
@@ -1103,6 +1111,33 @@ export interface LicenseView {
   daysToExpiry:     number | null
   invalidReason?:   string
   invalidDetail?:   string
+}
+
+// --- Platform Settings — Branding + Localisation (migration 93) --------
+// Edited on Settings → Branding and Settings → Localisation. The server
+// merges partial PATCH bodies with the current row so a single field
+// update doesn't overwrite everything.
+
+export interface BrandingSettings {
+  companyName?:   string
+  primaryColor?:  string                  // #RGB or #RRGGBB
+  logoUrl?:       string
+  emailFromName?: string
+}
+
+export interface LocalisationSettings {
+  timezone?:   string                     // IANA, e.g. 'Asia/Kolkata'
+  country?:    string                     // ISO-3166-1 alpha-2
+  dateFormat?: string                     // e.g. 'yyyy-MM-dd'
+  timeFormat?: '24h' | '12h'
+  currency?:   string                     // ISO-4217
+}
+
+export interface PlatformSettingsView {
+  branding:     BrandingSettings
+  localisation: LocalisationSettings
+  updatedBy:    string | null
+  updatedAt:    string
 }
 
 // --- SectionTemplate (platform/section-template, migration 91) ----------

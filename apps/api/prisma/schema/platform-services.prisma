@@ -342,6 +342,25 @@ model License {
 }
 
 // --------------------------------------------------------------------------
+// PlatformSettings — single-row table carrying install-wide Branding +
+// Localisation (Phase 3 of the admin consolidation). Edited via
+// Settings → Branding + Settings → Localisation.
+//
+// Shapes validated at the API edge by Zod; the JSON columns keep adding
+// new fields migration-free.
+// --------------------------------------------------------------------------
+
+model PlatformSettings {
+  id           String   @id @default("default")
+  branding     Json     @default("{}")
+  localisation Json     @default("{}")
+  updatedBy    String?
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@map("platform_settings")
+}
+
+// --------------------------------------------------------------------------
 // Notifications — in-app + email + SMS fan-out
 // --------------------------------------------------------------------------
 

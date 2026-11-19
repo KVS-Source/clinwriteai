@@ -8,12 +8,21 @@ import { describeApiError } from '../../api'
 import { usePlatformStore } from '../store'
 import { useTopNavSection } from '../../components/layout/topNavSection'
 import { LicensingTab } from './LicensingTab'
+import { BrandingTab } from './BrandingTab'
+import { LocalisationTab } from './LocalisationTab'
+import { SsoTab } from './SsoTab'
 
 type TabKey =
   | 'ai-engine' | 'voice' | 'ectd' | 'payment-gateways'
   | 'document-templates' | 'subscription' | 'external-apis' | 'licensing'
+  | 'branding' | 'localisation' | 'sso'
 
 const TABS: { key: TabKey; labelKey: string }[] = [
+  // Phase-3 tabs (Branding / SSO / Localisation) ordered first so IT
+  // admins see install identity before the deeper per-feature config.
+  { key: 'branding',           labelKey: 'page.admin_panel.tab_branding' },
+  { key: 'sso',                labelKey: 'page.admin_panel.tab_sso' },
+  { key: 'localisation',       labelKey: 'page.admin_panel.tab_localisation' },
   { key: 'ai-engine',          labelKey: 'page.admin_panel.tab_ai_engine' },
   { key: 'voice',              labelKey: 'page.admin_panel.tab_voice' },
   { key: 'ectd',               labelKey: 'page.admin_panel.tab_ectd' },
@@ -860,7 +869,7 @@ export function AdminPanel() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const setConfig   = usePlatformStore(s => s.setConfig)
 
-  const [activeTab, setActiveTab] = useState<TabKey>('ai-engine')
+  const [activeTab, setActiveTab] = useState<TabKey>('branding')
   // The top bar reads "Administrative Panel / <this tab>".
   useTopNavSection('/admin', t(TABS.find(tab => tab.key === activeTab)?.labelKey ?? TABS[0]!.labelKey))
   const [otherUnsaved, setOtherUnsaved] = useState(false)   // edits on tabs that don't persist yet
@@ -991,6 +1000,9 @@ export function AdminPanel() {
             {config && activeTab === 'subscription'       && <SubscriptionTab      config={config} subscription={subscription} />}
             {config && activeTab === 'external-apis'      && <ExternalApisTab      config={config} onChange={markUnsaved} />}
             {activeTab === 'licensing'                     && <LicensingTab />}
+            {activeTab === 'branding'                      && <BrandingTab />}
+            {activeTab === 'localisation'                  && <LocalisationTab />}
+            {activeTab === 'sso'                           && <SsoTab />}
           </section>
         </div>
       </div>

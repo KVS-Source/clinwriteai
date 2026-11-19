@@ -300,6 +300,13 @@ async function buildServer() {
   const { licenseRoutes } = await import('./modules/platform/licensing/routes.js')
   await app.register(licenseRoutes, { prefix: '/license' })
 
+  // Platform Settings (migration 93) — install-wide Branding + Localisation
+  // edited on Settings → Branding and Settings → Localisation. Single row,
+  // reads open to any authed user (sidebar + email + PDF consume it),
+  // writes IT-admin-only.
+  const { platformSettingsRoutes } = await import('./modules/platform/settings/routes.js')
+  await app.register(platformSettingsRoutes, { prefix: '/platform-settings' })
+
   // Scientific-Writing Policy admin (Phase M-B.1, migration 75) — mirror
   // of the clinical-writing policy stack scoped to publication doctypes
   // (manuscript_full_research, review_systematic, abstract, poster,

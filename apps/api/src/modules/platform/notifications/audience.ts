@@ -6,7 +6,7 @@
 // `forRole`). Worked out from the kind when the feed is read, so older notifications get it too.
 //
 //   Project manager — being added as a project's PM, project calendar overdue alerts, a newer
-//                     checklist template affecting a project document.
+//                     checklist template affecting a project document, the automatic ICH framework sync.
 //   Contributor     — document work on a RACI letter: signature requests, @mentions, a document sent
 //                     back to its author, nudges, being assigned to a document, adopting a newer checklist template. A PM alone can't
 //                     do that work (signatures/access.ts).
@@ -18,6 +18,7 @@ export const PM_NOTIFICATION_KINDS: ReadonlySet<string> = new Set([
   'project_manager_added',
   'calendar_entry_overdue',
   'checklist_template_update_project',   // a newer checklist template affects a project document
+  'ich_frameworks_synced',               // the automatic 30-day ICH sync ran (frameworks/ich-auto-sync.ts)
 ])
 
 export const CONTRIBUTOR_NOTIFICATION_KINDS: ReadonlySet<string> = new Set([

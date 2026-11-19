@@ -1647,6 +1647,11 @@ export interface PlatformUser {
   // their tenant id. Optional for fixtures / demo users that were seeded
   // before the field existed.
   tenantId?:  string | null
+  // Modules this install is licensed for (Phase 2 — Settings → Licensing).
+  // Populated from the /auth/me response on sign-in + refresh. Absent on
+  // fixtures loaded before the field existed; `isModuleEnabled` in that
+  // case falls back to the VITE_MODULES_ENABLED env var.
+  enabledModules?: Array<'A' | 'B' | 'C' | 'D' | 'E'>
 }
 
 export interface RaciAssignment {

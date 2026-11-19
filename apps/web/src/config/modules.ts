@@ -51,7 +51,10 @@ export const MODULE_KEY_TO_LABEL: Record<ModuleKey, string> = {
   E: 'Ideation & Publishing',
 }
 
-function parseEnabled(): Set<ModuleKey> {
+/** Env-var fallback (dev / CI / fixture load before /auth/me returns).
+ *  Production reads from the licence (via the platformStore, populated
+ *  from /auth/me — see `licenseModulesOverride` below). */
+function parseEnabledFromEnv(): Set<ModuleKey> {
   const raw = (import.meta.env.VITE_MODULES_ENABLED as string | undefined) ?? 'A'
   const parsed = raw
     .split(',')
@@ -60,14 +63,36 @@ function parseEnabled(): Set<ModuleKey> {
   return new Set(parsed.length > 0 ? parsed : ['A'])
 }
 
-const ENABLED = parseEnabled()
+const ENV_FALLBACK = parseEnabledFromEnv()
+
+/** Licence-driven override. Set by the platform store on the first
+ *  /auth/me response that carries `enabledModules`. When set, it wins
+ *  over the env fallback. Null means "/auth/me hasn't landed yet".
+ *
+ *  Module imports are evaluated once at startup; sidebar gating runs
+ *  on every render so the switch takes effect as soon as the store
+ *  updates the override. */
+let licenseModulesOverride: Set<ModuleKey> | null = null
+
+/** Called by the platform store when /auth/me returns. Pass null to
+ *  clear (test teardown). */
+export function setLicenseModulesOverride(modules: ReadonlyArray<string> | null): void {
+  if (modules === null) {
+    licenseModulesOverride = null
+    return
+  }
+  const narrowed = modules
+    .map(s => s.trim().toUpperCase())
+    .filter((s): s is ModuleKey => (['A', 'B', 'C', 'D', 'E'] as const).includes(s as ModuleKey))
+  licenseModulesOverride = new Set(narrowed)
+}
 
 export function enabledModules(): ReadonlySet<ModuleKey> {
-  return ENABLED
+  return licenseModulesOverride ?? ENV_FALLBACK
 }
 
 export function isModuleEnabled(key: ModuleKey): boolean {
-  return ENABLED.has(key)
+  return enabledModules().has(key)
 }
 
 export function isModuleSlugEnabled(slug: string): boolean {

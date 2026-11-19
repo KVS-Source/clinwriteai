@@ -153,15 +153,49 @@ function isLegacyWriterOrReviewer(role: Role): boolean {
   )
 }
 
-// Deployment-wide module kill-switch. Reads FEATURE_MODULES_ENABLED
-// lazily and caches the parsed set. A route whose required-modules list
-// doesn't intersect this set returns 503 before any auth check — the
-// enablement is a deployment property, not sensitive, so leaking it
-// pre-auth is fine and keeps auth-failure logs clean when a module is
-// off. See docs/pivot-plan.md Arc 1.
+// Deployment-wide module kill-switch.
+//
+// Precedence:
+//   1. Licence-driven override (set by the Licensing subsystem — the
+//      signed JWT in Settings → Licensing names the modules this
+//      install is authorised for). This wins when non-null.
+//   2. FEATURE_MODULES_ENABLED env var fallback (dev / CI without a
+//      licence). Default: every module on so dev isn't blocked.
+//
+// Why keep the sync API: `isModuleEnabled` is called inside the
+// requireAuth preHandler, which must be synchronous (Fastify pattern).
+// The Licensing boot hook populates the override cache once + on every
+// POST /license/import, so the sync read is always serving fresh truth
+// for the current licence state. Full re-verification of the signed
+// JWT still happens on every GET /license (see LicenseService.getActive).
+//
+// See docs/pivot-plan.md Arc 1 for the env-var origin.
+
 let enabledModulesCache: Set<ModuleKey> | null = null
 
+/** Licensing override. When non-null, takes precedence over the env var.
+ *  Set to an empty Set (not null) to represent "licence loaded but no
+ *  modules granted" — a different state from "no licence loaded yet". */
+let licenseModulesOverride: Set<ModuleKey> | null = null
+
+/** Called by the Licensing subsystem on boot + after every successful
+ *  POST /license/import. Pass `null` to clear the override and fall
+ *  back to the env var (useful for test teardown). */
+export function setLicenseModules(modules: Iterable<string> | null): void {
+  if (modules === null) {
+    licenseModulesOverride = null
+  } else {
+    const narrowed = Array.from(modules)
+      .map(s => s.trim().toUpperCase())
+      .filter((s): s is ModuleKey => (ALL_MODULES as readonly string[]).includes(s))
+    licenseModulesOverride = new Set(narrowed)
+  }
+  // Bust the env-var cache so the next read picks up the new state.
+  enabledModulesCache = null
+}
+
 export function enabledModules(): Set<ModuleKey> {
+  if (licenseModulesOverride !== null) return licenseModulesOverride
   if (enabledModulesCache) return enabledModulesCache
   // Default: every module (A|B|C|D|E) on. Matches the env.ts default.
   // The 2026-10-06 pivot's 'A'-only default was flipped 2026-10-21 so
@@ -184,6 +218,7 @@ export function isModuleEnabled(required: ModuleKey[]): boolean {
 // Test-only reset — do not call from production code.
 export function _resetEnabledModulesCache(): void {
   enabledModulesCache = null
+  licenseModulesOverride = null
 }
 
 const READ_ONLY_ROLES: ReadonlySet<Role> = new Set<Role>(['auditor', 'read-only', 'qc'])

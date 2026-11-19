@@ -705,6 +705,7 @@ async function buildServer() {
   // DB tamper attempts fail at request time, not just at boot.
   try {
     const { LicenseService } = await import('./modules/platform/licensing/service.js')
+    const { setLicenseModules } = await import('./auth/rbac.js')
     const view = await new LicenseService(app.prisma).getActive()
     if (view.publicKeySource === 'dev_fallback') {
       app.log.warn(
@@ -712,6 +713,12 @@ async function buildServer() {
         'LICENSE_PUBLIC_KEY env var not set — using embedded dev public key. DO NOT RUN IN PRODUCTION.',
       )
     }
+    // Hand the parsed modules to the module-gate (rbac.ts). The override
+    // persists until POST /license/import refreshes it (see routes.ts).
+    // Unlicensed install → empty set → every module gate returns 503.
+    // Dev-mode-unlicensed → view.modules = all five → gate stays open.
+    // Invalid/expired → empty set (strict: broken licence doesn't grant).
+    setLicenseModules(view.state === 'active' || view.state === 'dev_mode_unlicensed' ? view.modules : [])
     app.log.info(
       { licenseState: view.state, customer: view.customerName, modules: view.modules, daysToExpiry: view.daysToExpiry },
       'licensing: boot check complete',

@@ -9,7 +9,7 @@
 // string won't widen the trust boundary.
 
 import type { FastifyPluginAsync } from 'fastify'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, setLicenseModules } from '../../../auth/rbac.js'
 import { LicenseService } from './service.js'
 import { importLicenseSchema } from './schema.js'
 
@@ -64,6 +64,9 @@ export const licenseRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress:  request.ip ?? null,
     })
+    // Refresh the sync module-gate so subsequent requests see the new
+    // module list without waiting for an app restart.
+    setLicenseModules(result.license.modules)
     return result.license
   })
 }

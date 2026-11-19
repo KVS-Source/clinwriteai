@@ -88,3 +88,13 @@ test('the tab name goes when the page is left: Notifications shows no "/ eCTD"',
   const crumbs = page.locator('header nav').first()
   await expect(crumbs).toHaveText(/^Notifications$/, { timeout: 60_000 })
 })
+
+test('the IT Admin sidebar has no RACI Matrix or Subscription entry, and the home page no RACI link', async ({ page }) => {
+  await open(page)
+  await expect(page.locator('[data-platform-link="/admin/users"]')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('[data-platform-link="/admin/raci"]')).toHaveCount(0)
+  await expect(page.locator('[data-platform-link="/admin/subscription"]')).toHaveCount(0)
+  await page.goto('/home')
+  await expect(page.locator('[data-platform-link="/admin/users"]')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('main a[href="/admin/raci"]')).toHaveCount(0)
+})

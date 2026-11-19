@@ -35,14 +35,13 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.platform_admin_panel',          href: '/admin',                     roles: ['admin'] as const, icon: <GearIcon /> },
   { labelKey: 'component.sidebar.platform_user_management',      href: '/admin/users',               roles: ['admin'] as const, icon: <UsersIcon /> },
   { labelKey: 'component.sidebar.platform_audit_trail',          href: '/admin/audit',               roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { labelKey: 'component.sidebar.platform_raci_matrix',          href: '/admin/raci',                roles: ['admin'] as const, icon: <MatrixIcon /> },
+  // RACI Matrix and Subscription are hidden from the IT Admin nav (pages and routes stay).
   // Master Library (content standards) deliberately absent from the IT
   // Admin nav — admins are system operators, not content owners. The
   // Master Library sidebar entry lives in MASTER_LIBRARY_NAV below and
   // shows for non-admin roles (PM, contributor, author, auditor).
   { labelKey: 'component.sidebar.platform_notifications',        href: '/notifications',             roles: ['admin'] as const, icon: <BellIcon /> },
   { labelKey: 'component.sidebar.platform_services',             href: '/services',                  roles: ['admin'] as const, icon: <LayersIcon /> },
-  { labelKey: 'component.sidebar.platform_subscription',         href: '/admin/subscription',        roles: ['admin'] as const, icon: <CardIcon /> },
   { labelKey: 'component.sidebar.platform_reports',              href: '/reports',                   roles: ['admin'] as const, icon: <ChartIcon /> },
 ]
 // Master Library — single entry for non-admin users (PM = content
@@ -86,11 +85,9 @@ function GearIcon()        { return <svg {...icon16}><circle cx="8" cy="8" r="2.
 function UsersIcon()       { return <svg {...icon16}><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M10.5 3.3a2.4 2.4 0 010 4.4M12 9.8c1.6.5 2.5 1.8 2.5 3.7"/></svg> }
 function ClipboardIcon()   { return <svg {...icon16}><rect x="3" y="2.5" width="10" height="11.5" rx="1.5"/><path d="M6 2.5v-1h4v1M5.5 7h5M5.5 9.5h5M5.5 12h3"/></svg> }
 function TagIcon()         { return <svg {...icon16}><path d="M1.5 2.5h6l7 7-5 5-7-7v-5Z"/><circle cx="5" cy="6" r="1"/></svg> }
-function MatrixIcon()      { return <svg {...icon16}><rect x="2" y="2" width="12" height="12" rx="1.5"/><path d="M2 6h12M2 10h12M6 2v12M10 2v12"/></svg> }
 function BellIcon()        { return <svg {...icon16}><path d="M3.5 11.5V7a4.5 4.5 0 019 0v4.5l1 1.5h-11l1-1.5ZM6.5 14.5h3"/></svg> }
 function BookIcon()        { return <svg {...icon16}><path d="M2 3h4a2 2 0 012 2v9a1.5 1.5 0 00-1.5-1.5H2V3ZM14 3h-4a2 2 0 00-2 2v9a1.5 1.5 0 011.5-1.5H14V3Z"/></svg> }
 function LayersIcon()      { return <svg {...icon16}><path d="M8 1.8l6.5 3.4L8 8.6 1.5 5.2 8 1.8ZM1.5 8.2L8 11.6l6.5-3.4M1.5 11l6.5 3.4 6.5-3.4"/></svg> }
-function CardIcon()        { return <svg {...icon16}><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13M4 10h3"/></svg> }
 function ChartIcon()       { return <svg {...icon16}><path d="M2 14V2M2 14h12M5 11V8M8.5 11V5M12 11V7"/></svg> }
 function ShieldCheckIcon() { return <svg {...icon16}><path d="M8 1.5l5.5 2.5v4c0 3-2.5 5.5-5.5 6.5C5 13.5 2.5 11 2.5 8V4L8 1.5Z"/><path d="M5.7 8l1.6 1.6 3-3.3"/></svg> }
 function BuildingIcon()    { return <svg {...icon16}><path d="M3 14.5V2.5h7v12M10 6.5h3v8M1.5 14.5h13M5.5 5h2M5.5 8h2M5.5 11h2"/></svg> }

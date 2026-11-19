@@ -32,7 +32,6 @@ const MODULE_MONOGRAMS: Record<string, string> = {
 // updates every nav row in one go.
 interface PlatformNavItem { labelKey: string; href: string; roles: readonly ('admin')[]; icon: ReactNode }
 const PLATFORM_NAV: PlatformNavItem[] = [
-  { labelKey: 'component.sidebar.platform_admin_panel',          href: '/admin',                     roles: ['admin'] as const, icon: <GearIcon /> },
   { labelKey: 'component.sidebar.platform_user_management',      href: '/admin/users',               roles: ['admin'] as const, icon: <UsersIcon /> },
   { labelKey: 'component.sidebar.platform_audit_trail',          href: '/admin/audit',               roles: ['admin'] as const, icon: <ClipboardIcon /> },
   // RACI Matrix and Subscription are hidden from the IT Admin nav (pages and routes stay).
@@ -42,6 +41,8 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   // shows for non-admin roles (PM, contributor, author, auditor).
   { labelKey: 'component.sidebar.platform_notifications',        href: '/notifications',             roles: ['admin'] as const, icon: <BellIcon /> },
   { labelKey: 'component.sidebar.platform_services',             href: '/services',                  roles: ['admin'] as const, icon: <LayersIcon /> },
+  // Settings sits last, below Services.
+  { labelKey: 'component.sidebar.platform_admin_panel',          href: '/admin',                     roles: ['admin'] as const, icon: <GearIcon /> },
   // Reports moved to the PM nav; Subscription hidden from IT Admin (page and route stay).
 ]
 // Master Library — single entry for non-admin users (PM = content

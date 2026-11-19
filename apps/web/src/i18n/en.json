@@ -1206,6 +1206,7 @@
     },
     "all_projects": {
       "title": "Projects",
+      "showing_count": "Showing {{visible}} of {{total}} projects",
       "new_project": "New Project",
       "new_project_panel_title": "New project",
       "new_project_panel_subtitle": "Create a new study + its downstream deliverables",
@@ -3707,7 +3708,7 @@
       "cannot_super_admin_1": "Edit or delete audit entries — the trail is append-only for everyone",
       "can_admin_1": "Invite users and assign roles and module access",
       "can_admin_2": "Suspend or deprovision users in your organisation",
-      "can_admin_3": "Edit the RACI matrix and review the audit trail",
+      "can_admin_3": "Review the audit trail",
       "can_admin_4": "Manage organisation settings and subscription",
       "cannot_admin_2": "See or manage users of other organisations",
       "cannot_admin_3": "Suspend yourself or the last active admin",

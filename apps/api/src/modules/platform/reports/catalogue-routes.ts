@@ -54,8 +54,14 @@ async function managedProjectIds(prisma: Parameters<typeof visibleProjectIdsForU
   return ids === 'all' ? [] : [...ids]
 }
 
+// Report times are shown in India Standard Time (UTC+05:30, no DST) — "yyyy-mm-dd hh:mm IST".
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000
+function istStamp(d: Date): string {
+  return `${new Date(d.getTime() + IST_OFFSET_MS).toISOString().slice(0, 16).replace('T', ' ')} IST`
+}
+
 function csvCell(v: unknown): string {
-  const s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v)
+  const s = v === null || v === undefined ? '' : v instanceof Date ? istStamp(v) : String(v)
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
@@ -72,7 +78,7 @@ function renderTablePdf(title: string, subtitle: string, header: string[], rows:
     doc.font('Helvetica').fontSize(8)
     for (const r of rows) {
       if (doc.y > doc.page.height - 50) doc.addPage()
-      doc.text(r.map(c => (c instanceof Date ? c.toISOString().slice(0, 16).replace('T', ' ') : String(c ?? ''))).join('  |  '))
+      doc.text(r.map(c => (c instanceof Date ? istStamp(c) : String(c ?? ''))).join('  |  '))
     }
     if (rows.length === 0) doc.text('No data for this range.')
     doc.end()
@@ -270,7 +276,7 @@ export const reportsCatalogueRoutes: FastifyPluginAsync = async (app) => {
     const range = `${q.data.dateFrom ?? 'beginning'} → ${q.data.dateTo ?? 'today'}`
     const fileBase = `${type.data}-${new Date().toISOString().slice(0, 10)}`
     if (q.data.format === 'pdf') {
-      const pdf = await renderTablePdf(label, `${range} · generated ${new Date().toISOString()}`, header, rows)
+      const pdf = await renderTablePdf(label, `${range} · generated ${istStamp(new Date())}`, header, rows)
       reply.header('Content-Type', 'application/pdf')
       reply.header('Content-Disposition', `attachment; filename="${fileBase}.pdf"`)
       return reply.send(pdf)

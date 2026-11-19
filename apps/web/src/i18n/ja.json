@@ -1329,6 +1329,7 @@
 
     "all_projects": {
       "title": "プロジェクト",
+      "showing_count": "{{total}} 件中 {{visible}} 件のプロジェクトを表示",
       "new_project": "新規プロジェクト",
       "new_project_panel_title": "新規プロジェクト",
       "new_project_panel_subtitle": "新しい試験とその後続成果物を作成します",
@@ -3906,7 +3907,7 @@
 
       "can_admin_1": "ユーザーを招待し、ロールとモジュールアクセスを割り当て",
       "can_admin_2": "組織内のユーザーを停止またはプロビジョニング解除",
-      "can_admin_3": "RACI マトリクスの編集と監査証跡の確認",
+      "can_admin_3": "監査証跡の確認",
       "can_admin_4": "組織設定とサブスクリプションの管理",
       "cannot_admin_2": "他の組織のユーザーの参照や管理",
       "cannot_admin_3": "自分自身または最後の有効な管理者の停止",

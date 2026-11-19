@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { ReportDefinition, ModuleHealthScore } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
-import { apiConfig } from '../../api/client'
+import { api } from '../../api/client'
 import { usePlatformStore } from '../store'
 import { useTopNavSection } from '../../components/layout/topNavSection'
 
@@ -65,8 +65,29 @@ export function ReportsAnalytics() {
     setGenerateResult(null)
     try {
       const res = await platformApi.generateReport(reportType, { format, dateFrom, dateTo })
-      // The API returns a path relative to its base URL.
-      setGenerateResult(res.downloadUrl.startsWith('http') ? res.downloadUrl : `${apiConfig.baseUrl}${res.downloadUrl}`)
+      // A path relative to the API base. It's fetched through the API client (not a plain link) so the
+      // request carries the session, persona and X-Active-Role headers — a user who is both Tenant Admin
+      // and PM would otherwise be answered as Tenant Admin and refused.
+      setGenerateResult(res.downloadUrl)
+    } catch {
+      setGenerateError(t('page.reports_analytics.generate_error'))
+    }
+  }
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!generateResult) return
+    setGenerateError(null)
+    try {
+      const { blob, filename } = await api.download(generateResult)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename ?? `${reportType}.${format}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch {
       setGenerateError(t('page.reports_analytics.generate_error'))
     }
@@ -208,7 +229,7 @@ export function ReportsAnalytics() {
               {generateResult && (
                 <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-generate-result>
                   {t('page.reports_analytics.result_prefix')}{' '}
-                  <a href={generateResult} className="font-semibold underline" data-generate-download>{t('page.reports_analytics.download_format', { format: format.toUpperCase() })}</a>
+                  <a href="#" onClick={handleDownload} className="font-semibold underline" data-generate-download>{t('page.reports_analytics.download_format', { format: format.toUpperCase() })}</a>
                 </p>
               )}
               {generateError && (
@@ -226,7 +247,11 @@ export function ReportsAnalytics() {
 // A cell from the report API: ISO times as a date + time, status codes in words.
 function formatCell(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—'
-  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return `${formatDay(v)} ${v.slice(11, 16)}`
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+    // Shift UTC to India Standard Time (UTC+05:30, no DST), then read the UTC fields.
+    const ist = new Date(new Date(v).getTime() + (5 * 60 + 30) * 60 * 1000).toISOString()
+    return `${formatDay(ist)} ${ist.slice(11, 16)} IST`
+  }
   if (typeof v === 'number') return v.toLocaleString('en-US')
   return String(v).replace(/_/g, ' ')
 }

@@ -260,8 +260,9 @@ export const platformApi = {
   listLibraryItemShares: (itemId: string) =>
     api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
   // This document's Master Library activity (pushed / uploaded, viewed, shared, ...), newest first, a page at a time. Read-only.
-  listLibraryItemAudit: (itemId: string, offset = 0, limit = 50) =>
-    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
+  // `from` / `to` (ISO instants) keep it to that period.
+  listLibraryItemAudit: (itemId: string, offset = 0, limit = 50, period: { from?: string; to?: string } = {}) =>
+    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}${period.from ? `&from=${encodeURIComponent(period.from)}` : ''}${period.to ? `&to=${encodeURIComponent(period.to)}` : ''}`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),

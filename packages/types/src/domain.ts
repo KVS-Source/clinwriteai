@@ -1842,6 +1842,8 @@ export interface MasterLibraryAuditEntry {
 
 /** A page of entries, newest first (the library activity, or GET /library/:id/audit/full). */
 export interface MasterLibraryAuditPage {
+  /** Entries older than the requested `from` (sent only when `from` is given without `to`). */
+  olderTotal?: number
   entries: MasterLibraryAuditEntry[]
   total:   number
   limit:   number

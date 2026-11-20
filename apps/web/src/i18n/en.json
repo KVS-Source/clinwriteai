@@ -3105,7 +3105,20 @@
       "loading_projects": "Loading projects…",
       "err_load_projects": "Could not load the project list.",
       "clone_select_project": "— Select a project —",
-      "create_override_draft": "Create override draft"
+      "create_override_draft": "Create override draft",
+      "new_template": "New checklist template",
+      "new_title": "New checklist template",
+      "new_hint": "Creates a draft for the chosen deliverable. Import the items from a CSV file, or leave it empty and add items in the panel. The draft goes live when another Project Manager approves it.",
+      "new_select_deliverable": "— Select a deliverable —",
+      "new_reason": "Reason (optional)",
+      "new_reason_placeholder": "e.g. Checklist from the shared drive, Nov 2026",
+      "new_items_file": "Items file (optional, .csv)",
+      "new_columns": "Columns: Item, Framework, Stage (required); Mandatory, Owner, Auto complete (optional).",
+      "new_sample": "Download a sample",
+      "new_csv_only": "Only .csv files can be imported. In Excel or Google Sheets, use File → Save as / Download → CSV.",
+      "new_import_ok": "{{count}} items ready from {{file}}",
+      "new_import_fix": "Fix the file and choose it again:",
+      "new_create": "Create draft"
     },
     "master_library": {
       "tab_documents": "Master Documents",

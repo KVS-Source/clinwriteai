@@ -3287,7 +3287,20 @@
       "loading_projects": "プロジェクトを読み込んでいます…",
       "err_load_projects": "プロジェクト一覧を読み込めませんでした。",
       "clone_select_project": "— プロジェクトを選択 —",
-      "create_override_draft": "オーバーライドドラフトを作成"
+      "create_override_draft": "オーバーライドドラフトを作成",
+      "new_template": "新しいチェックリストテンプレート",
+      "new_title": "新しいチェックリストテンプレート",
+      "new_hint": "選択した成果物のドラフトを作成します。CSV ファイルから項目を取り込むか、空のまま作成してパネルで項目を追加してください。別のプロジェクトマネージャーが承認すると有効になります。",
+      "new_select_deliverable": "— 成果物を選択 —",
+      "new_reason": "理由（任意）",
+      "new_reason_placeholder": "例：共有ドライブのチェックリスト（2026年11月）",
+      "new_items_file": "項目ファイル（任意、.csv）",
+      "new_columns": "列：Item、Framework、Stage（必須）／Mandatory、Owner、Auto complete（任意）。",
+      "new_sample": "サンプルをダウンロード",
+      "new_csv_only": "取り込めるのは .csv ファイルのみです。Excel または Google スプレッドシートで「CSV として保存／ダウンロード」してください。",
+      "new_import_ok": "{{file}} から {{count}} 件の項目を取り込めます",
+      "new_import_fix": "ファイルを修正して、もう一度選択してください：",
+      "new_create": "ドラフトを作成"
     },
 
     "master_library": {

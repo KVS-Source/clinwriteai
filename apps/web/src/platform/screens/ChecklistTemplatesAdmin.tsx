@@ -16,6 +16,9 @@ import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { AUTO_CHECKS, AUTO_EVENTS, RULE_FIELDS, buildRule, parseRule, ruleComplete, type AutoRuleKind, type AutoRuleState } from './checklistAutoRule'
 import { PLATFORM_ACCENT } from '@platform/types'
+import { CHECKLIST_CSV_SAMPLE, importChecklistCsv, type ImportResult } from './checklistCsv'
+import { usePlatformStore } from '../store'
+import { holdsRole } from '../../config/roles'
 
 type Template = Awaited<ReturnType<typeof documentsApi.listChecklistTemplates>>[number]
 type TemplateDetail = Awaited<ReturnType<typeof documentsApi.getChecklistTemplate>>
@@ -170,6 +173,20 @@ export function ChecklistTemplatesAdmin() {
     onError: (err: unknown) => setApproveError(t('page.checklist_templates_admin.err_clone', { message: extractApiError(err) })),
   })
 
+  // "New checklist template": the dialog is open while set; on success the new draft opens in the panel.
+  const [creating, setCreating] = useState(false)
+  const isPm = holdsRole(usePlatformStore(s => s.currentUser), 'pm')   // only PMs change templates (the API enforces it too)
+  const createMut = useMutation({
+    mutationFn: (body: Parameters<typeof documentsApi.createChecklistTemplate>[0]) => documentsApi.createChecklistTemplate(body),
+    onSuccess: (created) => {
+      setCreating(false)
+      setApproveError(null)
+      setApprovedNotice(null)
+      invalidate()
+      setSelected(created.id)
+    },
+  })
+
   const addItemMut = useMutation({
     mutationFn: (args: Parameters<typeof documentsApi.addChecklistTemplateItem>[1] & { templateId: string }) =>
       documentsApi.addChecklistTemplateItem(args.templateId, args),
@@ -294,8 +311,9 @@ export function ChecklistTemplatesAdmin() {
           </p>
         </MasterLibraryHeading>
 
-        {/* Filters — search, Deliverable, Status, Scope and reset in one row, like Master Documents. New drafts and
-            project overrides are made from a template's panel (a template is never started from nothing). */}
+        {/* Filters — search, Deliverable, Status, Scope and reset in one row, like Master Documents, then "New checklist
+            template" (a new draft, optionally with items imported from a CSV). Further drafts and project overrides
+            are made from a template's panel. */}
         <div className="[container-type:inline-size]" data-filter-panel>
           <div className="flex flex-wrap items-center gap-3 [@container_(min-width:900px)]:flex-nowrap">
             <input
@@ -329,6 +347,13 @@ export function ChecklistTemplatesAdmin() {
                 <path d="M2.5 2.5v2.8h2.8" />
               </svg>
             </button>
+            {isPm && <button
+              type="button" onClick={() => { createMut.reset(); setCreating(true) }}
+              className="h-10 flex-none whitespace-nowrap rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700"
+              data-action="new-checklist-template"
+            >
+              + {t('page.checklist_templates_admin.new_template', { defaultValue: 'New checklist template' })}
+            </button>}
           </div>
         </div>
 
@@ -473,6 +498,113 @@ export function ChecklistTemplatesAdmin() {
           error={cloneMut.isError ? extractApiError(cloneMut.error) : null}
         />
       )}
+
+      {creating && (
+        <NewTemplateModal
+          deliverableTypeLabel={deliverableTypeLabel}
+          onCancel={() => setCreating(false)}
+          onConfirm={(body) => createMut.mutate(body)}
+          submitting={createMut.isPending}
+          error={createMut.isError ? extractApiError(createMut.error) : null}
+        />
+      )}
+    </div>
+  )
+}
+
+// --- New checklist template: deliverable type, reason, and items imported from a CSV (optional) ---
+
+function NewTemplateModal({ deliverableTypeLabel, onCancel, onConfirm, submitting, error }: {
+  deliverableTypeLabel: (key: string) => string
+  onCancel: () => void
+  onConfirm: (body: Parameters<typeof documentsApi.createChecklistTemplate>[0]) => void
+  submitting: boolean
+  error: string | null
+}) {
+  const { t } = useTranslation()
+  const [deliverableType, setDeliverableType] = useState('')
+  const [changeReason, setChangeReason] = useState('')
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [imported, setImported] = useState<ImportResult | null>(null)
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) { setFileName(null); setImported(null); return }
+    setFileName(file.name)
+    if (!/\.csv$/i.test(file.name)) {
+      setImported({ items: [], errors: [t('page.checklist_templates_admin.new_csv_only', { defaultValue: 'Only .csv files can be imported. In Excel or Google Sheets, use File → Save as / Download → CSV.' })] })
+      return
+    }
+    setImported(importChecklistCsv(await file.text()))
+  }
+  const sampleHref = `data:text/csv;charset=utf-8,${encodeURIComponent(CHECKLIST_CSV_SAMPLE)}`
+  const blocked = !!imported && imported.errors.length > 0
+  const ready = !!deliverableType && !blocked && !submitting
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" role="dialog" aria-modal="true" aria-labelledby="new-template-title" onClick={onCancel}>
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()} data-dialog="new-checklist-template">
+        <h3 id="new-template-title" className="text-base font-semibold text-slate-900">
+          {t('page.checklist_templates_admin.new_title', { defaultValue: 'New checklist template' })}
+        </h3>
+        <p className="mt-1 text-[12px] text-slate-500">
+          {t('page.checklist_templates_admin.new_hint', { defaultValue: 'Creates a draft for the chosen deliverable. Import the items from a CSV file, or leave it empty and add items in the panel. The draft goes live when another Project Manager approves it.' })}
+        </p>
+
+        <label className="mt-4 block">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Deliverable' })}</span>
+          <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} data-field="deliverable-type"
+            className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600">
+            <option value="">{t('page.checklist_templates_admin.new_select_deliverable', { defaultValue: '— Select a deliverable —' })}</option>
+            {Object.keys(DELIVERABLE_LABEL_KEYS).map(k => <option key={k} value={k}>{deliverableTypeLabel(k)}</option>)}
+          </select>
+        </label>
+
+        <label className="mt-3 block">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.new_reason', { defaultValue: 'Reason (optional)' })}</span>
+          <input value={changeReason} onChange={e => setChangeReason(e.target.value)} maxLength={500} data-field="change-reason"
+            placeholder={t('page.checklist_templates_admin.new_reason_placeholder', { defaultValue: 'e.g. Checklist from the shared drive, Nov 2026' })}
+            className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600" />
+        </label>
+
+        <div className="mt-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.new_items_file', { defaultValue: 'Items file (optional, .csv)' })}</span>
+          <input type="file" accept=".csv,text/csv" onChange={e => void onFile(e.currentTarget.files?.[0])} data-field="items-file"
+            className="mt-1 block w-full text-[12px] text-slate-700 file:mr-3 file:rounded file:border file:border-slate-200 file:bg-white file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-slate-700 hover:file:bg-slate-50" />
+          <p className="mt-1 text-[11px] text-slate-500">
+            {t('page.checklist_templates_admin.new_columns', { defaultValue: 'Columns: Item, Framework, Stage (required); Mandatory, Owner, Auto complete (optional).' })}{' '}
+            <a href={sampleHref} download="checklist-template-sample.csv" className="font-semibold text-blue-700 hover:underline" data-action="download-sample">
+              {t('page.checklist_templates_admin.new_sample', { defaultValue: 'Download a sample' })}
+            </a>
+          </p>
+          {fileName && imported && imported.errors.length === 0 && (
+            <p className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800" role="status" data-import-ok>
+              {t('page.checklist_templates_admin.new_import_ok', { defaultValue: '{{count}} items ready from {{file}}', count: imported.items.length, file: fileName })}
+            </p>
+          )}
+          {imported && imported.errors.length > 0 && (
+            <div className="mt-2 max-h-32 overflow-auto rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" role="alert" data-import-errors>
+              <p className="font-semibold">{t('page.checklist_templates_admin.new_import_fix', { defaultValue: 'Fix the file and choose it again:' })}</p>
+              <ul className="mt-1 list-disc pl-4">{imported.errors.slice(0, 20).map(e => <li key={e}>{e}</li>)}</ul>
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">{error}</div>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} disabled={submitting}
+            className="rounded border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50">
+            {t('button.cancel')}
+          </button>
+          <button type="button" disabled={!ready} data-action="confirm-new-template"
+            onClick={() => ready && onConfirm({ deliverableType, changeReason: changeReason.trim() || undefined, items: imported?.items ?? [] })}
+            className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">
+            {submitting ? t('page.checklist_templates_admin.creating_draft') : t('page.checklist_templates_admin.new_create', { defaultValue: 'Create draft' })}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

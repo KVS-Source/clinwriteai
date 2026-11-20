@@ -11,6 +11,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
 import { resolveAiEngineSettings } from '../config/ai-engine-settings.js'
+import { resolveAnthropicKey } from '../ai-gateway/resolve-anthropic-key.js'
 import {
   bumpVersionSchema,
   createPolicySchema,
@@ -267,7 +268,8 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const engine = await resolveAiEngineSettings(app.prisma)
-    const apiKey = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
+    // DB-only key lookup — admin pastes via Settings → AI engine → API keys.
+    const apiKey = await resolveAnthropicKey(app.prisma)
     const stubAllowed = process.env.AI_ALLOW_STUB === '1'
 
     let rules: Awaited<ReturnType<typeof extractSectionRulesWithClaude>>

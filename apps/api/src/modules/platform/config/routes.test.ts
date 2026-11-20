@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser, Role } from '../../../auth/rbac.js'
 import { adminConfigRoutes } from './routes.js'
 
-async function build(opts: { role?: Role | null; lastTest?: { timestamp: Date; details: Record<string, unknown> } | null; saved?: Record<string, unknown> | null } = {}) {
+async function build(opts: { role?: Role | null; lastTest?: { timestamp: Date; details: Record<string, unknown> } | null; saved?: Record<string, unknown> | null; anthropicKey?: string | null } = {}) {
   const append = vi.fn(async () => ({}))
   const app = Fastify()
   app.decorate('prisma', {
@@ -17,6 +17,11 @@ async function build(opts: { role?: Role | null; lastTest?: { timestamp: Date; d
     tenant: { findUnique: vi.fn(async () => null) },
     user: { count: vi.fn(async () => 3) },
     subscription: { findFirst: vi.fn(async () => null) },
+    // Admin-pasted Anthropic key lookup (resolveAnthropicKey) — DB is the
+    // only source of truth for Module A paths. null = no row exists.
+    externalApiCredential: {
+      findFirst: vi.fn(async () => opts.anthropicKey === undefined || opts.anthropicKey === null ? null : { apiKey: opts.anthropicKey }),
+    },
   } as never)
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
@@ -66,8 +71,7 @@ describe('POST /admin/test-connection', () => {
   })
 
   it('reports a failure (e.g. SDK missing / bad key) and never echoes the key', async () => {
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-TOPSECRET'
-    const { app, append } = await setup()
+    const { app, append } = await setup({ anthropicKey: 'sk-ant-TOPSECRET' })
     const res = (await app.inject({ method: 'POST', url: '/admin/test-connection' })).json()
     expect(res.status).toBe('failed')
     expect(JSON.stringify(res)).not.toContain('TOPSECRET')
@@ -80,8 +84,7 @@ describe('GET /admin/config — AI engine "last tested"', () => {
     const none = (await (await setup()).app.inject({ method: 'GET', url: '/admin/config' })).json().aiEngine
     expect(none).toMatchObject({ lastTested: null, lastTestedLatencyMs: null, lastTestedStatus: 'not-configured' })
     await current?.close()
-    process.env.ANTHROPIC_API_KEY = 'k'
-    const withKey = (await (await setup()).app.inject({ method: 'GET', url: '/admin/config' })).json().aiEngine
+    const withKey = (await (await setup({ anthropicKey: 'k' })).app.inject({ method: 'GET', url: '/admin/config' })).json().aiEngine
     expect(withKey).toMatchObject({ lastTested: null, lastTestedStatus: 'never-tested' })
   })
 

@@ -18,9 +18,10 @@
 import type { PrismaClient } from '@prisma/client'
 import { computeCostUsdWithCard, getActiveRateCard } from './rate-card.js'
 import { scrubPii } from './pii-scrub.js'
-import { createAnthropicClientFromEnv } from './anthropic-client.js'
+import { createAnthropicClientWithKey } from './anthropic-client.js'
 import { createOpenAIClientFromEnv } from './openai-client.js'
 import { createGeminiClientFromEnv } from './gemini-client.js'
+import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 
 /**
  * Image attachment for multimodal (vision) calls. Base64 encoded; the
@@ -174,25 +175,44 @@ class StubLlmClient implements LlmClient {
 /**
  * Routes LlmClient.send to the right provider based on the model id:
  *
- *   model starts with 'claude-'  → AnthropicLlmClient (requires ANTHROPIC_API_KEY)
+ *   model starts with 'claude-'  → AnthropicLlmClient (DB-resolved key via
+ *                                  Settings → AI engine → API keys)
  *   model starts with 'gpt-'     → OpenAILlmClient (requires OPENAI_API_KEY)
  *   model starts with 'gemini-'  → GeminiLlmClient (requires GOOGLE_API_KEY or GEMINI_API_KEY)
  *   anything else / no key set   → AiNotConfiguredError ("AI is not configured"); the
  *                                  deterministic StubLlmClient only when AI_ALLOW_STUB=1 (dev/CI)
  *
- * All three provider clients lazy-load their SDK on first call, so a
- * deployment that only uses Anthropic doesn't pay the openai /
- * @google/generative-ai import cost.
+ * Anthropic path is DB-first (no env fallback). The admin pastes the key
+ * via Settings → AI engine → API keys; the gateway resolves it per call
+ * so a key rotation lands without a process restart. OpenAI + Gemini
+ * keep env for now (frozen modules; migrate when those re-light).
  */
 class MultiProviderLlmClient implements LlmClient {
-  private readonly anthropic = createAnthropicClientFromEnv()
+  // Anthropic lookup is DB-backed per call; no prebuilt client.
   private readonly openai    = createOpenAIClientFromEnv()
   private readonly gemini    = createGeminiClientFromEnv()
   private readonly stub      = new StubLlmClient()
 
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async isConfiguredAsync(model: string): Promise<boolean> {
+    const m = (model ?? '').toLowerCase()
+    if (m.startsWith('claude-')) {
+      const key = await resolveAnthropicKey(this.prisma)
+      return !!key || stubAllowed()
+    }
+    if (m.startsWith('gpt-')    && this.openai) return true
+    if (m.startsWith('gemini-') && this.gemini) return true
+    return stubAllowed()
+  }
+
+  // Sync check kept for back-compat with legacy callers. Returns "true"
+  // for Anthropic optimistically (DB lookup happens in send()); fall-back
+  // cases (gpt/gemini/stub) still answer accurately. Prefer
+  // isConfiguredAsync in new code.
   isConfigured(model: string): boolean {
     const m = (model ?? '').toLowerCase()
-    if (m.startsWith('claude-') && this.anthropic) return true
+    if (m.startsWith('claude-')) return true                       // real answer at send time
     if (m.startsWith('gpt-')    && this.openai)    return true
     if (m.startsWith('gemini-') && this.gemini)    return true
     return stubAllowed()
@@ -200,7 +220,13 @@ class MultiProviderLlmClient implements LlmClient {
 
   async send(args: Parameters<LlmClient['send']>[0]) {
     const model = (args.model ?? '').toLowerCase()
-    if (model.startsWith('claude-') && this.anthropic) return this.anthropic.send(args)
+    if (model.startsWith('claude-')) {
+      const key = await resolveAnthropicKey(this.prisma)
+      if (key) return createAnthropicClientWithKey(key).send(args)
+      // No DB key — only the explicit dev/CI flag may fall back to the stub.
+      if (!stubAllowed()) throw new AiNotConfiguredError(args.model)
+      return this.stub.send(args)
+    }
     if (model.startsWith('gpt-')    && this.openai)    return this.openai.send(args)
     if (model.startsWith('gemini-') && this.gemini)    return this.gemini.send(args)
     // No real provider for this model. Only the explicit dev/CI flag may fall back to the stub.
@@ -211,27 +237,35 @@ class MultiProviderLlmClient implements LlmClient {
 
 /**
  * Factory that returns a MultiProviderLlmClient capable of routing to
- * every provider whose API key is present in env. Falls back to the
- * stub for any model id whose provider isn't configured.
+ * every provider whose API key is set up (Anthropic via DB, OpenAI +
+ * Gemini still env). Falls back to the stub for any model id whose
+ * provider isn't configured.
  */
-export function createLlmClient(): LlmClient {
-  return new MultiProviderLlmClient()
+export function createLlmClient(prisma: PrismaClient): LlmClient {
+  return new MultiProviderLlmClient(prisma)
 }
 
 export class AiGatewayService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly llm: LlmClient = createLlmClient(),
+    private readonly llm: LlmClient = createLlmClient(prisma),
   ) {}
 
-  /** Can a real AI provider answer for this model? (false = "AI is not configured") */
+  /** Can a real AI provider answer for this model? (false = "AI is not configured").
+   *  Sync fast-path; the authoritative DB-backed check lives at send() time. */
   isConfigured(model: string): boolean {
     return this.llm.isConfigured ? this.llm.isConfigured(model) : true
   }
 
   async chat(args: ChatArgs): Promise<ChatResult> {
-    // Refuse before anything else: no PII scrub, no quota lookup, no AiCallRecord.
-    if (!this.isConfigured(args.model)) throw new AiNotConfiguredError(args.model)
+    // Refuse before anything else: no PII scrub, no quota lookup, no
+    // AiCallRecord. The async check catches "no DB key for Anthropic"
+    // which the sync isConfigured() can't (it stays permissive so
+    // non-async callers upstream still answer correctly).
+    const llmReady = this.llm instanceof MultiProviderLlmClient
+      ? await this.llm.isConfiguredAsync(args.model)
+      : this.isConfigured(args.model)
+    if (!llmReady) throw new AiNotConfiguredError(args.model)
     const start = Date.now()
     const { scrubbed, piiFound, categories } = scrubPii(args.prompt)
 

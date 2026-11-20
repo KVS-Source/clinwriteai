@@ -1,18 +1,20 @@
 // Resolve the Anthropic API key for this install.
 //
-// Order of precedence:
-//   1. ExternalApiCredential row with apiId='anthropic' (admin-pasted via
-//      Settings → AI engine → API keys; migration 56adf73 added the UI).
-//   2. ANTHROPIC_API_KEY environment variable (legacy / dev workaround).
+// DB-only — the single source of truth is the ExternalApiCredential row
+// with apiId='anthropic', pasted through Settings → AI engine → API keys.
+// ANTHROPIC_API_KEY env var is no longer read for Module A (Clinical
+// Writing) code paths; admins who used to export the env on the server
+// must paste the key into the UI once instead.
 //
 // Returns an empty string when nothing is configured so callers can treat
 // "not set" uniformly. The resolver intentionally does NOT throw — the
 // drafting job uses the result to flip the document to aiDraftState=
-// 'not_configured' instead of crashing.
+// 'not_configured' and surface the "not configured" toast + Settings
+// link instead of crashing the worker.
 //
 // Mirrored in apps/worker/src/jobs/resolve-anthropic-key.ts; both files
-// have to agree on the order of precedence or the Admin's pasted key will
-// work in one place but not the other.
+// must agree on the lookup or the admin's pasted key will work in one
+// place but not the other.
 
 interface PrismaLike {
   externalApiCredential: {
@@ -26,11 +28,11 @@ export async function resolveAnthropicKey(prisma: PrismaLike): Promise<string> {
       where: { apiId: 'anthropic' },
       select: { apiKey: true },
     })
-    const dbKey = row?.apiKey?.trim() ?? ''
-    if (dbKey) return dbKey
+    return row?.apiKey?.trim() ?? ''
   } catch {
-    // Prisma errors (migration not run yet, table missing) fall through
-    // to the env check — this must not become a reason drafting hangs.
+    // Prisma errors (migration not run yet, table missing) surface as
+    // "not configured" — same path as a missing key. Never throw; the
+    // drafter needs a clean empty string so the toast can show.
+    return ''
   }
-  return process.env.ANTHROPIC_API_KEY?.trim() ?? ''
 }

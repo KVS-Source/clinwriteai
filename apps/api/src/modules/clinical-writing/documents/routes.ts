@@ -23,6 +23,7 @@ import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatur
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
+import { resolveAnthropicKey } from '../../platform/ai-gateway/resolve-anthropic-key.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { notifyRaciAssigned } from '../../platform/document-raci/notify-assigned.js'
 import { lettersForTransition, transitionForbidden } from './transition-roles.js'
@@ -1189,10 +1190,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
     })
 
+    const anthropicKey = await resolveAnthropicKey(app.prisma)
     return {
       // True when no AI provider key is set and the dev/CI placeholder drafter is switched on: AI text
       // in this deployment is placeholder text, and the editor says so (CW-095).
-      aiStubMode:         stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
+      aiStubMode:         stubAllowed() && !anthropicKey,
       state:              doc.aiDraftState,
       confidenceOverall:  doc.aiConfidenceOverall,
       lastPassNumber:     doc.aiLastPassNumber,
@@ -1455,9 +1457,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ? (templateRow!.sections as Array<Record<string, unknown>>).length
       : 0
 
+    const anthropicKey = await resolveAnthropicKey(app.prisma)
     return {
       snapshotTakenAt: new Date().toISOString(),
-      aiStubMode:      stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
+      aiStubMode:      stubAllowed() && !anthropicKey,
 
       document: {
         id:                   doc.id,

@@ -1,7 +1,8 @@
 // Worker mirror of apps/api/src/modules/platform/ai-gateway/resolve-
 // anthropic-key.ts. The API handles admin PUTs that populate the row;
-// the worker consumes it here when it needs to call Claude. Keep the
-// order of precedence identical: DB first, env fallback.
+// the worker consumes it here when it needs to call Claude. DB-only —
+// env is no longer read on Module A paths. Admin pastes via Settings →
+// AI engine → API keys or drafting runs the 'not_configured' path.
 
 interface PrismaLike {
   externalApiCredential: {
@@ -15,11 +16,10 @@ export async function resolveAnthropicKey(prisma: PrismaLike): Promise<string> {
       where: { apiId: 'anthropic' },
       select: { apiKey: true },
     })
-    const dbKey = row?.apiKey?.trim() ?? ''
-    if (dbKey) return dbKey
+    return row?.apiKey?.trim() ?? ''
   } catch {
-    // Prisma errors (migration not run yet, table missing) fall through
-    // to the env check — this must not become a reason drafting hangs.
+    // Prisma errors (migration not run yet, table missing) surface as
+    // "not configured" — never crash the worker over a missing key.
+    return ''
   }
-  return process.env.ANTHROPIC_API_KEY?.trim() ?? ''
 }

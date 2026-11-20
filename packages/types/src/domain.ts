@@ -75,8 +75,20 @@ export interface Project {
   // Optional reference publication / prior-art link.
   referenceTrial?: string
   team: TeamMember[]
-  // Live (non-deleted) document count; only returned by the project list endpoint.
+  // Live (non-deleted) document count; only returned by the project list
+  // endpoint. Equal to the sum of the per-module counts below.
   documentCount?: number
+  // Per-module breakdown of the document count — drives the colour chips
+  // on the Projects list's Documents column. Modules with 0 render no
+  // chip. Ideation & Publishing is always 0 today (rollup deferred — its
+  // ideationProjectId is a separate concept).
+  documentCountByModule?: {
+    clinicalWriting:    number
+    scientificWriting:  number
+    medicalWriting:     number
+    regulatoryWriting:  number
+    ideationPublishing: number
+  }
 }
 
 export interface TeamMember {

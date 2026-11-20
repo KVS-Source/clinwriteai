@@ -24,6 +24,7 @@ import {
 import { ensureChecklistInstance } from '../checklist/service.js'
 import { hasSectionContent, sectionPlaceholderCount } from '../ich-e3/catalog.js'
 import { areSectionHtmlsVisiblyEqual } from './html-dedupe.js'
+import { deriveBeforeHtml } from './edit-history-before.js'
 
 /** Derive a section's status from its current HTML. Drops the "writer must
  *  click Mark complete" step: a section is complete iff it has real content
@@ -438,10 +439,11 @@ export class DocumentService {
         })
       }
 
-      // EditHistory — one row per non-noop save, powers the unified
-      // SectionHistoryPanel. Uses the polymorphic EditHistory table +
-      // populates the clinical-section convenience columns so Module A
-      // queries don't need to change.
+      // EditHistory — one row per non-noop save. Only the row's afterHtml
+      // is stored; the "before" is derived at read + revert time from the
+      // previous row's afterHtml for the same section (deriveBeforeHtml in
+      // edit-history-before.ts). Halves the storage footprint for Module A
+      // edit history without losing restore ability.
       await tx.editHistory.create({
         data: {
           entityType:        'clinical_section',
@@ -452,7 +454,7 @@ export class DocumentService {
           documentVersionId: current.id,
           actorId:           args.editorUserId,
           origin:            args.aiDrafted ? 'ai' : 'manual',
-          beforeHtml:        existing?.contentHtml ?? null,
+          beforeHtml:        null,
           afterHtml:         args.contentHtml,
           aiCallRecordId:    args.aiDrafted ? args.aiCallRecordId ?? null : null,
         },
@@ -522,7 +524,7 @@ export class DocumentService {
             documentVersionId: current.id,
             actorId:           args.editorUserId,
             origin:            'manual',
-            beforeHtml:        s.contentHtml,
+            beforeHtml:        null,                       // derived on read
             afterHtml:         nextHtml,
           },
         })
@@ -579,12 +581,15 @@ export class DocumentService {
         // handlers registered in the EditHistory plugin.
         throw new Error(`wrong_entity_type:${target.entityType}`)
       }
-      if (target.beforeHtml === null) {
-        throw new Error('cannot_revert_no_snapshot')
-      }
       if (!target.documentId || !target.sectionId) {
         throw new Error('cannot_revert_no_section_scope')
       }
+
+      // Resolve the "restore to" state. Legacy rows stored the pre-edit
+      // HTML as target.beforeHtml; new rows (after the beforeHtml-drop)
+      // store only afterHtml, and the pre-edit state is the previous
+      // EditHistory row's afterHtml. The helper handles both paths.
+      const restoreTo = await deriveBeforeHtml(tx, target)
 
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${target.documentId}))`
 
@@ -609,11 +614,10 @@ export class DocumentService {
       const sectionRow = doc.currentVersion.sections.find(s => s.sectionId === target.sectionId)
       if (!sectionRow) throw new Error('section_not_found')
 
-      const previousHtml = sectionRow.contentHtml ?? ''
       await tx.sectionContent.update({
         where: { documentVersionId_sectionId: { documentVersionId: doc.currentVersionId!, sectionId: target.sectionId } },
         data: {
-          contentHtml:  target.beforeHtml,
+          contentHtml:  restoreTo,
           lastEditedBy: args.editorUserId,
           lastEditedAt: new Date(),
         },
@@ -622,7 +626,7 @@ export class DocumentService {
       // Recompute hash so Part 11 re-verification sees the real content.
       const nextSections: SectionPayload[] = doc.currentVersion.sections.map(s =>
         s.sectionId === target.sectionId
-          ? { sectionId: s.sectionId, sectionNumber: s.sectionNumber, sectionTitle: s.sectionTitle, contentHtml: target.beforeHtml!, ichStatus: s.ichStatus }
+          ? { sectionId: s.sectionId, sectionNumber: s.sectionNumber, sectionTitle: s.sectionTitle, contentHtml: restoreTo, ichStatus: s.ichStatus }
           : { sectionId: s.sectionId, sectionNumber: s.sectionNumber, sectionTitle: s.sectionTitle, contentHtml: s.contentHtml, ichStatus: s.ichStatus },
       )
       await tx.documentVersion.update({
@@ -640,8 +644,8 @@ export class DocumentService {
           documentVersionId: doc.currentVersionId!,
           actorId:           args.editorUserId,
           origin:            'undo',
-          beforeHtml:        previousHtml,
-          afterHtml:         target.beforeHtml,
+          beforeHtml:        null,                       // derived on read
+          afterHtml:         restoreTo,
           revertedFromId:    target.id,
         },
       })
@@ -649,7 +653,7 @@ export class DocumentService {
       return {
         documentId:  target.documentId,
         sectionId:   target.sectionId,
-        contentHtml: target.beforeHtml,
+        contentHtml: restoreTo,
       }
     })
   }

@@ -539,7 +539,10 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
             subUnitId:    sec.id,
             actorId:      job.data.actorId,
             origin:       'ai',
-            beforeHtml:   '',
+            // beforeHtml deliberately null — derived at read time from the
+            // previous row's afterHtml (edit-history-before.ts). Was always
+            // '' here anyway (AI drafter only ran on empty sections).
+            beforeHtml:   null,
             afterHtml:    contentHtml,
             // Clinical-section convenience columns. The DB column is
             // NOT NULL (migration 38) even though the Prisma schema has

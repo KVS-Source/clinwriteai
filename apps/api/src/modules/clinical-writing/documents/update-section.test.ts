@@ -120,7 +120,7 @@ describe('DocumentService.updateSection — in-place mutation (default)', () => 
     expect(provenance[0].data.aiModel).toBe('claude-sonnet-4-6')
   })
 
-  it('writes a SectionEditHistory row with origin=manual (or ai) and before/after HTML', async () => {
+  it('writes a SectionEditHistory row with origin=manual (or ai) + afterHtml; beforeHtml is null (derived on read)', async () => {
     const { prisma, historyWrites } = fakePrisma({ allVersions: ['v0.2'], currentVersion: 'v0.2' })
     await new DocumentService(prisma).updateSection({
       documentId: 'DOC-005', sectionId: 'sae4', contentHtml: '<p>new</p>', editorUserId: 'u1',
@@ -130,7 +130,9 @@ describe('DocumentService.updateSection — in-place mutation (default)', () => 
       origin: string; beforeHtml: string | null; afterHtml: string; sectionId: string; actorId: string
     }
     expect(data.origin).toBe('manual')
-    expect(data.beforeHtml).toBe('<p>old</p>')
+    // beforeHtml deliberately null — derived from the previous row's
+    // afterHtml at read + revert time to halve edit-history storage.
+    expect(data.beforeHtml).toBeNull()
     expect(data.afterHtml).toBe('<p>new</p>')
     expect(data.sectionId).toBe('sae4')
     expect(data.actorId).toBe('u1')

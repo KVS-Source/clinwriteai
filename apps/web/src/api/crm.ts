@@ -5,7 +5,7 @@ import type { CRMMeeting } from '@platform/types'
 // apps/api/src/modules/clinical-writing/crm/routes.ts:
 //   schedule (POST /documents/:id/crm) → start (doc → crm_in_progress)
 //   → log a resolution per open comment → complete (doc back to in_review; another meeting may follow)
-//   → finish (POST /documents/:id/crm/finish: doc → pending_signature, signing starts)
+//   Meetings don't gate approval: the document goes to signing once every Reviewer is done.
 
 export interface ScheduleMeetingBody {
   chairId: string
@@ -34,7 +34,7 @@ export const crmApi = {
   getMeetings: (documentId: string) =>
     api.get<CRMMeeting[]>(`/documents/${documentId}/crm`),
   getAccess: (documentId: string) =>
-    api.get<{ canSchedule: boolean; canFinish?: boolean; checklistBlocking?: Array<{ id: string; text: string; stage: string }> }>(`/documents/${documentId}/crm/access`),
+    api.get<{ canSchedule: boolean }>(`/documents/${documentId}/crm/access`),
   createMeeting: (documentId: string, body: ScheduleMeetingBody) =>
     api.post<CRMMeeting>(`/documents/${documentId}/crm`, body),
   startMeeting: (meetingId: string) =>
@@ -42,9 +42,6 @@ export const crmApi = {
   /** End the meeting (the document stays in review). Refused (422 comments_unresolved) while real comments are open. */
   completeMeeting: (meetingId: string) =>
     api.post<unknown>(`/crm/${meetingId}/complete`, {}),
-  /** Finish the CRM and send the document for approval (Author, PM or chair). Starts signing. */
-  finishCrm: (documentId: string) =>
-    api.post<{ status: string }>(`/documents/${documentId}/crm/finish`, {}),
   listResolutions: (meetingId: string) =>
     api.get<CRMResolutionRow[]>(`/crm/${meetingId}/resolutions`),
   // POST /crm/:meetingId/resolve (the API has no PATCH route). The API's

@@ -77,12 +77,6 @@ export const crmHandlers = [
     return HttpResponse.json(m)
   }),
 
-  // Finish CRM and send for approval (the real route also checks the round, reviewers and comments).
-  http.post(`${BASE}/documents/:documentId/crm/finish`, async () => {
-    await delay(200)
-    return HttpResponse.json({ status: 'pending_signature' })
-  }),
-
   http.get(`${BASE}/crm/:meetingId/resolutions`, async ({ params }) => {
     await delay(100)
     return HttpResponse.json(resolutionsByMeeting.get(String(params.meetingId)) ?? [])

@@ -11,6 +11,7 @@ describe('document status machine', () => {
     expect(canTransitionDocument('in_authoring', 'in_review')).toBe(true)
     expect(canTransitionDocument('in_review', 'crm_in_progress')).toBe(true)
     expect(canTransitionDocument('crm_in_progress', 'pending_signature')).toBe(true)
+    expect(canTransitionDocument('in_review', 'pending_signature')).toBe(true)   // every Reviewer done, no CRM needed
     expect(canTransitionDocument('pending_signature', 'signed')).toBe(true)
   })
 

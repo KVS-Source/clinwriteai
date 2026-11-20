@@ -15,7 +15,8 @@ import { z } from 'zod'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { notifyRaciAssigned } from './notify-assigned.js'
-import { approvalRoundState, bounceToAuthoring, reviewRoundState } from './return-to-authoring.js'
+import { startChainWhenReviewDone } from '../../clinical-writing/signatures/auto-start.js'
+import { approvalRoundState,bounceToAuthoring, reviewRoundState } from './return-to-authoring.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
@@ -654,19 +655,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     const currentStatus = (doc?.status ?? 'not_started') as DocumentStatus
     const evaluation = evaluateStageTransition(currentStatus, allRows as RaciRowForEval[])
 
-    // From CRM, finishing review must not skip the meeting: while one is open or a
-    // comment is unresolved, completing the meeting is what moves the document on.
-    const crmStillOpen = currentStatus === 'crm_in_progress' && evaluation.cohortComplete && (
-      await app.prisma.crmMeeting.count({ where: { documentId, status: { in: ['scheduled', 'in_progress'] } } }) > 0
-      || await app.prisma.comment.count({
-        where: { documentId, status: 'open', OR: [{ verdict: null }, { verdict: { not: 'approve' } }] },
-      }) > 0
-    )
-
+    // No CRM condition: once every Reviewer has finished the document goes to the Approvers, whether or
+    // not a CRM meeting was held or is still open.
     let transitioned = false
     if (
       evaluation.cohortComplete &&
-      !crmStillOpen &&
       evaluation.nextStatus !== null &&
       canTransitionDocument(currentStatus, evaluation.nextStatus)
     ) {
@@ -694,6 +687,15 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
       if (currentStatus === 'not_started') {
         await noteAuthoringStarted(app, { documentId, actorId: actor.id, ipAddress: request.ip ?? null })
+      }
+      // Every Reviewer is done: the signature chain opens, Approvers first (Approve & E-sign). Never
+      // fails the status move; the E-Signature tab shows why if a gate holds the chain back.
+      if (evaluation.nextStatus === 'pending_signature') {
+        try {
+          await startChainWhenReviewDone(app, { documentId, actorId: actor.id, ipAddress: request.ip ?? null })
+        } catch (err) {
+          app.log.warn({ err, documentId }, 'automatic signature chain start failed')
+        }
       }
     }
 

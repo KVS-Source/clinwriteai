@@ -456,7 +456,7 @@ export function ReviewerView() {
             )}
             </>)}
             {/* Review → Comments Resolution Meeting (PRD stage 5). An Approver only while invited to an open meeting. */}
-            {(!approverOnly || tabAccess?.crm === true) && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
+            {tabAccess?.crm === true && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}

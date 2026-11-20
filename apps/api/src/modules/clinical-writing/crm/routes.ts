@@ -4,15 +4,14 @@
 // doc.status='in_review' → chair schedules a CRM → doc.status flips to
 // 'crm_in_progress' when the meeting starts → each open comment gets
 // resolved in the meeting → the chair completes the meeting (all its comments resolved) and the
-// document goes back to in_review. A document can have several meetings, one at a time. When the
-// review team is satisfied, the Author, PM or a chair presses "Finish CRM and send for approval"
-// (POST /documents/:id/crm/finish) → doc.status 'pending_signature' and the e-sig chain starts.
+// document goes back to in_review. A document can have several meetings, one at a time. Meetings do
+// not gate approval: the document goes to the Approvers as soon as every Reviewer has finished
+// (document-raci complete route), whether or not a meeting was held.
 //
 // Document state machine transitions driven here:
 //   in_review        → crm_in_progress   (meeting start)
 //   crm_in_progress  → in_review         (meeting complete or cancelled, no other meeting open)
 //   crm_in_progress  → in_authoring      (same, for a meeting held during authoring)
-//   in_review        → pending_signature (Finish CRM and send for approval)
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
@@ -20,8 +19,6 @@ import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { requireAuth, hasAnyRole, type AuthenticatedUser } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
-import { startChainWhenReviewDone } from '../signatures/auto-start.js'
-import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { actorCanResolveComments, actorHoldsLetter, actorCanScheduleCrm, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { crmPeople, CRM_PEOPLE_INVALID } from './people.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
@@ -165,23 +162,6 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     return attendee !== null && onlyI
   }
 
-  // Who may finish the CRM and send the document for approval: the Author (R), the PM, or the chair of
-  // one of the document's meetings.
-  const actorCanFinishCrm = async (user: AuthenticatedUser, documentId: string) =>
-    hasAnyRole(user, 'pm')
-    || (await app.prisma.crmMeeting.count({ where: { documentId, chairId: user.id } })) > 0
-    || await actorHoldsLetter(app.prisma, user, documentId, ['R'])
-
-  // The document has just reached pending_signature: start its signature chain (Approvers first). Never
-  // throws — the status move already happened, and the chain can be started by hand.
-  const startSigning = async (documentId: string, actorId: string, ipAddress: string | null) => {
-    try {
-      await startChainWhenReviewDone(app, { documentId, actorId, ipAddress })
-    } catch (err) {
-      app.log.warn({ err, documentId }, 'automatic signature chain start failed')
-    }
-  }
-
   // --- Meetings -----------------------------------------------------------
 
   app.get('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -200,7 +180,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     // Self-heal: completing a meeting puts the document back (in_review, or in_authoring for a meeting
     // held there), but that step only applies when the document is crm_in_progress at that instant. If
     // a meeting is complete, none is still running or scheduled, and the document is stuck in
-    // crm_in_progress, finish the move. Sending the document for approval is a separate, explicit step.
+    // crm_in_progress, finish the move.
     const hasComplete = meetings.some(m => m.status === 'complete')
     const hasOpen     = meetings.some(m => m.status === 'in_progress' || m.status === 'scheduled')
     if (doc.status === 'crm_in_progress' && hasComplete && !hasOpen) {
@@ -229,13 +209,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
   // Whether the caller may schedule a meeting — lets the screen explain up front instead of failing the form.
   app.get('/documents/:documentId/crm/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId } = request.params as { documentId: string }
-    const [canSchedule, canFinish, checklist] = await Promise.all([
-      actorCanScheduleCrm(app.prisma, request.user!, documentId),
-      actorCanFinishCrm(request.user!, documentId),
-      checkSignatureGate(app.prisma, documentId),
-    ])
-    // Mandatory checklist items still open: signing can't start, so Finish CRM is held back until they are done.
-    return { canSchedule, canFinish, checklistBlocking: checklist.blocking.map(b => ({ id: b.id, text: b.text, stage: b.stage })) }
+    return { canSchedule: await actorCanScheduleCrm(app.prisma, request.user!, documentId) }
   })
 
   // Who can be chair or attend: the document's own people and the project's PM (CW-098).
@@ -483,8 +457,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Completing a meeting only closes that meeting. The document goes back to where it was (in review, or
-    // in authoring for a meeting held there) so another meeting can follow; it moves on to signing with the
-    // separate "Finish CRM and send for approval" step (POST /documents/:id/crm/finish).
+    // in authoring for a meeting held there) so another meeting can follow.
     const now = new Date()
     const updated = await app.prisma.$transaction(async (tx) => {
       const m = await tx.crmMeeting.update({
@@ -535,97 +508,6 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return updated
-  })
-
-  // Finish CRM and send for approval: the review team is satisfied, so the document moves to pending
-  // signature and its signature chain starts (Approvers first). By the Author (R), the PM, or the chair of
-  // one of the document's meetings. Needs a completed meeting this review round, no meeting still open, every
-  // Reviewer (C) done reviewing, and no comment left unresolved.
-  app.post('/documents/:documentId/crm/finish', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
-    const { documentId } = request.params as { documentId: string }
-    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
-    if (!doc) return reply.code(404).send({ error: 'not_found' })
-
-    const meetings = await app.prisma.crmMeeting.findMany({
-      where: { documentId },
-      include: { resolutions: { select: { commentId: true } } },
-    })
-    const user = request.user!
-    if (!(await actorCanFinishCrm(user, documentId))) {
-      return reply.code(403).send({ error: 'crm_finish_forbidden', message: 'Only the Author, the project manager or a meeting chair can finish the CRM and send the document for approval.' })
-    }
-
-    if (doc.status !== 'in_review') {
-      return reply.code(409).send({ error: 'wrong_status', message: `The CRM can only be finished while the document is in review (current: ${doc.status})` })
-    }
-    const open = meetings.find(m => m.status === 'scheduled' || m.status === 'in_progress')
-    if (open) {
-      return reply.code(409).send({ error: 'meeting_open', message: `${open.meetingRef} is still ${open.status === 'in_progress' ? 'in progress' : 'scheduled'}. Complete or cancel it first.`, meetingRef: open.meetingRef })
-    }
-
-    // A meeting counts for this review round if it ended after the document was last submitted for review.
-    // (A meeting held during authoring puts the document back there; it never counts for signing.)
-    const roundStart = doc.submittedForReviewAt
-    const held = meetings.filter(m =>
-      m.status === 'complete' && m.returnToStatus !== 'in_authoring' && (!roundStart || (!!m.endedAt && m.endedAt >= roundStart)))
-    if (held.length === 0) {
-      return reply.code(422).send({ error: 'no_meeting_held', message: 'Hold and complete at least one CRM meeting in this review round first.' })
-    }
-
-    const reviewing = await app.prisma.documentRaci.count({
-      where: { documentId, letter: 'C', removedAt: null, reviewedAt: null },
-    })
-    if (reviewing > 0) {
-      return reply.code(422).send({
-        error: 'reviews_pending',
-        message: `${reviewing} reviewer${reviewing === 1 ? ' has' : 's have'} not finished reviewing. Each reviewer must click Mark review done first.`,
-        pendingReviewers: reviewing,
-      })
-    }
-
-    // Every real comment (not an approval verdict) must have been resolved in one of this round's meetings.
-    const openComments = await app.prisma.comment.findMany({
-      where: { documentId, status: 'open', OR: [{ verdict: null }, { verdict: { not: 'approve' } }] },
-      select: { id: true },
-    })
-    const resolvedIds = new Set(held.flatMap(m => m.resolutions.map(r => r.commentId)))
-    const unresolved = openComments.filter(c => !resolvedIds.has(c.id))
-    if (unresolved.length > 0) {
-      return reply.code(422).send({
-        error: 'comments_unresolved',
-        message: `${unresolved.length} open comment(s) have no resolution. Resolve them in a meeting first.`,
-        unresolvedCommentIds: unresolved.map(c => c.id),
-      })
-    }
-
-    // Signing can't start with mandatory checklist items open, so the CRM can't finish either: the document
-    // stays in review instead of waiting in Pending signature with no signature chain.
-    const checklist = await checkSignatureGate(app.prisma, documentId)
-    if (!checklist.ok) return reply.code(422).send(blockedBody('signature', checklist))
-
-    // updateMany with the status predicate makes this a no-op if someone else already moved the document.
-    const moved = await app.prisma.document.updateMany({
-      where: { id: documentId, status: 'in_review' },
-      data:  { status: 'pending_signature' },
-    })
-    if (moved.count === 0) return reply.code(409).send({ error: 'wrong_status', message: 'The document is no longer in review.' })
-
-    await app.audit.append({
-      timestamp: new Date().toISOString(),
-      actorId: user.id,
-      action: 'crm_finished',
-      entityType: 'document',
-      entityId: documentId,
-      details: { from: 'in_review', to: 'pending_signature', meetings: held.map(m => m.meetingRef) },
-      ipAddress: request.ip ?? null,
-    })
-
-    // Review and CRM are done: signing starts, Approvers first. The status move already happened, so a
-    // failure here must not fail it (the E-Signature tab shows why signing hasn't started).
-    await startSigning(documentId, user.id, request.ip ?? null)
-
-    return { status: 'pending_signature' }
   })
 
   app.post('/crm/:meetingId/cancel', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

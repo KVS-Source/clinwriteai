@@ -54,7 +54,7 @@ export function makeNotifySigners(app: FastifyInstance) {
           kind:        'signature_requested',
           title:       approveAndSign ? `Your approval is needed on "${doc.title}"` : `Your signature is needed on "${doc.title}"`,
           body:        approveAndSign
-            ? 'Review and CRM are complete. Open the document to read it and use Approve & E-sign.'
+            ? 'Every reviewer has finished. Open the document to read it and use Approve & E-sign.'
             : chainType === 'approvers_first'
               ? 'Every approver has signed. Open the E-Signature tab to review and sign.'
               : `It's your turn to sign (step ${s.step}). Open the E-Signature tab to review and sign.`,

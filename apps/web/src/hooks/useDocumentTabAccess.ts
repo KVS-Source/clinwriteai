@@ -33,7 +33,7 @@ export function useDocumentTabAccess(documentId: string | undefined): DocumentTa
   const access = tabAccessForLetters(mine, { pm: !!me && holdsRole(me, 'pm') })
   // An Approver-only person has the CRM tab while they are invited to a scheduled or running meeting.
   // (Not looked up when they already have it, e.g. a PM.)
-  const needsInvite = access.approverOnly && !access.crm
+  const needsInvite = !access.crm
   const { data: meetings, isLoading: meetingsLoading } = useQuery<CRMMeeting[]>({
     queryKey: ['crm-meetings', documentId],
     queryFn:  () => crmApi.getMeetings(documentId!),
@@ -62,7 +62,8 @@ export function tabAccessForLetters(letters: ReadonlySet<string>, opts: { pm?: b
     // Editor is still decided by the server and their letters.
     editor: author || !reviewSide || !!opts.pm,
     review: reviewSide || !author || !!opts.pm,
-    crm: !approverOnly || !!opts.pm,
+    // Reviewers, QC and Approvers have no CRM tab (the Author and PM run the meetings), except while invited to an open meeting.
+    crm: author || !reviewSide || !!opts.pm,
     // Not for a PM: no "Approver View" tab or approve panel while working as PM.
     approverOnly: approverOnly && !opts.pm,
   }

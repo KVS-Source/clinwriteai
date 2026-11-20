@@ -16,7 +16,6 @@ import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
 import { ApiError } from '../../api/client'
-import { crmApi } from '../../api/crm'
 import { signerRoleLabel } from '../../utils/documentLabels'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
@@ -353,14 +352,6 @@ export function ESignature() {
   })
   const { data: chains = [], isLoading, isError, error } = useSignatureChains(documentId!)
   const access = useSignatureAccess(documentId)
-  // Same query (and cache) as the CRM tab: did this document ever have a meeting?
-  const { data: meetings = [] } = useQuery({
-    queryKey: ['crm-meetings', documentId],
-    queryFn:  () => crmApi.getMeetings(documentId!),
-    enabled:  !!documentId,
-    retry:    false,
-  })
-  const hadCrm = meetings.length > 0
   const editorLocked = document?.status === 'pending-signature' || document?.status === 'signed'
   // Reviewers and approvers can't edit the document, so their "back" is the Reviewer View, not the Editor.
   const canEdit = useCanEditDocument(documentId)
@@ -494,14 +485,12 @@ export function ESignature() {
   // backToEditor was consumed by the in-screen breadcrumb's document-title
   // link; now that TopNav owns the breadcrumb, the helper is unused.
 
-  // Back to the step before this one: the CRM meeting when the document had one, the mirror of the
-  // CRM screen's "Go to E-Signature →". Without a meeting (CW-101) it goes back to the Editor while the
+  // Back to the step before this one: the Editor while the
   // document is still being authored — the Reviewer View for someone who can't edit it (a reviewer or approver) —
   // else to the document list (the Editor and Reviewer View are locked from here on).
   const backTarget =
     // An Approver (A only) has no CRM tab: back goes to their Approver View.
     tabAccess?.approverOnly ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/review`, label: t('page.e_signature.back_approver_view'), kind: 'approver-view' }
-    : hadCrm ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/crm`, label: t('page.e_signature.back_crm'), kind: 'crm' }
     : editorLocked ? { to: `/projects/${projectId}/clinical-writing`, label: t('page.e_signature.back_documents'), kind: 'documents' }
     : backToReview ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/review`, label: t('page.e_signature.back_reviewer_view'), kind: 'reviewer-view' }
     : { to: `/projects/${projectId}/clinical-writing/documents/${documentId}`, label: t('page.e_signature.back_editor'), kind: 'editor' }

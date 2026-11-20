@@ -63,7 +63,7 @@ test('a reviewer confirms, is marked done, and the progress updates', async ({ p
   await expect(bar(page)).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('[data-review-progress]')).toContainText('0 of 2')
   await expect(page.locator('[data-review-person="u-q"]')).toHaveAttribute('data-review-state', 'pending')
-  await expect(action(page)).toHaveText('Mark review done')
+  await expect(action(page)).toHaveText('Mark review done and submit to approval')
 
   // Cancel changes nothing.
   await action(page).click()

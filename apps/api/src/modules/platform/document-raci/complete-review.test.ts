@@ -1,11 +1,15 @@
 // Reviewers (C) and QC (Q) finishing their part: POST /documents/:id/raci/:raciId/complete.
-// Own row only, during review only, and the last one finishing doesn't skip an open CRM.
+// Own row only, during review only. The last one finishing sends the document to the Approvers
+// (signing starts), whether or not a CRM meeting was held or is still open.
 
 import Fastify from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentRaciRoutes } from './routes.js'
 import { resetRaciRound } from './access.js'
+
+const startChain = vi.hoisted(() => vi.fn(async () => ({ chainStarted: true })))
+vi.mock('../../clinical-writing/signatures/auto-start.js', () => ({ startChainWhenReviewDone: startChain }))
 
 const DOC = 'doc-1'
 type Row = Record<string, unknown> & { id: string; userId: string; letter: string }
@@ -88,15 +92,17 @@ describe('completing a review', () => {
 describe('the last person finishing', () => {
   const lastOne = () => [row('r1', 'u-c', 'C'), row('r2', 'u-q', 'Q', { reviewedAt: new Date() })]
 
-  it('from In Review reports the cohort complete but leaves the document for the CRM', async () => {
+  it('from In Review moves the document to pending signature and starts the chain, with no CRM meeting', async () => {
+    startChain.mockClear()
     const t = await build({ status: 'in_review', rows: lastOne() })
     const res = await t.complete('r1')
-    expect(res.json()).toMatchObject({ transitioned: false, transition: { cohortComplete: true } })
-    expect(t.document.status).toBe('in_review')
+    expect(res.json()).toMatchObject({ transitioned: true, transition: { cohortComplete: true } })
+    expect(t.document.status).toBe('pending_signature')
+    expect(startChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ documentId: DOC, actorId: 'u-c' }))
     await t.app.close()
   })
 
-  it('from CRM moves the document on when nothing is left open', async () => {
+  it('from CRM moves the document on', async () => {
     const t = await build({ status: 'crm_in_progress', rows: lastOne() })
     const res = await t.complete('r1')
     expect(res.json().transitioned).toBe(true)
@@ -107,13 +113,21 @@ describe('the last person finishing', () => {
   it.each([
     ['a meeting is still open', { openMeetings: 1 }],
     ['a comment is unresolved', { openComments: 2 }],
-  ])("from CRM doesn't skip the meeting while %s", async (_label, open) => {
+  ])('does not wait for the CRM: moves on even while %s', async (_label, open) => {
     const t = await build({ status: 'crm_in_progress', rows: lastOne(), ...open })
     const res = await t.complete('r1')
     expect(res.statusCode).toBe(200)
-    expect(res.json().transitioned).toBe(false)
-    expect(t.document.status).toBe('crm_in_progress')
-    expect(t.docUpdate).not.toHaveBeenCalled()
+    expect(res.json().transitioned).toBe(true)
+    expect(t.document.status).toBe('pending_signature')
+    await t.app.close()
+  })
+
+  it('a failed chain start does not fail the status move', async () => {
+    startChain.mockRejectedValueOnce(new Error('down'))
+    const t = await build({ status: 'in_review', rows: lastOne() })
+    const res = await t.complete('r1')
+    expect(res.statusCode).toBe(200)
+    expect(t.document.status).toBe('pending_signature')
     await t.app.close()
   })
 

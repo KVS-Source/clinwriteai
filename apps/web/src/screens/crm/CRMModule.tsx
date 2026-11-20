@@ -8,8 +8,7 @@
 //                while real comments are unresolved — reviewer "approve" verdicts
 //                don't need resolving). A document can have several meetings, one at
 //                a time: "Schedule another meeting" starts the next.
-//   Finish    → POST /documents/:id/crm/finish   ("Finish CRM and send for approval":
-//                document → Pending signature, signing starts. Author, PM or a chair.)
+//   (There is no "finish CRM" step: the document goes to the Approvers once every Reviewer is done.)
 // The document comes from ?doc=<id> (Reviewer View links here) with a picker —
 // or, on a document's own CRM tab (/documents/:documentId/crm), is fixed to
 // that document and the picker is hidden.
@@ -521,7 +520,6 @@ export function CRMModule() {
   const [viewMeetingId, setViewMeetingId] = useState<string | null>(null)
   const [scheduling, setScheduling] = useState(false)
   const openMeeting = meetings.find(m => m.status === 'in_progress') ?? meetings.find(m => m.status === 'scheduled')
-  const heldMeetings = meetings.filter(m => m.status === 'complete')
   const meeting: CRMMeeting | undefined =
     meetings.find(m => m.id === viewMeetingId)
     ?? openMeeting
@@ -666,20 +664,8 @@ export function CRMModule() {
 
   const startMut = useMutation({ mutationFn: () => crmApi.startMeeting(meeting!.id), onSuccess: refresh })
   const endMut   = useMutation({ mutationFn: () => crmApi.completeMeeting(meeting!.id), onSuccess: refresh })
-  // Finish CRM and send for approval: the document moves to Pending signature and signing starts.
-  const [finishOpen, setFinishOpen] = useState(false)
   // The meeting-details panel opens on a row click.
   const [detailOpen, setDetailOpen] = useState(false)
-  const finishMut = useMutation({
-    mutationFn: () => crmApi.finishCrm(activeDocId!),
-    onSuccess: () => {
-      setFinishOpen(false)
-      refresh()
-      qc.invalidateQueries({ queryKey: ['signature-chains', activeDocId] })
-      qc.invalidateQueries({ queryKey: ['document-raci', activeDocId] })
-    },
-  })
-
   const resolvedCount = resolvedIds.length
   const totalCount    = queueIds.length
   const pct           = totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 100
@@ -741,22 +727,10 @@ export function CRMModule() {
   const canSchedulePerm = crmAccess?.canSchedule !== false
   const schedulableStatus = SCHEDULABLE.has(docStatus)
   const afterCrm = docStatus === 'pending-signature' || docStatus === 'signed'
-  const heldInReview = heldMeetings.some(m => !m.heldDuringAuthoring)
 
   // New meeting: for whoever may schedule, while the document is in authoring, review or a meeting. One open at a time.
   const showNewMeeting = schedulableStatus && canSchedulePerm
   const newMeetingBlocked = openMeeting ? t('page.crm_module.blocked_open', { ref: openMeeting.meetingRef }) : null
-  // Finish CRM and send for approval: for the Author, PM or a chair. The server also checks this review round, the
-  // Reviewers' "review done" marks and unresolved comments, and says which is missing.
-  // Mandatory checklist items still open: signing could not start, so Finish CRM waits for them (the API refuses too).
-  const checklistOpen = crmAccess?.checklistBlocking?.length ?? 0
-  const showFinish = crmAccess?.canFinish === true && (docStatus === 'in-review' || docStatus === 'crm-in-progress')
-  const finishBlocked = openMeeting ? t('page.crm_module.blocked_open', { ref: openMeeting.meetingRef })
-    : docStatus !== 'in-review' ? t('page.crm_module.finish_blocked_status')
-    : !heldInReview ? t('page.crm_module.finish_blocked_none')
-    : checklistOpen > 0 ? t('page.crm_module.finish_blocked_checklist', { count: checklistOpen })
-    : null
-
   // Informed (I) changes nothing in a meeting they don't chair; the API refuses it too.
   // Starting, ending and the note-taker belong to the chair (action table row 18: Close only if chair); the
   // API also lets an admin, so the screen does too. Everyone else watches and, where allowed, logs resolutions.
@@ -797,22 +771,6 @@ export function CRMModule() {
                 data-crm-schedule-another
                 data-crm-new-meeting
               >+ {t('page.crm_module.new_meeting')}</button>
-            )}
-            {showFinish && (
-              <button
-                type="button"
-                onClick={() => { finishMut.reset(); setFinishOpen(true) }}
-                disabled={!!finishBlocked}
-                title={finishBlocked ?? undefined}
-                className="rounded-md bg-slate-900 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                data-crm-finish
-              >{t('page.crm_module.finish_crm')}</button>
-            )}
-            {showFinish && checklistOpen > 0 && !openMeeting && docStatus === 'in-review' && (
-              <p className="basis-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" role="status" data-crm-finish-checklist-warning>
-                {t('page.crm_module.finish_checklist_warning', { count: checklistOpen })}
-                {' '}{crmAccess!.checklistBlocking!.slice(0, 3).map(b => b.text).join('; ')}{checklistOpen > 3 ? '…' : ''}
-              </p>
             )}
             {afterCrm && (
               <button
@@ -1124,46 +1082,6 @@ export function CRMModule() {
       >
         <ScheduleMeetingForm documentId={activeDocId} onScheduled={() => { setScheduling(false); setViewMeetingId(null); refresh() }} bare />
       </SlidePanel>
-
-      {/* Finish CRM and send for approval — confirmation. */}
-      {finishOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="finish-crm-title" data-finish-crm-dialog>
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-            <h2 id="finish-crm-title" className="text-[15px] font-bold text-slate-900">{t('page.crm_module.finish_dialog_title')}</h2>
-            <p className="mt-1 text-[12px] leading-relaxed text-slate-600">{t('page.crm_module.finish_dialog_intro')}</p>
-            <ul className="mt-3 flex flex-col gap-1.5 rounded-md bg-slate-50 p-3 text-[12px] leading-relaxed text-slate-700">
-              {['finish_dialog_1', 'finish_dialog_2', 'finish_dialog_3'].map(k => (
-                <li key={k} className="flex gap-2"><span aria-hidden="true" className="text-blue-600">•</span><span>{t(`page.crm_module.${k}`)}</span></li>
-              ))}
-            </ul>
-            {finishMut.isError && (
-              <p className="mt-3 rounded-md bg-red-50 px-2.5 py-1.5 text-[12px] text-red-700" role="alert" data-crm-error>
-                {apiMessage(finishMut.error, t('page.crm_module.finish_failed'))}
-              </p>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setFinishOpen(false)}
-                disabled={finishMut.isPending}
-                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {t('button.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => finishMut.mutate()}
-                disabled={finishMut.isPending}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                data-action="confirm-finish-crm"
-                autoFocus
-              >
-                {finishMut.isPending ? t('page.crm_module.finishing') : t('page.crm_module.finish_dialog_confirm')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Comment Resolution Panel — note + confirm, then POST /crm/:id/resolve */}
       {resolutionDraft !== null && meeting && (

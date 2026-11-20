@@ -14,7 +14,10 @@ import { ProjectSettings }      from '../screens/shell/ProjectSettings'
 // NewProject is now rendered inside a SlidePanel from AllProjects — the
 // standalone /projects/new route is retired. See docs/decisions/
 // module-a-defaults.md §1.
-import { ProjectDashboard }     from '../screens/shell/ProjectDashboard'
+// ProjectDashboard retired — the index route now redirects to the Projects
+// list with the overview panel auto-opened. Component kept on disk for
+// quick revert if the panel needs a feature it can't yet carry.
+import { ProjectDashboardRedirect } from '../screens/shell/ProjectDashboardRedirect'
 import { ClinicalWritingHome }  from '../screens/clinical-writing/ClinicalWritingHome'
 // NewDocument is now rendered inside a SlidePanel from
 // ClinicalWritingHome. Standalone /clinical-writing/new route retired.
@@ -227,7 +230,7 @@ export const router = createBrowserRouter([
         // page below, including a persona switch while one is open.
         element: <NonAdminGuard><Outlet /></NonAdminGuard>,
         children: [
-          { index: true, element: <ProjectDashboard /> },
+          { index: true, element: <ProjectDashboardRedirect /> },
           // Per-project settings — gated inside ProjectSettings to the
           // project's Lead (team member with RACI='A'); non-leads land
           // on /projects/:id instead of /home so they stay oriented.

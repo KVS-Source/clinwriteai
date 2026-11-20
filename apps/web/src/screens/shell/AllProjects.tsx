@@ -1,6 +1,6 @@
 import { formatDate } from '../../utils/formatDate'
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -152,6 +152,25 @@ export function AllProjects() {
     queryKey: ['projects'],
     queryFn:  () => projectsApi.list(),
   })
+
+  // Deep-link support — `/projects?open=<id>` auto-opens the overview
+  // panel for that project once its row has loaded. ProjectDashboardRedirect
+  // sends users here when they hit the legacy /projects/:id URL; share links
+  // keep working without the full dashboard page behind them. The query
+  // param is cleared from the URL after the panel opens so a subsequent
+  // Close doesn't re-open on every render.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const openParam = searchParams.get('open')
+  useEffect(() => {
+    if (!openParam || projects.length === 0) return
+    const match = projects.find((p: Project) => p.id === openParam)
+    if (!match) return
+    setActiveProject(match)
+    setOverviewFor(match)
+    const next = new URLSearchParams(searchParams)
+    next.delete('open')
+    setSearchParams(next, { replace: true })
+  }, [openParam, projects, searchParams, setSearchParams, setActiveProject])
 
   // AC-A-004b: filterable by TA tag. Offer the master list plus any TA a
   // project already carries that predates it, so no project is unreachable.

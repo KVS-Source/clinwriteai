@@ -15,6 +15,13 @@ import { useQuery } from '@tanstack/react-query'
 import type { Document, Project } from '@platform/types'
 import { SlidePanel, ProjectStatusPill } from '../../components/ui'
 import { documentsApi, projectsApi, reportsApi } from '../../api'
+import {
+  MODULE_COLOURS,
+  MODULE_KEY_TO_SLUG,
+  MODULE_LABELS,
+  type ModuleKey,
+  type ModuleSlug,
+} from '../../config/modules'
 
 interface Props {
   open:     boolean
@@ -161,19 +168,40 @@ export function ProjectOverviewPanel({ open, onClose, project }: Props) {
           </div>
         </section>
 
-        {/* Open full dashboard — the Project Dashboard page still carries
-            the full module cards, status history, documents list and other
-            deep controls that don't fit a quick-view panel. */}
-        <div className="flex justify-end pb-2">
-          <button
-            type="button"
-            onClick={() => { onClose(); navigate(`/projects/${project.id}`) }}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-            data-action="open-full-dashboard"
-          >
-            Open full dashboard →
-          </button>
-        </div>
+        {/* Active modules — "Open Clinical Writing →" and friends.
+            Replaces the row of module cards from the retired full
+            dashboard page so writers can enter each active module
+            without closing the panel to click a row chip. Inactive
+            modules stay row-level (DocumentCountChips rendered 0 → no
+            chip); the panel only lists what's turned on for this
+            project. */}
+        {project.activeModules.length > 0 && (
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Modules</p>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {project.activeModules.map(rawKey => {
+                const slug: ModuleSlug = (MODULE_KEY_TO_SLUG[rawKey as ModuleKey] ?? rawKey) as ModuleSlug
+                const label  = MODULE_LABELS[slug] ?? slug
+                const colour = MODULE_COLOURS[slug] ?? '#2563EB'
+                return (
+                  <button
+                    key={slug}
+                    type="button"
+                    onClick={() => { onClose(); navigate(`/projects/${project.id}/${slug}`) }}
+                    className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-[13px] hover:bg-slate-50"
+                    data-module-open={slug}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colour }} />
+                      <span className="font-semibold" style={{ color: colour }}>{label}</span>
+                    </span>
+                    <span className="text-slate-400">Open →</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
       </div>
     </SlidePanel>
   )

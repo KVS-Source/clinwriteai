@@ -13,6 +13,7 @@ import { useTaLabels } from '../../hooks'
 import { NewProjectForm } from './NewProject'
 import { DocumentCountChips } from './DocumentCountChips'
 import { ProjectSettingsPanel } from './ProjectSettingsPanel'
+import { ProjectOverviewPanel } from './ProjectOverviewPanel'
 import { holdsRole } from '../../config/roles'
 
 function SearchIcon() {
@@ -127,6 +128,11 @@ export function AllProjects() {
   // gear was clicked on; null = panel closed. Same panel the Project
   // Dashboard uses, so tweaks here and there stay in sync.
   const [settingsFor, setSettingsFor] = useState<Project | null>(null)
+  // Row click now opens a quick-view overview panel (header + KPIs +
+  // Cost & Performance) instead of navigating straight to the full
+  // dashboard page. Panel carries "Open full dashboard →" for deeper
+  // drill-down (module cards, status history, documents list).
+  const [overviewFor, setOverviewFor] = useState<Project | null>(null)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [sort, setSort] = useState<SortState>(null)
 
@@ -178,8 +184,11 @@ export function AllProjects() {
   }, [filtered, sort])
 
   const handleProjectClick = (project: Project) => {
+    // Set the active project so downstream screens (sidebar, breadcrumb,
+    // nested routes) have the context when the writer drills in from the
+    // panel's "Open full dashboard →" link.
     setActiveProject(project)
-    navigate(`/projects/${project.id}`)
+    setOverviewFor(project)
   }
 
   // "4 ongoing · 8 initiated · 12 total" — every status that has projects, in lifecycle order.
@@ -406,6 +415,12 @@ export function AllProjects() {
         onClose={() => setSettingsFor(null)}
         projectId={settingsFor?.id ?? null}
         projectName={settingsFor?.shortTitle}
+      />
+
+      <ProjectOverviewPanel
+        open={!!overviewFor}
+        onClose={() => setOverviewFor(null)}
+        project={overviewFor}
       />
     </div>
   )

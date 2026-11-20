@@ -26,7 +26,7 @@ export async function startChainWhenReviewDone(app: FastifyInstance, args: {
 
   const signers = await defaultSigners(app.prisma, doc)
   const started = await startSignatureChain(app, {
-    doc, actorId, ipAddress, chainType: 'approvers_first', signers, automatic: true,
+    doc, actorId, ipAddress, chainType: 'approvers_first', signers, automatic: true, skipContentCheck: true,
   })
   if (started.ok) return { chainStarted: true }
 

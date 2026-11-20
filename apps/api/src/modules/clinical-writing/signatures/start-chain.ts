@@ -80,6 +80,9 @@ export async function startSignatureChain(app: FastifyInstance, args: {
   signers: SignerInput[]
   /** True when the system started it (after the last Approver approved), recorded in the audit entry. */
   automatic?: boolean
+  /** The automatic start after every Reviewer finished doesn't judge the text (empty sections, [TBD]): the
+   *  approval cycle depends on the Reviewers being done, not on an environment switch. Still audited. */
+  skipContentCheck?: boolean
 }): Promise<StartChainResult> {
   const { doc, actorId, ipAddress, chainType } = args
   const documentId = doc.id
@@ -133,7 +136,7 @@ export async function startSignatureChain(app: FastifyInstance, args: {
       // placeholders, to exercise the signing flow on sample data. Off by default; in production the
       // second flag SIGNATURE_ALLOW_SKIP_IN_PROD=1 must also be set. Every use is logged and recorded
       // in the audit entry.
-      if (skipContentGate()) {
+      if (args.skipContentCheck || skipContentGate()) {
         contentGateSkipped = content.problems.length
         app.log.warn({
           documentId,

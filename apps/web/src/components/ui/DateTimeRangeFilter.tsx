@@ -56,6 +56,13 @@ export function defaultRange(tz: TimeZoneMode): { from: string; to: string } {
   return { from: `${toInputValue(start, tz).slice(0, 10)}T00:00`, to: `${toInputValue(now, tz).slice(0, 10)}T23:59` }
 }
 
+// A whole-day range ending today: `days` back at 00:00 → the end of today (23:59), in the chosen timezone.
+export function lastDaysRange(days: number, tz: TimeZoneMode): { from: string; to: string } {
+  const now = new Date()
+  const start = new Date(now.getTime() - days * 86_400_000)
+  return { from: `${toInputValue(start, tz).slice(0, 10)}T00:00`, to: `${toInputValue(now, tz).slice(0, 10)}T23:59` }
+}
+
 // The from/to a preset means right now, in the chosen timezone. `dateOnly` snaps it to whole days (00:00 → 23:59).
 function presetRange(p: RangePreset, tz: TimeZoneMode, dateOnly = false): { from: string; to: string } {
   const range = rawPresetRange(p, tz)

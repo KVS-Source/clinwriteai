@@ -57,8 +57,6 @@ export interface LibraryListParams {
   ta?: string[]
   projectId?: string
   version?: string
-  from?: string
-  to?: string
   sort?: 'recent' | 'oldest' | 'name-asc' | 'name-desc' | 'type-asc' | 'type-desc' | 'ta-asc' | 'ta-desc'
   includeRetired?: boolean
   limit?: number

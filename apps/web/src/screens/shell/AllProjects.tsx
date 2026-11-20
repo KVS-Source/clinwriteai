@@ -12,6 +12,7 @@ import { usePlatformStore } from '../../platform/store'
 import { useTaLabels } from '../../hooks'
 import { NewProjectForm } from './NewProject'
 import { DocumentCountChips } from './DocumentCountChips'
+import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 import { holdsRole } from '../../config/roles'
 
 function SearchIcon() {
@@ -31,6 +32,15 @@ function ChevronRightIcon() {
   )
 }
 
+function GearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="flex-none">
+      <circle cx="7" cy="7" r="2.3" />
+      <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.75 2.75l1.06 1.06M10.19 10.19l1.06 1.06M2.75 11.25l1.06-1.06M10.19 3.81l1.06-1.06" />
+    </svg>
+  )
+}
+
 function FolderIcon() {
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-slate-300">
@@ -39,8 +49,8 @@ function FolderIcon() {
   )
 }
 
-// Row columns: project · TA · phase · start date · submission countries · documents · status · chevron
-const ROW_GRID = 'minmax(220px,2fr) minmax(120px,1fr) 100px 120px minmax(120px,1fr) 120px 120px 14px'
+// Row columns: project · TA · phase · start date · submission countries · documents · status · gear · chevron
+const ROW_GRID = 'minmax(220px,2fr) minmax(120px,1fr) 100px 120px minmax(120px,1fr) 120px 120px 28px 14px'
 type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
@@ -107,11 +117,16 @@ export function AllProjects() {
   // don't create projects — their domain is tenant admin / users / audit.
   // Contributors / reviewers / auditors / guests never see the button.
   // The API gate (POST /projects) now also requires role='pm'.
-  const isPm = holdsRole(usePlatformStore(s => s.currentUser), 'pm')
+  const currentUser = usePlatformStore(s => s.currentUser)
+  const isPm = holdsRole(currentUser, 'pm')
 
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
   const [taFilter,     setTaFilter]     = useState<string>('all')   // TA label or 'all'
+  // Row-level Project Settings panel — `settingsFor` carries the project the
+  // gear was clicked on; null = panel closed. Same panel the Project
+  // Dashboard uses, so tweaks here and there stay in sync.
+  const [settingsFor, setSettingsFor] = useState<Project | null>(null)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [sort, setSort] = useState<SortState>(null)
 
@@ -280,6 +295,8 @@ export function AllProjects() {
                       </button>
                     </div>
                   ) : <div key={h.labelKey}>{t(h.labelKey)}</div>)}
+                  {/* Empty header cells for the gear + chevron columns */}
+                  <div />
                   <div />
                 </div>
 
@@ -298,6 +315,15 @@ export function AllProjects() {
                 )}
 
                 {!isLoading && sorted.map((project: Project, i: number) => {
+                  // Gear visible only to users who can actually open the
+                  // Settings panel for this row — a PM, or any of the
+                  // project's Authors (team member with RACI='R'). Everyone
+                  // else gets an empty cell; click behaviour stays as "open
+                  // the project dashboard" via the row click.
+                  const isProjectAuthor = project.team?.some(
+                    m => m.raci === 'R' && m.userId === currentUser.id,
+                  ) ?? false
+                  const canOpenSettings = isPm || isProjectAuthor
                   return (
                     <div
                       key={project.id}
@@ -326,6 +352,21 @@ export function AllProjects() {
                       </div>
                       <div><DocumentCountChips project={project} /></div>
                       <div data-project-status={project.status}><ProjectStatusPill status={project.status} /></div>
+                      {canOpenSettings ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setSettingsFor(project) }}
+                          title="Project settings"
+                          aria-label={`Open settings for ${project.shortTitle}`}
+                          data-action="row-project-settings"
+                          data-panel-trigger
+                          className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          <GearIcon />
+                        </button>
+                      ) : (
+                        <div />
+                      )}
                       <ChevronRightIcon />
                     </div>
                   )
@@ -359,6 +400,13 @@ export function AllProjects() {
           }}
         />
       </SlidePanel>
+
+      <ProjectSettingsPanel
+        open={!!settingsFor}
+        onClose={() => setSettingsFor(null)}
+        projectId={settingsFor?.id ?? null}
+        projectName={settingsFor?.shortTitle}
+      />
     </div>
   )
 }

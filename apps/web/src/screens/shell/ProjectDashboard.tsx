@@ -10,6 +10,7 @@ import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 import { isAdminRole, holdsRole } from '../../config/roles'
 import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu, ProjectStatusSuggestion } from './ProjectStatusControl'
+import { ProjectSettingsPanel } from './ProjectSettingsPanel'
 import { deadlineDay, fmtDeadline, localToday } from '../clinical-writing/DeadlineField'
 
 // --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
@@ -89,6 +90,7 @@ export function ProjectDashboard() {
   const isAdmin = isAdminRole(role)
   const isPm    = holdsRole(currentUser, 'pm')
   const [statusChange, setStatusChange] = useState<ProjectStatus | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
 
   // Project Settings is gated to Authors — team members with RACI='R'
@@ -273,10 +275,11 @@ export function ProjectDashboard() {
             {(isProjectAuthor || isPm) && (
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${encodeURIComponent(projectId ?? '')}/settings`)}
+                onClick={() => setSettingsOpen(true)}
                 title={t('page.project_dashboard.project_settings_tooltip')}
                 className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
                 data-action="project-settings"
+                data-panel-trigger
               >
                 {t('page.project_dashboard.project_settings')}
               </button>
@@ -571,6 +574,13 @@ export function ProjectDashboard() {
       {statusChange && (
         <ProjectStatusDialog project={project} to={statusChange} onClose={() => setStatusChange(null)} />
       )}
+
+      <ProjectSettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        projectId={project?.id ?? null}
+        projectName={project?.shortTitle}
+      />
     </div>
   )
 }

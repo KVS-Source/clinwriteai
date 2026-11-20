@@ -57,12 +57,23 @@ function fmtDate(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export function ProjectSettings() {
+interface ProjectSettingsProps {
+  // Optional override — supplied when ProjectSettings is rendered inside the
+  // slide-in panel instead of at its route. In panel mode the component also
+  // hides the breadcrumb (the panel header already labels the context) and
+  // suppresses the author/PM-only redirect (a non-permissioned viewer sees a
+  // friendly empty state instead of being yanked off the Projects list).
+  projectId?:  string
+  renderMode?: 'route' | 'panel'
+}
+
+export function ProjectSettings({ projectId: projectIdProp, renderMode = 'route' }: ProjectSettingsProps = {}) {
   const { t } = useTranslation()
-  const { projectId } = useParams()
+  const params = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const currentUser = usePlatformStore(s => s.currentUser)
+  const projectId = projectIdProp ?? params.projectId
 
   const [addOpen, setAddOpen] = useState(false)
   const [opError, setOpError] = useState<string | null>(null)
@@ -82,8 +93,14 @@ export function ProjectSettings() {
     [project, currentUser.id],
   )
   useEffect(() => {
-    if (project && !isAuthor && !isPm) navigate(`/projects/${projectId}`, { replace: true })
-  }, [project, isAuthor, isPm, projectId, navigate])
+    // Route mode: bounce non-permissioned deep-links back to the project
+    // dashboard. Panel mode: the host decides whether to show the gear in
+    // the first place, so we just render a read-only empty state inside
+    // the panel rather than navigating the whole app.
+    if (renderMode === 'route' && project && !isAuthor && !isPm) {
+      navigate(`/projects/${projectId}`, { replace: true })
+    }
+  }, [renderMode, project, isAuthor, isPm, projectId, navigate])
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['project', projectId] })
 
@@ -121,23 +138,42 @@ export function ProjectSettings() {
   if (isError || !project) {
     return <div className="p-8 text-sm text-red-700" role="alert">{t('page.project_settings.load_failed')}</div>
   }
-  if (!isAuthor && !isPm) return null
+  if (!isAuthor && !isPm) {
+    // Route mode already redirected (above); panel mode lands here when a
+    // viewer somehow opened the gear without the right RACI — show a clear
+    // empty state rather than a blank panel.
+    return (
+      <div className="p-6 text-sm text-slate-500">
+        {t('page.project_settings.no_access', { defaultValue: 'You don’t have permission to change this project’s settings. Ask the Author or Project Manager for access.' })}
+      </div>
+    )
+  }
+
+  const containerClass = renderMode === 'panel'
+    ? 'flex flex-col bg-white'
+    : 'flex h-full flex-col overflow-auto bg-slate-50'
+  const innerClass = renderMode === 'panel'
+    ? 'flex flex-col gap-4 px-5 py-4'
+    : 'flex flex-col gap-4 px-8 py-6'
+  const innerStyle = renderMode === 'panel' ? undefined : { maxWidth: 1024 }
 
   return (
-    <div className="flex h-full flex-col overflow-auto bg-slate-50" data-screen="project-settings">
-      <div className="flex flex-col gap-4 px-8 py-6" style={{ maxWidth: 1024 }}>
-        {/* Breadcrumb */}
-        <nav className="flex items-center gap-2 text-xs text-slate-500" aria-label="Breadcrumb">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">
-            {t('page.project_settings.crumb_all_projects')}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project.shortTitle}
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">{t('page.project_settings.crumb_settings')}</span>
-        </nav>
+    <div className={containerClass} data-screen="project-settings" data-render-mode={renderMode}>
+      <div className={innerClass} style={innerStyle}>
+        {/* Breadcrumb — only in route mode; the panel header already labels context. */}
+        {renderMode === 'route' && (
+          <nav className="flex items-center gap-2 text-xs text-slate-500" aria-label="Breadcrumb">
+            <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">
+              {t('page.project_settings.crumb_all_projects')}
+            </button>
+            <span className="text-slate-300">›</span>
+            <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
+              {project.shortTitle}
+            </button>
+            <span className="text-slate-300">›</span>
+            <span className="font-semibold text-slate-900">{t('page.project_settings.crumb_settings')}</span>
+          </nav>
+        )}
 
         {opError && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">

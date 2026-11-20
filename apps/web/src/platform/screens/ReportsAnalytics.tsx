@@ -5,6 +5,7 @@ import type { ReportDefinition, ModuleHealthScore } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { api } from '../../api/client'
+import { DateTimeRangeFilter, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
 import { usePlatformStore } from '../store'
 import { useTopNavSection } from '../../components/layout/topNavSection'
 
@@ -34,9 +35,18 @@ export function ReportsAnalytics() {
   const [activeNav,   setActiveNav]   = useState<string>('dashboard')
   const [reportType,  setReportType]  = useState<string>('project-summary')
   const [format,      setFormat]      = useState<'pdf' | 'csv'>('pdf')
-  // Default range: the current month to date (CW-073: was pinned to 01–09 Sep 2026).
-  const [dateFrom,    setDateFrom]    = useState<string>(() => localDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
-  const [dateTo,      setDateTo]      = useState<string>(() => localDay(new Date()))
+  // Date range: the Audit Trail's picker in whole-day mode ("YYYY-MM-DDT00:00" → "YYYY-MM-DDT23:59").
+  // Default: the current month to date (CW-073: was pinned to 01–09 Sep 2026).
+  const defaultReportRange = () => ({
+    from: `${localDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}T00:00`,
+    to:   `${localDay(new Date())}T23:59`,
+  })
+  const [range, setRange] = useState<{ from: string; to: string }>(defaultReportRange)
+  const [tz,    setTz]    = useState<TimeZoneMode>('local')
+  const dateFrom = range.from.slice(0, 10)   // '' when cleared = from the beginning
+  const dateTo   = range.to.slice(0, 10)     // '' when cleared = up to today
+  const rangeInvalid = dateFrom !== '' && dateTo !== '' && dateFrom > dateTo
+  const rangeIsDefault = (() => { const d = defaultReportRange(); return d.from === range.from && d.to === range.to })()
   const [generateResult, setGenerateResult] = useState<string | null>(null)
 
   const navItems = useMemo(
@@ -64,7 +74,7 @@ export function ReportsAnalytics() {
     setGenerateError(null)
     setGenerateResult(null)
     try {
-      const res = await platformApi.generateReport(reportType, { format, dateFrom, dateTo })
+      const res = await platformApi.generateReport(reportType, { format, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
       // A path relative to the API base. It's fetched through the API client (not a plain link) so the
       // request carries the session, persona and X-Active-Role headers — a user who is both Tenant Admin
       // and PM would otherwise be answered as Tenant Admin and refused.
@@ -97,7 +107,7 @@ export function ReportsAnalytics() {
     <div className="bg-slate-50" data-screen="reports-analytics">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
-        <div className="flex flex-wrap items-start justify-between gap-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             {/* The heading names the report picked on the left (sPM16 design: heading = active nav item). */}
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }} data-report-heading>{activeReport?.label ?? t('page.reports_analytics.title')}</h1>
@@ -129,10 +139,56 @@ export function ReportsAnalytics() {
           {/* Right content */}
           <section className="flex flex-col gap-5">
 
-            <p className="font-mono text-[11px] text-slate-500" data-date-range-label>
+            {/* Generate (report, format, button), then the date range it uses — one row. The range is the Audit Trail picker, whole days. */}
+            <div className="flex flex-wrap items-center gap-2" data-report-range data-generate-panel>
+              <select value={reportType} onChange={(e) => pickNav(e.currentTarget.value)}
+                data-report-type
+                aria-label={t('page.reports_analytics.report_type')}
+                className="h-[30px] rounded-md border border-slate-300 bg-white px-2 text-[12px] text-slate-900">
+                {reports.map(r => <option key={r.id} value={r.type}>{r.label}</option>)}
+              </select>
+              <select value={format} onChange={(e) => { setFormat(e.currentTarget.value as 'pdf' | 'csv'); setGenerateResult(null) }}
+                data-format-select
+                aria-label={t('page.reports_analytics.format_label')}
+                className="h-[30px] rounded-md border border-slate-300 bg-white px-2 text-[12px] text-slate-900">
+                <option value="pdf" data-format="pdf">PDF</option>
+                <option value="csv" data-format="csv">CSV</option>
+              </select>
+              <button type="button" onClick={handleGenerate}
+                disabled={rangeInvalid || reports.length === 0}
+                data-generate-report
+                className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >{generateLabel}</button>
+              <span aria-hidden="true" className="mx-1 h-5 w-px bg-slate-200" />
+              <DateTimeRangeFilter from={range.from} to={range.to} tz={tz} invalid={rangeInvalid} dateOnly
+                onChange={setRange} onTzChange={setTz} align="left" buttonClassName="h-[30px] min-w-[220px]" />
+              <button
+                type="button"
+                onClick={() => setRange(defaultReportRange())}
+                disabled={rangeIsDefault}
+                title={t('page.reports_analytics.reset_range')}
+                aria-label={t('page.reports_analytics.reset_range')}
+                className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white"
+                data-action="reset-range"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" />
+                  <path d="M2.5 2.5v2.8h2.8" />
+                </svg>
+              </button>
               {/* The real organisation name when the user belongs to one (not a fixed client name). */}
-              {formatDay(dateFrom)} → {formatDay(dateTo)}{cost?.tenantName ? ` · ${cost.tenantName}` : ''}
+              {cost?.tenantName && <span className="font-mono text-[11px] text-slate-500" data-date-range-label>{cost.tenantName}</span>}
+            </div>
+            {rangeInvalid && <p className="-mt-3 text-[11px] text-red-700" data-range-error>{t('page.reports_analytics.range_from_after_to')}</p>}
+          {generateResult && (
+            <p className="-mt-3 text-[11px]" style={{ color: '#166534' }} data-generate-result>
+              {t('page.reports_analytics.result_prefix')}{' '}
+              <a href="#" onClick={handleDownload} className="font-semibold underline" data-generate-download>{t('page.reports_analytics.download_format', { format: format.toUpperCase() })}</a>
             </p>
+          )}
+          {generateError && (
+            <p role="alert" className="-mt-3 text-[11px] text-red-700" data-generate-error>{generateError}</p>
+          )}
 
             {/* A report picked on the left: its own figures and rows (sPM16 report types). */}
             {activeReport && (
@@ -151,7 +207,10 @@ export function ReportsAnalytics() {
                       <p className="text-[13px] font-semibold text-slate-900">{s.label}</p>
                       {s.overdueDocuments > 0 && <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-overdue-flag>{t('page.reports_analytics.overdue_count', { count: s.overdueDocuments })}</span>}
                     </div>
-                    <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-health-score>{s.healthScore}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <p className="text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-health-score>{s.healthScore}</p>
+                      <HealthScoreInfo />
+                    </div>
                     <p className="font-mono text-[10px] text-slate-500">{t('page.reports_analytics.health_score_label')}</p>
                     <p className="mt-2 font-mono text-[11px] text-slate-500">
                       {/* Only what is measured: review pass rate and stage time aren't recorded, so they aren't shown as 0. */}
@@ -182,65 +241,44 @@ export function ReportsAnalytics() {
             )}
             </>)}
 
-            {/* Generate report panel */}
-            <div className="rounded-lg border border-slate-200 bg-white p-5" data-generate-panel>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.generate_report')}</p>
-
-              <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-                <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.report_type')}</span>
-                  <select value={reportType} onChange={(e) => pickNav(e.currentTarget.value)}
-                    data-report-type
-                    className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
-                    {reports.map(r => <option key={r.id} value={r.type}>{r.label}</option>)}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.from_label')}</span>
-                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.currentTarget.value)}
-                    data-report-from
-                    className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.to_label')}</span>
-                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.currentTarget.value)}
-                    data-report-to
-                    className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
-                </label>
-              </div>
-
-              <div className="mt-3 flex items-center gap-3" data-format-select>
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.format_label')}</span>
-                {(['pdf','csv'] as const).map(f => (
-                  <label key={f} className="flex items-center gap-1 text-[12px] text-slate-700">
-                    <input type="radio" name="fmt" checked={format === f} onChange={() => setFormat(f)}
-                      data-format={f} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-                    {f.toUpperCase()}
-                  </label>
-                ))}
-              </div>
-
-              <button type="button" onClick={handleGenerate}
-                data-generate-report
-                className="mt-3 h-9 rounded-md px-4 text-[13px] font-semibold text-white"
-                style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-              >{generateLabel}</button>
-
-              {generateResult && (
-                <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-generate-result>
-                  {t('page.reports_analytics.result_prefix')}{' '}
-                  <a href="#" onClick={handleDownload} className="font-semibold underline" data-generate-download>{t('page.reports_analytics.download_format', { format: format.toUpperCase() })}</a>
-                </p>
-              )}
-              {generateError && (
-                <p className="mt-2 rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-generate-error>{generateError}</p>
-              )}
-            </div>
-
           </section>
         </div>
       </div>
     </div>
+  )
+}
+
+/** ⓘ beside the health score: how to read it and how it's worked out (shown on hover or keyboard focus). */
+function HealthScoreInfo() {
+  const { t } = useTranslation()
+  return (
+    <span className="group relative inline-flex" data-health-info>
+      <button
+        type="button"
+        aria-label={t('page.reports_analytics.health_info_aria')}
+        aria-describedby="health-score-info"
+        className="flex h-4 w-4 items-center justify-center rounded-full text-slate-400 hover:text-slate-700 focus:text-slate-700 focus:outline-none"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5" />
+          <path d="M8 7.2v4" strokeLinecap="round" />
+          <circle cx="8" cy="4.9" r="0.6" fill="currentColor" stroke="none" />
+        </svg>
+      </button>
+      <span
+        id="health-score-info"
+        role="tooltip"
+        className="pointer-events-none invisible absolute left-6 top-1/2 z-20 w-[340px] -translate-y-1/2 rounded-md bg-slate-800 p-3 text-left text-[11px] leading-relaxed text-slate-100 opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+        data-health-info-tip
+      >
+        <span className="block font-semibold text-white">{t('page.reports_analytics.health_info_title')}</span>
+        <span className="mt-1 block">{t('page.reports_analytics.health_info_read')}</span>
+        <span className="mt-2 block font-semibold text-white">{t('page.reports_analytics.health_info_calc_title')}</span>
+        <span className="mt-1 block font-mono text-[10px] text-slate-200">{t('page.reports_analytics.health_info_formula')}</span>
+        <span className="block font-mono text-[10px] text-slate-200">{t('page.reports_analytics.health_info_ontime')}</span>
+        <span className="mt-2 block text-slate-300">{t('page.reports_analytics.health_info_scope')}</span>
+      </span>
+    </span>
   )
 }
 

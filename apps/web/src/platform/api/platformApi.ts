@@ -348,7 +348,8 @@ export const platformApi = {
   // One report on screen: headline figures + its rows (the same rows the download carries).
   getReportPreview: (reportType: string, range: { dateFrom: string; dateTo: string }) =>
     api.get<{ reportType: string; header: string[]; rows: unknown[][]; totalRows: number; summary: Array<{ label: string; value: string | number }> }>(
-      `/reports/${reportType}/preview?dateFrom=${range.dateFrom}&dateTo=${range.dateTo}`,
+      // An empty bound (range cleared) is left out: from the beginning / up to today.
+      `/reports/${reportType}/preview?${new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString()}`,
     ),
   // AI tokens + cost on the PM's projects this billing period (the Reports cost panel).
   getReportCostSummary: () =>

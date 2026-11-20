@@ -70,6 +70,18 @@ test('a PM creates a new checklist template from a CSV and the draft opens', asy
   await expect(page.getByText('Synopsis matches, word for word')).toBeVisible()           // the new draft is open in the panel
 })
 
+test('the list says "Document type" and has no Scope or Documents column', async ({ page }) => {
+  await mock(page, PM)
+  await page.goto('/master-library/checklists')
+  const heads = page.locator('[data-results-list] thead th')
+  await expect(heads.first()).toHaveText(/Document type/i, { timeout: 60_000 })
+  const texts = (await heads.allTextContents()).map(s => s.trim().toLowerCase())
+  expect(texts.some(s => s.startsWith('scope') || s.startsWith('documents'))).toBe(false)
+  await expect(page.locator('[data-template-row="dsur-1"] td')).toHaveCount(7)
+  // Scope is replaced by the projects that use the checklist; the baseline serves every other project.
+  await expect(page.locator('[data-template-row="dsur-1"] [data-template-projects]')).toHaveText('All other projects (default)')
+})
+
 test('a Contributor gets no New checklist template button', async ({ page }) => {
   await mock(page, { ...PM, id: 'u-c', name: 'Abhi Contributor', role: 'contributor' })
   await page.goto('/master-library/checklists')

@@ -16,6 +16,7 @@ import type { PrismaClient } from '@prisma/client'
 import type { AuditRepository } from '../../../audit/repository.js'
 import { PM_PROJECT_ROLE } from '../../projects/visibility.js'
 import { SIGNATURE_BOUND_STATUSES } from '../documents/template-sections.js'
+import { checklistOwnerFor, projectsUsingChecklist } from './project-links.js'
 
 type PrismaTxLike = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0] | PrismaClient
 
@@ -41,8 +42,10 @@ export async function applicableChecklistTemplate(tx: PrismaTxLike, deliverableT
   const type = normalizeDeliverableType(deliverableType)
   const include = { items: { orderBy: { sortOrder: 'asc' as const } } }
   if (projectId) {
+    // The project checklist this project is linked to (one template, many projects), else its own override.
+    const owner = await checklistOwnerFor(tx, type, projectId)
     const override = await tx.checklistTemplate.findFirst({
-      where: { deliverableType: type, projectId, isCurrent: true, templateStatus: 'locked' }, include,
+      where: { deliverableType: type, projectId: owner, isCurrent: true, templateStatus: 'locked' }, include,
     })
     if (override) return override
   }
@@ -237,7 +240,8 @@ export async function notifyChecklistTemplateUpdate(
         deletedAt: null,
         status: { notIn: [...SIGNATURE_BOUND_STATUSES] },
         type: { in: deliverableTypeSpellings(template.deliverableType) },
-        ...(template.projectId ? { projectId: template.projectId } : {}),
+        // A project checklist reaches every project linked to it.
+        ...(template.projectId ? { projectId: { in: await projectsUsingChecklist(prisma, template.deliverableType, template.projectId) } } : {}),
       },
     },
     select: {

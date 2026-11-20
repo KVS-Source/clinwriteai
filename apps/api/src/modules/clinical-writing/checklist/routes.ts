@@ -28,6 +28,7 @@ import {
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { autoCompleteTagError, normaliseAutoCompleteTag } from './auto-complete-tag.js'
 import { SIGNATURE_BOUND_STATUSES } from '../documents/template-sections.js'
+import { checklistProjectMap, projectsUsingChecklist } from './project-links.js'
 import {
   findChecklistTemplateUpdate,
   notifyChecklistTemplateUpdate,
@@ -581,6 +582,11 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
     })
     // The template library shows who drafted and who approved each version (CW-029).
     const nameOf = await userNames(app.prisma, rows.flatMap(r => [r.createdBy, r.approvedBy]))
+    // Which projects use each project checklist (one template, many projects); the baseline serves the rest.
+    const linked = await checklistProjectMap(app.prisma)
+    const projectsOf = (r: { deliverableType: string; projectId: string | null }) => r.projectId == null ? []
+      : (linked.get(`${normalizeDeliverableType(r.deliverableType)}|${r.projectId}`) ?? [r.projectId])
+    const projectName = await projectNames(app.prisma, rows.flatMap(projectsOf))
 
     return rows.map(r => ({
       id: r.id,
@@ -602,6 +608,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       createdAt: r.createdAt.toISOString(),
       itemCount:     r._count.items,
       instanceCount: r._count.instances,
+      projects: projectsOf(r).map(id => ({ id, name: projectName(id) })),
     }))
   })
 
@@ -635,6 +642,8 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
     // A draft's authors (creator + everyone who changed its items) may not approve it (CW-029).
     const authors = template.templateStatus === 'draft' ? [...await templateDraftAuthors(app.audit, template)] : []
     const nameOf = await userNames(app.prisma, [template.createdBy, template.approvedBy, ...authors])
+    const usedBy = template.projectId == null ? [] : await projectsUsingChecklist(app.prisma, template.deliverableType, template.projectId)
+    const projectName = await projectNames(app.prisma, usedBy)
 
     return {
       id: template.id,
@@ -657,6 +666,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       canEdit: hasAnyRole(actor, 'pm'),
       canApprove: hasAnyRole(actor, 'pm') && template.templateStatus === 'draft' && !authors.includes(actor.id),
       instanceCount: template._count.instances,
+      projects: usedBy.map(id => ({ id, name: projectName(id) })),
       items: template.items.map(it => ({
         id: it.id,
         text: it.text,
@@ -681,10 +691,90 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   //   - project does not exist                                        → 404
   //   - project belongs to a different tenant (for tenant admins)     → 403
   //   - an override already exists for (project, deliverableType)     → 409
-  // POST /checklist-templates — start a new platform checklist template as a draft, optionally with items imported
-  // from a file (the screen parses the CSV and sends rows). It becomes the next version of that deliverable type
-  // (v1 for a new type) and, like any draft, goes live only when another PM approves it. Refused while the type
-  // already has an unapproved draft — finish that one first.
+  // Can these projects use the project checklist owned by `currentOwner` (null: a new one)? Each must exist, be in
+  // the actor's tenant, and not already use another checklist for the type (a project uses one per type).
+  const checkProjectsLinkable = async (actor: AuthenticatedUser, deliverableType: string, projectIds: string[], currentOwner: string | null)
+    : Promise<{ status: number; body: Record<string, unknown> } | null> => {
+    const projects = await app.prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, tenantId: true, name: true, shortTitle: true } })
+    const missing = projectIds.filter(id => !projects.some(p => p.id === id))
+    if (missing.length > 0) return { status: 404, body: { error: 'project_not_found', projectIds: missing } }
+    if (actor.tenantId != null && projects.some(p => p.tenantId !== actor.tenantId)) {
+      return { status: 403, body: { error: 'forbidden', message: 'Cannot link a project outside your tenant.' } }
+    }
+    const [links, owned] = await Promise.all([
+      app.prisma.checklistTemplateProjectLink.findMany({ where: { deliverableType, projectId: { in: projectIds } }, select: { projectId: true, ownerProjectId: true } }),
+      app.prisma.checklistTemplate.findMany({ where: { deliverableType: { in: sameType(deliverableType) }, projectId: { in: projectIds } }, select: { projectId: true } }),
+    ])
+    const taken = [...new Set([
+      ...links.filter(l => l.ownerProjectId !== currentOwner).map(l => l.projectId),
+      ...owned.map(o => o.projectId!).filter(id => id !== currentOwner),
+    ])]
+    if (taken.length === 0) return null
+    const names = taken.map(id => { const p = projects.find(x => x.id === id); return p?.shortTitle ?? p?.name ?? id })
+    return { status: 409, body: {
+      error: 'project_has_checklist', projectIds: taken,
+      message: `${names.join(', ')} already ${taken.length === 1 ? 'uses' : 'use'} another checklist for this document type. Remove ${taken.length === 1 ? 'it' : 'them'} from that checklist first.`,
+    } }
+  }
+
+  // PUT /checklist-templates/:id/projects — choose the projects that use a project checklist (all its versions).
+  // At least one; the platform baseline has no list (it serves every project without its own checklist). When the
+  // owning project is removed, the next project in the list becomes the owner.
+  const projectsSchema = z.object({ projectIds: z.array(z.string().min(1)).min(1).max(200) })
+  app.put('/:templateId/projects', { preHandler: adminGate }, async (request, reply) => {
+    const { templateId } = request.params as { templateId: string }
+    const parsed = projectsSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: 'Choose at least one project.', issues: parsed.error.issues })
+    const actor = request.user!
+    const template = await app.prisma.checklistTemplate.findUnique({ where: { id: templateId }, select: { id: true, deliverableType: true, projectId: true } })
+    if (!template) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(template.deliverableType)) return reply.code(409).send(legacyTypeBody(template.deliverableType))
+    if (template.projectId == null) {
+      return reply.code(409).send({ error: 'baseline_has_no_projects', message: 'The platform baseline is used by every project without its own checklist. Create a new checklist template to choose projects.' })
+    }
+    const deliverableType = normalizeDeliverableType(template.deliverableType)
+    const owner = template.projectId
+    const ids = [...new Set(parsed.data.projectIds)]
+    const refusal = await checkProjectsLinkable(actor, deliverableType, ids, owner)
+    if (refusal) return reply.code(refusal.status).send(refusal.body)
+
+    const before = await projectsUsingChecklist(app.prisma, deliverableType, owner)
+    const newOwner = ids.includes(owner) ? owner : ids[0]!
+    const ordered = [newOwner, ...ids.filter(id => id !== newOwner)]
+    await app.prisma.$transaction(async (tx) => {
+      if (newOwner !== owner) {
+        await tx.checklistTemplate.updateMany({ where: { deliverableType: { in: sameType(deliverableType) }, projectId: owner }, data: { projectId: newOwner } })
+      }
+      await tx.checklistTemplateProjectLink.deleteMany({ where: { deliverableType, ownerProjectId: owner } })
+      await tx.checklistTemplateProjectLink.createMany({
+        data: ordered.map((projectId, i) => ({ deliverableType, projectId, ownerProjectId: newOwner, createdBy: actor.id, createdAt: new Date(Date.now() + i) })),
+      })
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: actor.id,
+      action: 'checklist_template_projects_changed',
+      entityType: 'checklist_template',
+      entityId: template.id,
+      details: {
+        deliverableType,
+        added: ordered.filter(id => !before.includes(id)),
+        removed: before.filter(id => !ordered.includes(id)),
+        ...(newOwner !== owner ? { ownerFrom: owner, ownerTo: newOwner } : {}),
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    const projectName = await projectNames(app.prisma, ordered)
+    return { projects: ordered.map(id => ({ id, name: projectName(id) })) }
+  })
+
+  // POST /checklist-templates — start a new checklist template as a draft, optionally with items imported from a
+  // file (the screen parses the CSV and sends rows). With no projects it is the next version of the platform
+  // baseline for the type (v1 for a new type). With projects it is a project checklist those projects use (one
+  // template, many projects); a project already using a checklist for the type is refused. Like any draft it goes
+  // live only when another PM approves it. Refused while the baseline already has an unapproved draft.
   const createTemplateSchema = z.object({
     deliverableType: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,59}$/, 'Use lower-case letters, digits and underscores.'),
     changeReason: z.string().trim().max(500).optional(),
@@ -696,15 +786,22 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       stage: z.enum(CHECKLIST_STAGES),
       autoCompleteOn: autoCompleteSchemaForCreate.nullable().optional(),
     })).max(500).default([]),
+    projectIds: z.array(z.string().min(1)).max(200).default([]),
   })
   app.post('/', { preHandler: adminGate }, async (request, reply) => {
     const parsed = createTemplateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const actor = request.user!
     const deliverableType = normalizeDeliverableType(parsed.data.deliverableType)
+    const projectIds = [...new Set(parsed.data.projectIds)]
+    if (projectIds.length > 0) {
+      const refusal = await checkProjectsLinkable(actor, deliverableType, projectIds, null)
+      if (refusal) return reply.code(refusal.status).send(refusal.body)
+    }
+    const owner = projectIds[0] ?? null
 
     const rows = await app.prisma.checklistTemplate.findMany({
-      where: { deliverableType: { in: sameType(deliverableType) }, projectId: null },
+      where: { deliverableType: { in: sameType(deliverableType) }, projectId: owner },
       select: { id: true, version: true, templateStatus: true },
     })
     const draft = rows.find(r => r.templateStatus === 'draft')
@@ -718,7 +815,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       const t = await tx.checklistTemplate.create({
         data: {
           deliverableType,
-          projectId: null,
+          projectId: owner,
           version,
           effectiveDate: new Date(),
           changeReason: parsed.data.changeReason || (items.length > 0
@@ -743,13 +840,18 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
           })),
         })
       }
+      if (projectIds.length > 0) {
+        await tx.checklistTemplateProjectLink.createMany({
+          data: projectIds.map(projectId => ({ deliverableType, projectId, ownerProjectId: owner!, createdBy: actor.id })),
+        })
+      }
       return t
     }).catch((err: unknown) => {
       if ((err as { code?: string })?.code === 'P2002') return null
       throw err
     })
     if (!created) {
-      return reply.code(409).send({ error: 'draft_exists', message: 'Another draft for this deliverable type was just created — refresh the list.' })
+      return reply.code(409).send({ error: 'draft_exists', message: 'Another checklist for this document type was just created — refresh the list.' })
     }
 
     await app.audit.append({
@@ -758,7 +860,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       action: 'checklist_template_created',
       entityType: 'checklist_template',
       entityId: created.id,
-      details: { deliverableType, projectId: null, version, itemCount: items.length },
+      details: { deliverableType, projectId: owner, projectIds, version, itemCount: items.length },
       ipAddress: request.ip ?? null,
     })
 
@@ -802,6 +904,16 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
         message: 'This project already has a checklist template for this deliverable type — edit that one instead.',
       })
     }
+    const usesOther = await app.prisma.checklistTemplateProjectLink.findUnique({
+      where: { deliverableType_projectId: { deliverableType: normalizeDeliverableType(source.deliverableType), projectId: project.id } },
+      select: { ownerProjectId: true },
+    })
+    if (usesOther) {
+      return reply.code(409).send({
+        error: 'override_exists',
+        message: 'This project already uses a project checklist for this document type — edit that one, or remove the project from it first.',
+      })
+    }
 
     // A project override starts at v1 of its own sequence (unique per deliverableType + projectId + version).
     // Two clicks racing past the check above meet the unique index: answer that like the check does, never with
@@ -833,6 +945,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
           })),
         })
       }
+      await tx.checklistTemplateProjectLink.create({
+        data: { deliverableType: t.deliverableType, projectId: project.id, ownerProjectId: project.id, createdBy: actor.id },
+      })
       return t
     }).catch((err: unknown) => {
       if ((err as { code?: string })?.code === 'P2002') return null
@@ -1227,6 +1342,14 @@ async function userNames(prisma: FastifyInstanceType, ids: Array<string | null |
   const unique = [...new Set(ids.filter((v): v is string => !!v))]
   const users = unique.length ? await prisma.user.findMany({ where: { id: { in: unique } }, select: { id: true, name: true } }) : []
   const byId = new Map(users.map(u => [u.id, u.name]))
+  return (id: string) => byId.get(id) ?? id
+}
+
+/** Batched project id → short title (or name); an unknown id shows as itself. */
+async function projectNames(prisma: FastifyInstanceType, ids: Array<string | null | undefined>): Promise<(id: string) => string> {
+  const unique = [...new Set(ids.filter((v): v is string => !!v))]
+  const rows = unique.length ? await prisma.project.findMany({ where: { id: { in: unique } }, select: { id: true, name: true, shortTitle: true } }) : []
+  const byId = new Map(rows.map(p => [p.id, p.shortTitle ?? p.name]))
   return (id: string) => byId.get(id) ?? id
 }
 

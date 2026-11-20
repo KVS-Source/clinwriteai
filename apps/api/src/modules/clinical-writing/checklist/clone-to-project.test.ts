@@ -15,31 +15,35 @@ const BASELINE = {
   items: [{ text: 'Safety summary', framework: 'ICH E2F', frameworkMandatory: true, ownerRaci: 'R', stage: 'reporting', autoCompleteOn: null, sortOrder: 10 }],
 }
 
-async function build(createImpl: (a: { data: Record<string, unknown> }) => Promise<unknown>) {
+async function build(createImpl: (a: { data: Record<string, unknown> }) => Promise<unknown>, linkedTo: string | null = null) {
   const create = vi.fn(createImpl)
+  const linkCreate = vi.fn(async () => ({}))
   const createMany = vi.fn(async () => ({ count: 1 }))
   const audit = vi.fn(async () => undefined)
   const app = Fastify()
   app.decorate('prisma', {
     checklistTemplate: { findUnique: vi.fn(async () => BASELINE), findFirst: vi.fn(async () => null) },
+    checklistTemplateProjectLink: { findUnique: vi.fn(async () => (linkedTo ? { ownerProjectId: linkedTo } : null)) },
     project: { findUnique: vi.fn(async () => ({ id: 'P-1', tenantId: null, name: 'Test Project', shortTitle: 'Test Project' })) },
-    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ checklistTemplate: { create }, checklistTemplateItem: { createMany } })),
+    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ checklistTemplate: { create }, checklistTemplateItem: { createMany }, checklistTemplateProjectLink: { create: linkCreate } })),
   } as never)
   app.decorate('audit', { append: audit } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => { (req as unknown as { user: AuthenticatedUser }).user = PM })
   await app.register(checklistTemplateAdminRoutes, { prefix: '/checklist-templates' })
   await app.ready()
-  return { app, create, createMany, audit }
+  return { app, create, createMany, audit, linkCreate }
 }
 
 describe('creating a project-scoped override', () => {
   it('creates a draft v1 for the project with the baseline items, and audits it', async () => {
-    const { app, create, createMany, audit } = await build(async ({ data }) => ({ id: 'T-new', ...data }))
+    const { app, create, createMany, audit, linkCreate } = await build(async ({ data }) => ({ id: 'T-new', ...data }))
     const res = await app.inject({ method: 'POST', url: '/checklist-templates/T-base/clone-to-project', payload: { projectId: 'P-1' } })
     expect(res.statusCode).toBe(201)
     expect(create.mock.calls[0]![0].data).toMatchObject({ deliverableType: 'dsur', projectId: 'P-1', version: 1, templateStatus: 'draft' })
     expect(createMany).toHaveBeenCalledOnce()
+    // The project is linked to its own override (one template, many projects: it starts with this one).
+    expect(linkCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ deliverableType: 'dsur', projectId: 'P-1', ownerProjectId: 'P-1' }) })
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'checklist_template_project_override_created' }))
     await app.close()
   })
@@ -53,6 +57,15 @@ describe('creating a project-scoped override', () => {
     expect(res.json()).toMatchObject({ error: 'override_exists' })
     expect(res.body).not.toContain('prisma')
     expect(audit).not.toHaveBeenCalled()
+    await app.close()
+  })
+
+  it('is refused when the project already uses another project checklist for the type', async () => {
+    const { app, create } = await build(async ({ data }) => ({ id: 'T-new', ...data }), 'P-other')
+    const res = await app.inject({ method: 'POST', url: '/checklist-templates/T-base/clone-to-project', payload: { projectId: 'P-1' } })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'override_exists' })
+    expect(create).not.toHaveBeenCalled()
     await app.close()
   })
 

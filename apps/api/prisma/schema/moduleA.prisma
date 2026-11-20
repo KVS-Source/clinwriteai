@@ -574,6 +574,22 @@ model ChecklistTemplate {
   @@index([projectId])
 }
 
+// Which projects use a project checklist (one template, many projects). A project checklist's rows carry
+// its owning project in ChecklistTemplate.projectId; every project that uses it, the owner included, has a
+// row here pointing at that owner. A project uses at most one checklist per document type; projects with
+// no row use the platform baseline. Migration 0098 backfilled one row per existing project override.
+model ChecklistTemplateProjectLink {
+  deliverableType String                                       // canonical (underscored) spelling
+  projectId       String                                       // the project that uses the checklist
+  ownerProjectId  String                                       // ChecklistTemplate.projectId of that checklist
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  @@id([deliverableType, projectId])
+  @@index([deliverableType, ownerProjectId])
+  @@map("checklist_template_project_links")
+}
+
 model ChecklistTemplateItem {
   id                 String   @id @default(uuid())
   templateId         String

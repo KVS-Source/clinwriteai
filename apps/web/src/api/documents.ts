@@ -320,6 +320,8 @@ export const documentsApi = {
       createdAt: string
       itemCount: number
       instanceCount: number
+      /** The projects that use this project checklist; empty for the platform baseline (all other projects). */
+      projects?: Array<{ id: string; name: string }>
     }>>(`/checklist-templates`),
   getChecklistTemplate: (templateId: string) =>
     api.get<{
@@ -345,6 +347,8 @@ export const documentsApi = {
       canApprove?: boolean
       // Whether the caller may change this template (Project Managers only; everyone else reads).
       canEdit?: boolean
+      // The projects that use this project checklist (empty for the platform baseline, which serves the rest).
+      projects?: Array<{ id: string; name: string }>
       items: Array<{
         id: string
         text: string
@@ -375,7 +379,11 @@ export const documentsApi = {
       stage: 'study_start_up' | 'during_study' | 'reporting' | 'cross_functional_review' | 'crm' | 'final_output'
       autoCompleteOn: string | null
     }>
+    /** Empty: the platform baseline. Otherwise a project checklist these projects use. */
+    projectIds?: string[]
   }) => api.post<{ id: string; version: number; templateStatus: 'draft' }>('/checklist-templates', body),
+  setChecklistTemplateProjects: (templateId: string, projectIds: string[]) =>
+    api.put<{ projects: Array<{ id: string; name: string }> }>(`/checklist-templates/${templateId}/projects`, { projectIds }),
   bumpChecklistTemplateDraft: (templateId: string) =>
     api.post<{ id: string; version: number; templateStatus: 'draft' }>(`/checklist-templates/${templateId}/bump-draft`, {}),
   cloneChecklistTemplateToProject: (templateId: string, projectId: string) =>

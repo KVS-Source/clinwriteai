@@ -225,8 +225,8 @@ export function ChecklistTemplatesAdmin() {
   [listQ.data, t])
   const statusOptions = ['draft', 'locked'].map(k => ({ value: k, label: TEMPLATE_STATUS_KEYS[k] ? t(TEMPLATE_STATUS_KEYS[k]) : k }))
   const scopeOptions = [
-    { value: 'platform', label: t('page.checklist_templates_admin.scope_platform_baseline') },
-    { value: 'project',  label: t('page.checklist_templates_admin.scope_project_override', { defaultValue: 'Project override' }) },
+    { value: 'platform', label: t('page.checklist_templates_admin.projects_default', { defaultValue: 'All other projects (default)' }) },
+    { value: 'project',  label: t('page.checklist_templates_admin.projects_specific', { defaultValue: 'Specific projects' }) },
   ]
 
   const filtersDirty = search.trim() !== '' || deliverables.length > 0 || statuses.length > 0 || scopes.length > 0
@@ -324,7 +324,7 @@ export function ChecklistTemplatesAdmin() {
               className={`${filterControl} basis-full min-w-0 [@container_(min-width:900px)]:min-w-[180px] [@container_(min-width:900px)]:flex-[2_1_0%] [@container_(min-width:900px)]:basis-auto`}
             />
             <div data-filter-deliverable className="min-w-[150px] flex-[1_1_150px] [@container_(min-width:900px)]:flex-[1_1_0%]">
-              <MultiSelect label={t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Deliverable' })} allLabel={t('page.checklist_templates_admin.all_deliverables', { defaultValue: 'All deliverables' })}
+              <MultiSelect label={t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Document type' })} allLabel={t('page.checklist_templates_admin.all_deliverables', { defaultValue: 'All document types' })}
                 options={deliverableOptions} value={deliverables} onChange={setDeliverables} optionAttr="data-deliverable-option" className={filterControl} />
             </div>
             <div data-filter-status className="min-w-[140px] flex-[1_1_140px] [@container_(min-width:900px)]:flex-[1_1_0%]">
@@ -332,7 +332,7 @@ export function ChecklistTemplatesAdmin() {
                 options={statusOptions} value={statuses} onChange={setStatuses} optionAttr="data-status-option" className={filterControl} />
             </div>
             <div data-filter-scope className="min-w-[140px] flex-[1_1_140px] [@container_(min-width:900px)]:flex-[1_1_0%]">
-              <MultiSelect label={t('page.checklist_templates_admin.col_scope', { defaultValue: 'Scope' })} allLabel={t('page.checklist_templates_admin.all_scopes', { defaultValue: 'All scopes' })}
+              <MultiSelect label={t('page.checklist_templates_admin.col_projects', { defaultValue: 'Projects' })} allLabel={t('page.checklist_templates_admin.all_projects', { defaultValue: 'All projects' })}
                 options={scopeOptions} value={scopes} onChange={setScopes} optionAttr="data-scope-option" className={filterControl} />
             </div>
             <button
@@ -365,22 +365,21 @@ export function ChecklistTemplatesAdmin() {
           <table className="w-full border-collapse text-[13px]">
             <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
               <tr>
-                <SortHead label={t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Deliverable' })} asc="deliverable-asc" desc="deliverable-desc" />
+                <SortHead label={t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Document type' })} asc="deliverable-asc" desc="deliverable-desc" />
                 <SortHead label={t('page.checklist_templates_admin.versions_col_version')} asc="version-asc" desc="version-desc" />
-                <PlainHead label={t('page.checklist_templates_admin.col_scope', { defaultValue: 'Scope' })} />
+                <PlainHead label={t('page.checklist_templates_admin.col_projects', { defaultValue: 'Projects' })} />
                 <PlainHead label={t('page.checklist_templates_admin.versions_col_status')} />
                 <SortHead label={t('page.checklist_templates_admin.col_items', { defaultValue: 'Items' })} asc="items-asc" desc="items-desc" />
-                <PlainHead label={t('page.checklist_templates_admin.col_documents', { defaultValue: 'Documents' })} />
                 <SortHead label={t('page.checklist_templates_admin.versions_col_effective')} asc="oldest" desc="recent" />
                 <PlainHead label={t('page.checklist_templates_admin.versions_col_people')} />
               </tr>
             </thead>
             <tbody>
               {listQ.isLoading && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.checklist_templates_admin.loading_list')}</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.checklist_templates_admin.loading_list')}</td></tr>
               )}
               {!listQ.isLoading && !listQ.isError && pageRows.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
                   {filtersDirty ? t('page.checklist_templates_admin.empty_filtered', { defaultValue: 'No checklists match these filters.' }) : t('page.checklist_templates_admin.empty_list')}
                   {filtersDirty && (
                     <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
@@ -409,8 +408,10 @@ export function ChecklistTemplatesAdmin() {
                       {tpl.isCurrent && <span className="ml-1.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{t('page.checklist_templates_admin.version_current')}</span>}
                       {older > 0 && <span className="ml-1.5 text-[11px] text-slate-400" data-older-versions={older}>{t('page.checklist_templates_admin.older_versions', { count: older })}</span>}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {tpl.projectId == null ? t('page.checklist_templates_admin.scope_platform_baseline') : t('page.checklist_templates_admin.scope_project', { projectId: tpl.projectId })}
+                    <td className="px-4 py-3 text-slate-700" data-template-projects>
+                      {(tpl.projects ?? []).length === 0
+                        ? <span className="text-slate-500">{t('page.checklist_templates_admin.projects_default', { defaultValue: 'All other projects (default)' })}</span>
+                        : (tpl.projects ?? []).map(p => p.name).join(', ')}
                     </td>
                     <td className="px-4 py-3">
                       <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
@@ -419,7 +420,6 @@ export function ChecklistTemplatesAdmin() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-700">{tpl.itemCount}</td>
-                    <td className="px-4 py-3 text-slate-700">{tpl.instanceCount}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{tpl.templateStatus === 'locked' ? fmtDate(tpl.effectiveDate) : '—'}</td>
                     <td className="px-4 py-3 text-[12px] text-slate-600" data-template-row-history>
                       {tpl.createdByName ?? tpl.createdBy}
@@ -512,6 +512,73 @@ export function ChecklistTemplatesAdmin() {
   )
 }
 
+// --- Projects that use a project checklist (one template, many projects) ---
+
+function TemplateProjects({ template, canEdit }: { template: TemplateDetail; canEdit: boolean }) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const current = (template.projects ?? []).map(p => p.id)
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState<string[]>(current)
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list(), enabled: editing })
+  const saveMut = useMutation({
+    mutationFn: (ids: string[]) => documentsApi.setChecklistTemplateProjects(template.id, ids),
+    onSuccess: () => {
+      setEditing(false)
+      void qc.invalidateQueries({ queryKey: ['checklist-templates'] })
+      void qc.invalidateQueries({ queryKey: ['checklist-template', template.id] })
+    },
+  })
+  const error = saveMut.error instanceof ApiError ? ((saveMut.error.body as { message?: string } | null)?.message ?? `HTTP ${saveMut.error.status}`) : null
+
+  if (template.projectId == null) {
+    return (
+      <p className="mt-2 text-[12px] text-slate-600" data-template-projects-panel>
+        <span className="font-semibold">{t('page.checklist_templates_admin.col_projects', { defaultValue: 'Projects' })}:</span>{' '}
+        {t('page.checklist_templates_admin.projects_default_long', { defaultValue: 'All projects that have no checklist of their own (default)' })}
+      </p>
+    )
+  }
+  return (
+    <div className="mt-2 text-[12px] text-slate-600" data-template-projects-panel>
+      {!editing ? (
+        <p>
+          <span className="font-semibold">{t('page.checklist_templates_admin.col_projects', { defaultValue: 'Projects' })}:</span>{' '}
+          <span data-template-projects-names>{(template.projects ?? []).map(p => p.name).join(', ') || template.projectId}</span>
+          {canEdit && (
+            <button type="button" onClick={() => { setValue(current); saveMut.reset(); setEditing(true) }}
+              className="ml-2 font-semibold text-blue-700 hover:underline" data-action="edit-template-projects">
+              {t('page.checklist_templates_admin.projects_edit', { defaultValue: 'Change' })}
+            </button>
+          )}
+        </p>
+      ) : (
+        <div className="flex max-w-md flex-col gap-2">
+          <MultiSelect label={t('page.checklist_templates_admin.col_projects', { defaultValue: 'Projects' })}
+            allLabel={t('page.checklist_templates_admin.projects_pick', { defaultValue: 'Choose projects' })}
+            options={(projectsQ.data ?? []).map(p => ({ value: p.id, label: p.shortTitle ?? p.name }))}
+            value={value} onChange={setValue} optionAttr="data-project-option"
+            className="flex h-9 w-full items-center justify-between rounded border border-slate-200 bg-white px-2 text-[13px]" />
+          <p className="text-[11px] text-slate-500">
+            {t('page.checklist_templates_admin.projects_edit_hint', { defaultValue: 'Applies to every version of this checklist. Projects you remove go back to the default checklist.' })}
+          </p>
+          {error && <p className="rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700" role="alert">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setEditing(false)} disabled={saveMut.isPending}
+              className="rounded border border-slate-200 bg-white px-3 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50">
+              {t('button.cancel')}
+            </button>
+            <button type="button" onClick={() => saveMut.mutate(value)} disabled={value.length === 0 || saveMut.isPending}
+              className="rounded bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300" data-action="save-template-projects">
+              {t('page.checklist_templates_admin.projects_save', { defaultValue: 'Save projects' })}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // --- New checklist template: deliverable type, reason, and items imported from a CSV (optional) ---
 
 function NewTemplateModal({ deliverableTypeLabel, onCancel, onConfirm, submitting, error }: {
@@ -524,6 +591,8 @@ function NewTemplateModal({ deliverableTypeLabel, onCancel, onConfirm, submittin
   const { t } = useTranslation()
   const [deliverableType, setDeliverableType] = useState('')
   const [changeReason, setChangeReason] = useState('')
+  const [projectIds, setProjectIds] = useState<string[]>([])
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })
   const [fileName, setFileName] = useState<string | null>(null)
   const [imported, setImported] = useState<ImportResult | null>(null)
 
@@ -547,17 +616,31 @@ function NewTemplateModal({ deliverableTypeLabel, onCancel, onConfirm, submittin
           {t('page.checklist_templates_admin.new_title', { defaultValue: 'New checklist template' })}
         </h3>
         <p className="mt-1 text-[12px] text-slate-500">
-          {t('page.checklist_templates_admin.new_hint', { defaultValue: 'Creates a draft for the chosen deliverable. Import the items from a CSV file, or leave it empty and add items in the panel. The draft goes live when another Project Manager approves it.' })}
+          {t('page.checklist_templates_admin.new_hint', { defaultValue: 'Creates a draft for the chosen document type. Import the items from a CSV file, or leave it empty and add items in the panel. The draft goes live when another Project Manager approves it.' })}
         </p>
 
         <label className="mt-4 block">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Deliverable' })}</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Document type' })}</span>
           <select value={deliverableType} onChange={e => setDeliverableType(e.target.value)} data-field="deliverable-type"
             className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600">
-            <option value="">{t('page.checklist_templates_admin.new_select_deliverable', { defaultValue: '— Select a deliverable —' })}</option>
+            <option value="">{t('page.checklist_templates_admin.new_select_deliverable', { defaultValue: '— Select a document type —' })}</option>
             {Object.keys(DELIVERABLE_LABEL_KEYS).map(k => <option key={k} value={k}>{deliverableTypeLabel(k)}</option>)}
           </select>
         </label>
+
+        <div className="mt-3" data-field="project-ids">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.new_projects', { defaultValue: 'Projects (optional)' })}</span>
+          <div className="mt-1">
+            <MultiSelect label={t('page.checklist_templates_admin.col_projects', { defaultValue: 'Projects' })}
+              allLabel={t('page.checklist_templates_admin.projects_default', { defaultValue: 'All other projects (default)' })}
+              options={(projectsQ.data ?? []).map(p => ({ value: p.id, label: p.shortTitle ?? p.name }))}
+              value={projectIds} onChange={setProjectIds} optionAttr="data-project-option"
+              className="flex h-9 w-full items-center justify-between rounded border border-slate-200 bg-white px-2 text-[13px]" />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {t('page.checklist_templates_admin.new_projects_hint', { defaultValue: 'Leave empty for the default checklist every project uses. Pick projects to make a checklist only those projects use.' })}
+          </p>
+        </div>
 
         <label className="mt-3 block">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.new_reason', { defaultValue: 'Reason (optional)' })}</span>
@@ -599,7 +682,7 @@ function NewTemplateModal({ deliverableTypeLabel, onCancel, onConfirm, submittin
             {t('button.cancel')}
           </button>
           <button type="button" disabled={!ready} data-action="confirm-new-template"
-            onClick={() => ready && onConfirm({ deliverableType, changeReason: changeReason.trim() || undefined, items: imported?.items ?? [] })}
+            onClick={() => ready && onConfirm({ deliverableType, changeReason: changeReason.trim() || undefined, items: imported?.items ?? [], projectIds })}
             className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">
             {submitting ? t('page.checklist_templates_admin.creating_draft') : t('page.checklist_templates_admin.new_create', { defaultValue: 'Create draft' })}
           </button>
@@ -768,6 +851,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
             {template.approvedAt && t('page.checklist_templates_admin.detail_approved_suffix', { date: fmtDate(template.approvedAt) })}
           </p>
           <p className="mt-1 text-[11px] italic text-slate-500">{template.changeReason}</p>
+          <TemplateProjects template={template} canEdit={canEdit && !legacy} />
           {legacy && (
             <p className="mt-2 max-w-xl rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="note" data-legacy-notice>
               {t('page.checklist_templates_admin.legacy_spelling_notice', { stored: template.storedType, canonical: template.deliverableType })}

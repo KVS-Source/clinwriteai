@@ -3160,10 +3160,10 @@
     "checklist_templates_admin": {
       "older_versions_one": "他 {{count}} 版",
       "older_versions_other": "他 {{count}} 版",
-      "all_deliverables": "すべての成果物",
+      "all_deliverables": "すべての文書タイプ",
       "all_scopes": "すべての範囲",
       "all_statuses": "すべてのステータス",
-      "col_deliverable": "成果物",
+      "col_deliverable": "文書タイプ",
       "col_documents": "文書",
       "col_items": "項目",
       "col_scope": "範囲",
@@ -3290,8 +3290,8 @@
       "create_override_draft": "オーバーライドドラフトを作成",
       "new_template": "新しいチェックリストテンプレート",
       "new_title": "新しいチェックリストテンプレート",
-      "new_hint": "選択した成果物のドラフトを作成します。CSV ファイルから項目を取り込むか、空のまま作成してパネルで項目を追加してください。別のプロジェクトマネージャーが承認すると有効になります。",
-      "new_select_deliverable": "— 成果物を選択 —",
+      "new_hint": "選択した文書タイプのドラフトを作成します。CSV ファイルから項目を取り込むか、空のまま作成してパネルで項目を追加してください。別のプロジェクトマネージャーが承認すると有効になります。",
+      "new_select_deliverable": "— 文書タイプを選択 —",
       "new_reason": "理由（任意）",
       "new_reason_placeholder": "例：共有ドライブのチェックリスト（2026年11月）",
       "new_items_file": "項目ファイル（任意、.csv）",
@@ -3300,7 +3300,18 @@
       "new_csv_only": "取り込めるのは .csv ファイルのみです。Excel または Google スプレッドシートで「CSV として保存／ダウンロード」してください。",
       "new_import_ok": "{{file}} から {{count}} 件の項目を取り込めます",
       "new_import_fix": "ファイルを修正して、もう一度選択してください：",
-      "new_create": "ドラフトを作成"
+      "new_create": "ドラフトを作成",
+      "col_projects": "プロジェクト",
+      "all_projects": "すべてのプロジェクト",
+      "projects_default": "その他すべてのプロジェクト（既定）",
+      "projects_default_long": "独自のチェックリストを持たないすべてのプロジェクト（既定）",
+      "projects_specific": "特定のプロジェクト",
+      "projects_edit": "変更",
+      "projects_pick": "プロジェクトを選択",
+      "projects_edit_hint": "このチェックリストのすべてのバージョンに適用されます。外したプロジェクトは既定のチェックリストに戻ります。",
+      "projects_save": "プロジェクトを保存",
+      "new_projects": "プロジェクト（任意）",
+      "new_projects_hint": "空欄の場合、すべてのプロジェクトが使う既定のチェックリストになります。プロジェクトを選ぶと、そのプロジェクトだけが使うチェックリストになります。"
     },
 
     "master_library": {

@@ -1413,6 +1413,14 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { passNumber: 'asc' },
     })
 
+    // Per-section drafting traces (migration 98) — most recent 200 for
+    // this document, newest first. Grouped by section in the UI.
+    const sectionDraftTraces = await app.prisma.aiSectionDraftTrace.findMany({
+      where:   { documentId },
+      orderBy: { draftedAt: 'desc' },
+      take:    200,
+    })
+
     // Last 50 AI + section audit events for this document. audit_events
     // lives in raw SQL (not Prisma) per ADR 0002, so we read directly.
     // Includes:
@@ -1581,6 +1589,26 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         confidenceAfter: p.confidenceAfter,
         modelUsed:       p.modelUsed,
         flagsJson:       p.flagsJson,
+      })),
+
+      // Per-section drafting traces (migration 98) — one row per AI section
+      // commit, showing which source documents were in the model's context
+      // and what model was used. Grouped by sectionId so the UI can expand
+      // a section and see every commit for it (most recent first). Capped
+      // to 200 rows per document so a long-running validation loop doesn't
+      // balloon the response; the UI can also drill into a single section
+      // via GET /documents/:id/sections/:sectionId/ai-traces if needed.
+      sectionDraftTraces: sectionDraftTraces.map(t => ({
+        id:               t.id,
+        sectionId:        t.sectionId,
+        sectionNumber:    t.sectionNumber,
+        sectionTitle:     t.sectionTitle,
+        model:            t.model,
+        sourceIds:        t.sourceIds,
+        sourceTitles:     t.sourceTitles,
+        promptCharCount:  t.promptCharCount,
+        outputCharCount:  t.outputCharCount,
+        draftedAt:        t.draftedAt.toISOString(),
       })),
 
       auditTail: auditRows.map((a: { id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown }) => ({

@@ -509,6 +509,17 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         ? 'not_started'
         : placeholderCount === 0 ? 'complete' : 'in_progress'
 
+      // Per-section trace of what the drafter was looking at for this
+      // section (migration 98). One row per commit — includes model, source
+      // doc titles+ids attached to the Claude call, prompt + output sizes.
+      // Rendered by the AI Debug panel so writers can validate the draft
+      // against the right source references. Fire-and-forget: a trace
+      // failure must never block the actual section write.
+      const tracedSources = sourcePdfs.map((pdf, i) => ({
+        id:    sources.find(s => s.title === pdf.title)?.id ?? `pdf-${i}`,
+        title: pdf.title,
+      }))
+
       await prisma.$transaction(async (tx) => {
         await tx.sectionContent.update({
           where: { id: row.id },
@@ -541,6 +552,27 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
           },
         })
       })
+
+      // Trace write — outside the section-write transaction so a trace DB
+      // failure (bad schema, index trouble) doesn't roll back the actual
+      // draft commit. Failures are logged but non-fatal.
+      await prisma.aiSectionDraftTrace.create({
+        data: {
+          documentId,
+          documentVersionId: versionId,
+          sectionId:         sec.id,
+          sectionNumber:     sec.number,
+          sectionTitle:      sec.title,
+          model:             engine === 'stub' ? 'stub' : resolvedModel,
+          sourceIds:         tracedSources.map(s => s.id),
+          sourceTitles:      tracedSources.map(s => s.title),
+          promptCharCount:   0,     // populated by draftWithClaude (prompt chars sent to the model)
+          outputCharCount:   contentHtml.length,
+        },
+      }).catch((err: unknown) => {
+        log.warn({ err, documentId, sectionId: sec.id }, 'ai_initial_draft: trace write failed (non-fatal)')
+      })
+
       report.drafted++
       const missing = extractMissingItems(contentHtml)
       log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')

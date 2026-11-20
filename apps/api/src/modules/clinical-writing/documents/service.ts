@@ -23,6 +23,7 @@ import {
 } from '../document-stage.js'
 import { ensureChecklistInstance } from '../checklist/service.js'
 import { hasSectionContent, sectionPlaceholderCount } from '../ich-e3/catalog.js'
+import { areSectionHtmlsVisiblyEqual } from './html-dedupe.js'
 
 /** Derive a section's status from its current HTML. Drops the "writer must
  *  click Mark complete" step: a section is complete iff it has real content
@@ -318,8 +319,15 @@ export class DocumentService {
         ?? current.sections.find(s => s.id === args.sectionId)
       if (existing) args = { ...args, sectionId: existing.sectionId }
 
-      // No-op if content didn't actually change.
-      if (existing && existing.contentHtml === args.contentHtml) {
+      // No-op if content didn't actually change — strict compare catches
+      // the exact-same bytes case; the visibly-equal check catches the
+      // TipTap whitespace / empty-<p> jitter that otherwise writes a new
+      // EditHistory row on every autosave fire and surfaces as
+      // "MANUAL · N saves" with identical WAS/NOW excerpts.
+      if (existing && (
+        existing.contentHtml === args.contentHtml
+        || areSectionHtmlsVisiblyEqual(existing.contentHtml, args.contentHtml)
+      )) {
         return { document: doc, version: current, created: false, mutated: false }
       }
 

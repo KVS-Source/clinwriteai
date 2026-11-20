@@ -7,6 +7,9 @@ import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentRaciRoutes } from './routes.js'
 import { notifyRaciAssigned } from './notify-assigned.js'
 
+const startChain = vi.hoisted(() => vi.fn(async () => ({ chainStarted: true })))
+vi.mock('../../clinical-writing/signatures/auto-start.js', () => ({ startChainWhenReviewDone: startChain }))
+
 type Sent = { recipientId: string; kind: string; title: string; body: string; linkPath?: string; payload: Record<string, unknown> }
 
 function makeApp(opts: { withNotifications?: boolean; sendFails?: boolean; doc?: Record<string, unknown> } = {}) {
@@ -101,5 +104,20 @@ describe('POST /documents/:id/raci sends the assignment notification', () => {
     const res = await app.inject({ method: 'POST', url: '/documents/DOC-1/raci', payload: { userId: 'lead', letter: 'C' } })
     expect(res.statusCode).toBe(201)
     expect(sent).toHaveLength(0)
+  })
+
+  it('adding an Approver retries the automatic signature start (a document left in pending signature with no Approver)', async () => {
+    startChain.mockClear()
+    const { app } = await build()
+    expect((await app.inject({ method: 'POST', url: '/documents/DOC-1/raci', payload: { userId: 'user-b', letter: 'C' } })).statusCode).toBe(201)
+    expect(startChain).not.toHaveBeenCalled()
+    expect((await app.inject({ method: 'POST', url: '/documents/DOC-1/raci', payload: { userId: 'user-c', letter: 'A' } })).statusCode).toBe(201)
+    expect(startChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ documentId: 'DOC-1' }))
+  })
+
+  it('a failed signature start does not fail the assignment', async () => {
+    startChain.mockRejectedValueOnce(new Error('down'))
+    const { app } = await build()
+    expect((await app.inject({ method: 'POST', url: '/documents/DOC-1/raci', payload: { userId: 'user-c', letter: 'A' } })).statusCode).toBe(201)
   })
 })

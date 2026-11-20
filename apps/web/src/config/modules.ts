@@ -41,6 +41,27 @@ export const MODULE_LABELS: Record<ModuleSlug, string> = {
   'ideation-publishing': 'Ideation & Publishing',
 }
 
+// Short monogram shown on chips + the collapsed sidebar rail. Writers never
+// see the raw module LETTER (A/B/C/D/E) — always the human abbreviation.
+export const MODULE_MONOGRAMS: Record<ModuleSlug, string> = {
+  'clinical-writing':    'CW',
+  'scientific-writing':  'SW',
+  'medical-writing':     'MW',
+  'regulatory-writing':  'RW',
+  'ideation-publishing': 'IP',
+}
+
+// Accent colour per module — design-system Decision 10. Reused by the
+// Sidebar module rail, the count chips on the Projects list, and anywhere
+// else UI needs to differentiate modules at a glance.
+export const MODULE_COLOURS: Record<ModuleSlug, string> = {
+  'clinical-writing':    '#2563EB',    // blue
+  'scientific-writing':  '#0D9488',    // teal
+  'medical-writing':     '#7C3AED',    // purple
+  'regulatory-writing':  '#B0200D',    // red
+  'ideation-publishing': '#D97706',    // amber (disambiguated from SW's teal)
+}
+
 // Key → display label. Mirrors MODULE_LABELS keyed by the single-letter
 // identifier that appears in API payloads and filter UI.
 export const MODULE_KEY_TO_LABEL: Record<ModuleKey, string> = {

@@ -519,6 +519,37 @@ model AiCallRecord {
 }
 
 // --------------------------------------------------------------------------
+// Per-section AI drafting trace — one row every time the initial-draft
+// worker (or a validation-pass re-draft) commits a section. Carries the
+// model + source documents that were attached to the Claude call, plus
+// prompt / output char counts. Powers the AI Debug per-section drill-down
+// so writers can see WHICH sources were in the model's context when it
+// produced a given section's content. See migration 98.
+// --------------------------------------------------------------------------
+
+model AiSectionDraftTrace {
+  id                String   @id @default(uuid())
+  documentId        String
+  documentVersionId String?
+  sectionId         String
+  sectionNumber     String
+  sectionTitle      String
+  model             String
+  // Source upload ids that were attached to the Claude call for this
+  // section. Parallel to `sourceTitles` — index i in both arrays refers to
+  // the same source, denormalised so /ai-debug can render without a join.
+  sourceIds         String[] @default([])
+  sourceTitles      String[] @default([])
+  promptCharCount   Int
+  outputCharCount   Int
+  draftedAt         DateTime @default(now())
+
+  @@map("ai_section_draft_traces")
+  @@index([documentId, draftedAt(sort: Desc)])
+  @@index([documentId, sectionId, draftedAt(sort: Desc)])
+}
+
+// --------------------------------------------------------------------------
 // Per-user, per-section AI chat conversation thread (sPM-ai-chat).
 //
 // One row per turn (user prompt + assistant response alternating). Powers

@@ -22,6 +22,19 @@ import {
   type DbStage,
 } from '../document-stage.js'
 import { ensureChecklistInstance } from '../checklist/service.js'
+import { hasSectionContent, sectionPlaceholderCount } from '../ich-e3/catalog.js'
+import { areSectionHtmlsVisiblyEqual } from './html-dedupe.js'
+
+/** Derive a section's status from its current HTML. Drops the "writer must
+ *  click Mark complete" step: a section is complete iff it has real content
+ *  AND no [TBD: ...] / [TBC] / [PLACEHOLDER] markers; in-progress if it has
+ *  content but still carries placeholders; not-started when empty. The
+ *  e-sig gate already scans HTML for placeholders independently, so the
+ *  Finish signal + this derived status now tell the same story. */
+export function deriveSectionStatus(contentHtml: string | null | undefined): 'not_started' | 'in_progress' | 'complete' {
+  if (!hasSectionContent(contentHtml)) return 'not_started'
+  return sectionPlaceholderCount(contentHtml) === 0 ? 'complete' : 'in_progress'
+}
 
 export interface SectionPayload {
   sectionId: string
@@ -306,8 +319,15 @@ export class DocumentService {
         ?? current.sections.find(s => s.id === args.sectionId)
       if (existing) args = { ...args, sectionId: existing.sectionId }
 
-      // No-op if content didn't actually change.
-      if (existing && existing.contentHtml === args.contentHtml) {
+      // No-op if content didn't actually change — strict compare catches
+      // the exact-same bytes case; the visibly-equal check catches the
+      // TipTap whitespace / empty-<p> jitter that otherwise writes a new
+      // EditHistory row on every autosave fire and surfaces as
+      // "MANUAL · N saves" with identical WAS/NOW excerpts.
+      if (existing && (
+        existing.contentHtml === args.contentHtml
+        || areSectionHtmlsVisiblyEqual(existing.contentHtml, args.contentHtml)
+      )) {
         return { document: doc, version: current, created: false, mutated: false }
       }
 
@@ -331,7 +351,7 @@ export class DocumentService {
               sectionNumber: args.sectionNumber ?? s.sectionNumber,
               sectionTitle:  args.sectionTitle  ?? s.sectionTitle,
               contentHtml:   args.contentHtml,
-              ichStatus:     'in_progress',
+              ichStatus:     deriveSectionStatus(args.contentHtml),
             }
           : {
               sectionId:    s.sectionId,
@@ -341,13 +361,14 @@ export class DocumentService {
               ichStatus:     s.ichStatus,
             },
       )
+      const derivedStatus = deriveSectionStatus(args.contentHtml)
       if (!existing) {
         nextSections.push({
           sectionId:    args.sectionId,
           sectionNumber: args.sectionNumber ?? args.sectionId,
           sectionTitle:  args.sectionTitle  ?? args.sectionId,
           contentHtml:   args.contentHtml,
-          ichStatus:     'in_progress',
+          ichStatus:     derivedStatus,
         })
       }
 
@@ -358,7 +379,7 @@ export class DocumentService {
             sectionNumber: args.sectionNumber ?? existing.sectionNumber,
             sectionTitle:  args.sectionTitle  ?? existing.sectionTitle,
             contentHtml:   args.contentHtml,
-            ichStatus:     'in_progress',
+            ichStatus:     derivedStatus,
             wordCount:     countWords(args.contentHtml),
             lastEditedBy:  args.editorUserId,
             lastEditedAt:  new Date(),
@@ -374,7 +395,7 @@ export class DocumentService {
             sectionNumber: args.sectionNumber ?? args.sectionId,
             sectionTitle:  args.sectionTitle  ?? args.sectionId,
             contentHtml:   args.contentHtml,
-            ichStatus:     'in_progress',
+            ichStatus:     derivedStatus,
             wordCount:     countWords(args.contentHtml),
             lastEditedBy:  args.editorUserId,
             lastEditedAt:  new Date(),
@@ -484,7 +505,7 @@ export class DocumentService {
           where: { documentVersionId_sectionId: { documentVersionId: current.id, sectionId: s.sectionId } },
           data:  {
             contentHtml:    nextHtml,
-            ichStatus:      'in_progress',
+            ichStatus:      deriveSectionStatus(nextHtml),
             wordCount:      countWords(nextHtml),
             lastEditedBy:   args.editorUserId,
             lastEditedAt:   new Date(),
@@ -772,13 +793,14 @@ async function createNewVersionFromEdit(
   },
 ) {
   const { doc, current, args } = ctx
+  const derivedStatus = deriveSectionStatus(args.contentHtml)
   const nextSections: SectionPayload[] = current.sections.map(s =>
     s.sectionId === args.sectionId
-      ? { sectionId: s.sectionId, sectionNumber: args.sectionNumber ?? s.sectionNumber, sectionTitle: args.sectionTitle ?? s.sectionTitle, contentHtml: args.contentHtml, ichStatus: 'in_progress' }
+      ? { sectionId: s.sectionId, sectionNumber: args.sectionNumber ?? s.sectionNumber, sectionTitle: args.sectionTitle ?? s.sectionTitle, contentHtml: args.contentHtml, ichStatus: derivedStatus }
       : { sectionId: s.sectionId, sectionNumber: s.sectionNumber, sectionTitle: s.sectionTitle, contentHtml: s.contentHtml, ichStatus: s.ichStatus },
   )
   if (!current.sections.find(s => s.sectionId === args.sectionId)) {
-    nextSections.push({ sectionId: args.sectionId, sectionNumber: args.sectionNumber ?? args.sectionId, sectionTitle: args.sectionTitle ?? args.sectionId, contentHtml: args.contentHtml, ichStatus: 'in_progress' })
+    nextSections.push({ sectionId: args.sectionId, sectionNumber: args.sectionNumber ?? args.sectionId, sectionTitle: args.sectionTitle ?? args.sectionId, contentHtml: args.contentHtml, ichStatus: derivedStatus })
   }
   const allVersions = await tx.documentVersion.findMany({
     where: { documentId: doc.id },

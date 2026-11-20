@@ -18,7 +18,7 @@ import { SlidePanel } from '../../components/ui/SlidePanel'
 import { RowActionsMenu } from '../../components/ui/RowActionsMenu'
 import { ProtectedPdfViewer } from '../../components/library/ProtectedPdfViewer'
 import { SortIcon } from '../../components/ui/SortIcon'
-import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
+import { DateTimeRangeFilter, lastDaysRange, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
 import { ACTION_PHRASE_KEYS, AUDIT_ACTION_LABEL_KEYS, EVENT_BADGE_PALETTE } from '../../panels/AuditTrailPanel'
 
 const MODULE_COLOURS: Record<ModuleKey, string> = {
@@ -74,10 +74,6 @@ export function MasterLibrary() {
   const [search,      setSearch]      = useState('')
   const [docTypes,    setDocTypes]    = useState<string[]>([])
   const [tas,         setTas]         = useState<string[]>([])
-  // "Pushed" date-and-time range, the same picker as the Audit Trail: values are YYYY-MM-DDTHH:mm in `tz`.
-  const [rangeFrom,   setRangeFrom]   = useState('')
-  const [rangeTo,     setRangeTo]     = useState('')
-  const [tz,          setTz]          = useState<TimeZoneMode>('local')
   const [sort,        setSort]        = useState<SortKey>('recent')
   const [showWithdrawn, setShowWithdrawn] = useState(false)
   const [page,        setPage]        = useState(1)
@@ -91,11 +87,10 @@ export function MasterLibrary() {
     const id = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [search])
-  const dateRangeInvalid = !!rangeFrom && !!rangeTo && rangeFrom > rangeTo
   const listParams = useMemo<LibraryListParams>(() => ({
     q: debouncedSearch, itemType: LIST_ITEM_TYPES, docType: docTypes, ta: tas,
-    from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz), sort, includeRetired: showWithdrawn, limit: pageSize,
-  }), [debouncedSearch, docTypes, tas, rangeFrom, rangeTo, tz, sort, showWithdrawn, pageSize])
+    sort, includeRetired: showWithdrawn, limit: pageSize,
+  }), [debouncedSearch, docTypes, tas, sort, showWithdrawn, pageSize])
 
   // Any change to a filter, the sort or the page size starts again from page 1.
   useEffect(() => { setPage(1) }, [listParams])
@@ -103,7 +98,6 @@ export function MasterLibrary() {
     queryKey: ['library', listParams, page],
     queryFn: () => platformApi.listLibraryPage(listParams, page > 1 ? String((page - 1) * pageSize) : undefined),
     placeholderData: keepPreviousData,
-    enabled: !dateRangeInvalid,
   })
   const items = useMemo(() => data?.items ?? [], [data])
   const total = data?.total ?? 0
@@ -131,12 +125,11 @@ export function MasterLibrary() {
   const activeFilterCount =
     (search.trim() ? 1 : 0) +
     (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) +
-    (rangeFrom || rangeTo ? 1 : 0) + (showWithdrawn ? 1 : 0)
+    (showWithdrawn ? 1 : 0)
   const filtersDirty = activeFilterCount > 0
 
   function resetFilters() {
     setSearch(''); setDocTypes([]); setTas([])
-    setRangeFrom(''); setRangeTo('')
     setSort('recent'); setShowWithdrawn(false)
   }
 
@@ -203,12 +196,6 @@ export function MasterLibrary() {
   const [sideView, setSideView] = useState<{ kind: 'shares' | 'audit'; item: MasterLibraryItem } | null>(null)
   useEffect(() => { if (selected) setSideView(null) }, [selected])
 
-  // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
-  function changeTz(next: TimeZoneMode) {
-    const convert = (v: string) => (v ? toInputValue(new Date(rangeToIso(v, 'start', tz)!), next) : '')
-    setRangeFrom(convert(rangeFrom)); setRangeTo(convert(rangeTo)); setTz(next)
-  }
-
   const sortFor = (asc: SortKey, desc: SortKey): 'asc' | 'desc' | null => sort === asc ? 'asc' : sort === desc ? 'desc' : null
   const toggleSort = (asc: SortKey, desc: SortKey) => setSort(sort === asc ? desc : asc)
   const SortHead = ({ label, asc, desc }: { label: string; asc: SortKey; desc: SortKey }) => (
@@ -270,12 +257,6 @@ export function MasterLibrary() {
                 optionAttr="data-ta-chip" className={filterControl} />
             </div>
 
-            <div className="flex flex-none items-center gap-1.5" data-filter-dates>
-              <DateTimeRangeFilter from={rangeFrom} to={rangeTo} tz={tz} invalid={dateRangeInvalid}
-                onChange={r => { setRangeFrom(r.from); setRangeTo(r.to) }} onTzChange={changeTz}
-                align="left" buttonClassName="h-10 w-[220px]" />
-            </div>
-
             <button
               type="button"
               onClick={resetFilters}
@@ -292,7 +273,6 @@ export function MasterLibrary() {
             </button>
           </div>
         </div>
-        {dateRangeInvalid && <p className="-mt-2 text-[12px] text-red-700">{t('page.master_library.date_range_invalid')}</p>}
 
         {/* Grid */}
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-results-list>
@@ -494,7 +474,7 @@ export function MasterLibrary() {
         title={sideView?.item.name ?? ''} wrapTitle>
         {sideView && (
           <div className="min-w-0 px-5 pb-20 pt-4" data-side-view={sideView.kind}>
-            {sideView.kind === 'shares' ? <ShareHistoryList itemId={sideView.item.id} /> : <AuditTrailList itemId={sideView.item.id} />}
+            {sideView.kind === 'shares' ? <ShareHistoryList itemId={sideView.item.id} /> : <AuditTrailList key={sideView.item.id} itemId={sideView.item.id} />}
           </div>
         )}
       </SlidePanel>
@@ -820,30 +800,22 @@ function ShareHistoryList({ itemId }: { itemId: string }) {
 }
 
 // Audit trail: this document's Master Library activity only — uploaded, pushed / auto-pushed, viewed, shared,
-// invitation opened, locked out. Newest first, a page at a time. It opens on the last 7 days; "Show more" lists
-// everything, and the date range at the top (the same picker as the Master Documents filters) shows just that
-// period instead. Read-only, and deliberately no export / download / print. Badges and phrases are the Clinical
-// Writing Audit Trail panel's own.
+// invitation opened, locked out. Newest first, a page at a time. The date range at the top (the same picker as the
+// main Audit Trail page) is the only thing that decides which entries appear; it opens on the last 7 days and
+// Clear goes back to that. Read-only, and deliberately no export / download / print. Badges and phrases are the
+// Clinical Writing Audit Trail panel's own.
 const AUDIT_PAGE_SIZE = 50
-const RECENT_DAYS = 7
+const DEFAULT_DAYS = 7
 function AuditTrailList({ itemId }: { itemId: string }) {
   const { t } = useTranslation()
   const [tz, setTz] = useState<TimeZoneMode>('local')
-  const [rangeFrom, setRangeFrom] = useState('')
-  const [rangeTo, setRangeTo] = useState('')
-  const [showAll, setShowAll] = useState(false)
-  const rangeInvalid = !!rangeFrom && !!rangeTo && rangeFrom > rangeTo
-  const picked = !!(rangeFrom || rangeTo)
-  // The 7-day window is fixed when the panel opens, so paging and refetching see the same period.
-  const [openedAt] = useState(() => Date.now())
-  const period = useMemo(() => {
-    if (picked) return { from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz) }
-    return showAll ? {} : { from: new Date(openedAt - RECENT_DAYS * 86_400_000).toISOString() }
-  }, [picked, rangeFrom, rangeTo, tz, showAll, openedAt])
-  // Switching the timezone keeps the range pointing at the same moments (as on the Master Documents filters).
+  const [range, setRange] = useState(() => lastDaysRange(DEFAULT_DAYS, 'local'))
+  const rangeInvalid = !!range.from && !!range.to && range.from > range.to
+  const period = useMemo(() => ({ from: rangeToIso(range.from, 'start', tz), to: rangeToIso(range.to, 'end', tz) }), [range, tz])
+  // Switching the timezone keeps the range pointing at the same moments (as on the main Audit Trail page).
   function changeTz(next: TimeZoneMode) {
-    const convert = (v: string) => (v ? toInputValue(new Date(rangeToIso(v, 'start', tz)!), next) : '')
-    setRangeFrom(convert(rangeFrom)); setRangeTo(convert(rangeTo)); setTz(next)
+    const convert = (v: string, edge: 'start' | 'end') => (v ? toInputValue(new Date(rangeToIso(v, edge, tz)!), next) : '')
+    setRange({ from: convert(range.from, 'start'), to: convert(range.to, 'end') }); setTz(next)
   }
   const trail = useInfiniteQuery({
     queryKey: ['library-audit', itemId, period.from ?? null, period.to ?? null],
@@ -858,18 +830,13 @@ function AuditTrailList({ itemId }: { itemId: string }) {
   })
   const entries = trail.data?.pages.flatMap(p => p.entries) ?? []
   const total = trail.data?.pages[0]?.total ?? 0
-  const recentOnly = !picked && !showAll
-  // "Show more" is offered only when something older than the 7 days exists (the same response says so).
-  const hasOlder = (trail.data?.pages[0]?.olderTotal ?? 0) > 0
   return (
     <div data-library-audit-panel>
-      <div className="mb-3 flex flex-wrap items-center gap-2" data-audit-dates>
-        <DateTimeRangeFilter from={rangeFrom} to={rangeTo} tz={tz} invalid={rangeInvalid}
-          onChange={r => { setRangeFrom(r.from); setRangeTo(r.to) }} onTzChange={changeTz}
-          align="left" buttonClassName="h-9 w-[240px]" dateOnly />
-        <p className="text-[11px] text-slate-500" data-audit-scope>
-          {t(picked ? 'page.master_library.audit_scope_range' : showAll ? 'page.master_library.audit_scope_all' : 'page.master_library.audit_scope_recent', { days: RECENT_DAYS })}
-        </p>
+      <div className="mb-3" data-audit-dates>
+        <DateTimeRangeFilter from={range.from} to={range.to} tz={tz} invalid={rangeInvalid}
+          // Clear goes back to the default (last 7 days) instead of an empty range.
+          onChange={r => setRange(r.from || r.to ? r : lastDaysRange(DEFAULT_DAYS, tz))} onTzChange={changeTz}
+          align="left" buttonClassName="h-9 w-full" />
       </div>
       {rangeInvalid && <p className="mb-2 text-[12px] text-red-700">{t('page.master_library.date_range_invalid')}</p>}
       {trail.isLoading ? (
@@ -877,12 +844,14 @@ function AuditTrailList({ itemId }: { itemId: string }) {
       ) : trail.error ? (
         <p className="text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
       ) : !entries.length ? (
-        <p className="text-[12px] text-slate-500" data-library-audit-state="empty">{t(showAll && !picked ? 'page.master_library.audit_library_empty' : 'page.master_library.audit_period_empty')}</p>
+        <p className="text-[12px] text-slate-500" data-library-audit-state="empty">{t('page.master_library.audit_period_empty')}</p>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-3" data-library-audit>
           <AuditRows entries={entries} />
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
+            <span className="text-[11px] text-slate-500" data-library-audit-count>
+              {trail.hasNextPage ? t('page.master_library.audit_trail_count', { shown: entries.length, total }) : t('page.master_library.audit_range_count', { count: total })}
+            </span>
             {trail.hasNextPage && (
               <button type="button" onClick={() => void trail.fetchNextPage()} disabled={trail.isFetchingNextPage}
                 className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
@@ -892,14 +861,6 @@ function AuditTrailList({ itemId }: { itemId: string }) {
             )}
           </div>
         </div>
-      )}
-      {recentOnly && hasOlder && !trail.isLoading && !trail.error && (
-        <button type="button" onClick={() => setShowAll(true)}
-          className="mt-3 h-9 rounded-md border px-4 text-[13px] font-semibold hover:bg-slate-50"
-          style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
-          data-action="library-audit-show-all">
-          {t('page.master_library.audit_show_more')}
-        </button>
       )}
     </div>
   )

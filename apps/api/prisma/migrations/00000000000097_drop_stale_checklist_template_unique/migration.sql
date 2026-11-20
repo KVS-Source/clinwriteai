@@ -1,0 +1,11 @@
+-- Project overrides of a checklist template failed with
+--   "Unique constraint failed on the fields: (deliverableType, version)".
+--
+-- Migration 00000000000004 created the original uniqueness as a UNIQUE INDEX named
+-- "checklist_templates_deliverableType_version_key". Migration 00000000000043 meant to replace it with
+-- (deliverableType, projectId, version) so each project override has its own version sequence, but removed the old
+-- one with DROP CONSTRAINT IF EXISTS. An index created by CREATE UNIQUE INDEX is not a constraint, so that was a
+-- no-op and the old index stayed: a project override's v1 collides with the platform baseline's v1.
+--
+-- Drop the stale index. The intended (deliverableType, projectId, version) uniqueness from 0043 stays.
+DROP INDEX IF EXISTS "checklist_templates_deliverableType_version_key";

@@ -364,6 +364,18 @@ export const documentsApi = {
     }>(`/checklist-templates/${templateId}`),
   approveChecklistTemplate: (templateId: string) =>
     api.post<{ id: string; version: number; inFlightDocumentsNotified?: number }>(`/checklist-templates/${templateId}/approve`, {}),
+  createChecklistTemplate: (body: {
+    deliverableType: string
+    changeReason?: string
+    items: Array<{
+      text: string
+      framework: string
+      frameworkMandatory: boolean
+      ownerRaci: 'R' | 'A' | 'C' | 'Q' | 'I'
+      stage: 'study_start_up' | 'during_study' | 'reporting' | 'cross_functional_review' | 'crm' | 'final_output'
+      autoCompleteOn: string | null
+    }>
+  }) => api.post<{ id: string; version: number; templateStatus: 'draft' }>('/checklist-templates', body),
   bumpChecklistTemplateDraft: (templateId: string) =>
     api.post<{ id: string; version: number; templateStatus: 'draft' }>(`/checklist-templates/${templateId}/bump-draft`, {}),
   cloneChecklistTemplateToProject: (templateId: string, projectId: string) =>

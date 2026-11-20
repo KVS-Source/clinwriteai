@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import type { TFunction } from 'i18next'
 import type { AiDraftSummary } from '../../hooks/useAiDraftStatus'
 import { aiDrafterApi, type AiDraftState } from '../../api/ai-drafter'
@@ -63,11 +64,18 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
     if (summary.inFlight) setDismissed(false)
   }, [summary.inFlight])
 
-  // The toast is purely for in-flight drafts. Settled states show the
-  // chip in the header and (eventually) the report panel.
+  // The toast is purely for in-flight drafts + the one-off "AI not
+  // configured" explainer so writers don't stare at a hanging progress
+  // bar when the admin hasn't pasted a key. Everything else (complete,
+  // failed, cancelled) is told via the confidence chip in the header.
   if (!state) return null
-  if (!summary.inFlight) return null
+  if (!summary.inFlight && state !== 'not_configured') return null
   if (dismissed) return null
+
+  // "Not configured" renders without a spinner and offers a link to the
+  // Admin → AI engine tab where the writer can either paste a key (if they
+  // are also IT admin) or ask whoever is.
+  if (state === 'not_configured') return <NotConfiguredToast onDismiss={() => setDismissed(true)} t={t} />
 
   const headline = t(`component.ai_drafting_progress_toast.${STATE_HEADLINE_KEY[state]}`)
   const line = buildStatusLine(state, summary, t)
@@ -124,6 +132,44 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
       <button
         type="button"
         onClick={() => setDismissed(true)}
+        aria-label={t('component.ai_drafting_progress_toast.dismiss')}
+        className="flex h-5 w-5 flex-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+      >
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+          <line x1="3" y1="3" x2="9" y2="9" />
+          <line x1="9" y1="3" x2="3" y2="9" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+function NotConfiguredToast({ onDismiss, t }: { onDismiss: () => void; t: TFunction }) {
+  return (
+    <div
+      className="fixed bottom-6 right-6 z-40 flex max-w-[380px] items-start gap-3 rounded-lg border bg-white px-4 py-3 shadow-lg"
+      style={{ borderColor: '#FDE68A' }}
+      role="alert"
+      aria-live="polite"
+      data-testid="ai-drafting-toast"
+      data-state="not_configured"
+    >
+      <span
+        className="mt-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full"
+        style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
+        aria-hidden="true"
+      >!</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="text-[13px] font-semibold text-slate-900">AI isn&rsquo;t configured for this install</div>
+        <div className="text-[12px] text-slate-600">
+          The drafter couldn&rsquo;t start because no Anthropic key is set. Paste one in
+          {' '}<Link to="/admin" className="font-semibold text-blue-700 hover:underline">Settings &rsaquo; AI engine</Link>{' '}
+          and create the document again.
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
         aria-label={t('component.ai_drafting_progress_toast.dismiss')}
         className="flex h-5 w-5 flex-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
       >

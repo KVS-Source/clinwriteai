@@ -9,7 +9,8 @@
 // Also exposes a derived `summary` object so the chip + toast don't
 // each have to recompute the same roll-ups.
 
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { aiDrafterApi, type AiDraftState, type AiDraftStatusResponse } from '../api/ai-drafter'
 
 /** States that mean the worker chain is still running — keep polling. */
@@ -33,6 +34,7 @@ export interface AiDraftSummary {
 }
 
 export function useAiDraftStatus(documentId: string | undefined): UseQueryResult<AiDraftStatusResponse> & { summary: AiDraftSummary } {
+  const qc = useQueryClient()
   const result = useQuery<AiDraftStatusResponse>({
     queryKey: ['ai-draft-status', documentId],
     queryFn:  () => aiDrafterApi.status(documentId!),
@@ -51,6 +53,24 @@ export function useAiDraftStatus(documentId: string | undefined): UseQueryResult
   })
 
   const data = result.data
+
+  // Invalidate ['document', documentId] whenever we see the drafter has
+  // written new content — the TBDs tab, the section list, and the editor
+  // body all key off that query, so writers watching the drafter work see
+  // sections stream in without clicking Refresh. Detected via:
+  //   - any transition into a settled state (complete/failed/cancelled)
+  //   - a change in the number of sections the status endpoint reports
+  //     the drafter has touched (`sections.length` grows as the worker
+  //     commits each one)
+  // Debounced to once per unique signal so we don't re-render on every poll.
+  const lastSignalRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!documentId || !data) return
+    const signal = `${data.state}:${data.sections.length}:${data.lastPassNumber ?? 0}`
+    if (signal === lastSignalRef.current) return
+    lastSignalRef.current = signal
+    void qc.invalidateQueries({ queryKey: ['document', documentId] })
+  }, [documentId, data, qc])
   const inFlight = !!(data?.state && IN_FLIGHT.has(data.state))
   const confidenceOverall = data?.confidenceOverall ?? null
   const hasConfidence = confidenceOverall !== null

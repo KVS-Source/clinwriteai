@@ -9,6 +9,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { resolveAiEngineSettings } from '../config/ai-engine-settings.js'
+import { resolveAnthropicKey } from '../ai-gateway/resolve-anthropic-key.js'
 import { AiPromptService, AiPromptServiceError } from './service.js'
 import { extractSectionRulesWithClaude, buildStubSectionRules } from '../document-type-policy/ai-extract-section-rules.js'
 
@@ -240,7 +241,9 @@ export const aiPromptRoutes: FastifyPluginAsync = async (app) => {
       })
     }
     const engine = await resolveAiEngineSettings(app.prisma)
-    const apiKey = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
+    // DB-only key lookup — admin pastes via Settings → AI engine → API keys.
+    // AI_ALLOW_STUB still permits the stub path for dev/CI without a key.
+    const apiKey = await resolveAnthropicKey(app.prisma)
     const stubAllowed = process.env.AI_ALLOW_STUB === '1'
     let rules: Awaited<ReturnType<typeof extractSectionRulesWithClaude>>
     try {

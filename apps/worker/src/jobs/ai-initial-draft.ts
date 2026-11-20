@@ -33,6 +33,7 @@ import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
+import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -141,27 +142,23 @@ async function draftSection(args: {
   aiInstructions: string | null
   policy:    PolicyRowForAi | null
   sectionTemplateFormatRules: string | null
+  apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
+  abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
 }): Promise<{ contentHtml: string; engine: string }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
-  if (!apiKey) {
+  if (!args.apiKey) {
     // The caller checks aiConfigured() first, so this is only reached with the dev/CI flag on.
     if (!stubAllowed()) throw new Error('AI not configured')
     return { contentHtml: buildStubDraftHtml(args), engine: 'stub' }
   }
   // A failed Claude call throws: the section is left empty and reported as errored. Placeholder
   // text is never written into a document as if it were a draft.
-  const html = await draftWithClaude({ ...args, apiKey })
+  const html = await draftWithClaude(args)
   return { contentHtml: html, engine: args.model }
 }
 
 /** Dev/CI only: AI_ALLOW_STUB=1 lets the placeholder drafter run. Off by default. */
 function stubAllowed(): boolean {
   return process.env.AI_ALLOW_STUB === '1'
-}
-
-/** A real provider is available (an Anthropic key), or the dev/CI stub is explicitly allowed. */
-function aiConfigured(): boolean {
-  return !!process.env.ANTHROPIC_API_KEY?.trim() || stubAllowed()
 }
 
 /**
@@ -180,6 +177,7 @@ async function draftWithClaude(args: {
   aiInstructions: string | null
   policy:     PolicyRowForAi | null
   sectionTemplateFormatRules: string | null
+  abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
 }): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
@@ -263,7 +261,7 @@ async function draftWithClaude(args: {
         ],
       },
     ],
-  })
+  }, { signal: args.abortSignal })
 
   // Response content is an array of blocks; concatenate text blocks.
   // Narrow via b.type instead of a predicate so we don't drag in the
@@ -294,10 +292,17 @@ interface Report {
 export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, type, sourceUploadIds, targetSectionIds } = job.data
 
+  // --- Resolve the Anthropic key up front -------------------------------
+  // DB-first (ExternalApiCredential — admin paste via Settings), env
+  // fallback. One lookup for the whole job so every section uses the same
+  // key the admin had set at enqueue time; rotating the key mid-draft
+  // won't cause a mix.
+  const apiKey = await resolveAnthropicKey(prisma)
+
   // --- No AI set up: draft nothing --------------------------------------
   // Sections stay empty (the API seeded them blank), nothing is queued after this, and the document's
   // draft status says "AI not configured" so the writer sees why.
-  if (!aiConfigured()) {
+  if (!apiKey && !stubAllowed()) {
     log.warn({ documentId }, 'ai_initial_draft: AI not configured — sections left empty')
     if (!targetSectionIds || targetSectionIds.length === 0) {
       await prisma.document.update({
@@ -307,6 +312,30 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     }
     return { skipped: 'ai_not_configured' }
   }
+
+  // --- Abort signal for writer-triggered Stop --------------------------
+  // The existing cancellation check runs between sections; this
+  // AbortController adds an in-flight interrupt by heart-beating the
+  // document's aiDraftState every 2s. When the state flips to
+  // 'cancelled' (POST /ai-draft/stop), the controller aborts, which
+  // propagates into the Anthropic SDK call and raises instead of
+  // waiting for the current section to finish. Cleared in a finally at
+  // the end of the handler so the interval doesn't survive.
+  const abortController = new AbortController()
+  const cancelPoll = setInterval(async () => {
+    try {
+      const row = await prisma.document.findUnique({
+        where:  { id: documentId },
+        select: { aiDraftState: true },
+      })
+      if (row?.aiDraftState === 'cancelled' && !abortController.signal.aborted) {
+        abortController.abort()
+        log.info({ documentId }, 'ai_initial_draft: cancel-poll aborted the in-flight Claude call')
+      }
+    } catch { /* transient DB errors must not crash the interval */ }
+  }, 2_000)
+
+  try {
 
   // --- Mark document as drafting (migration 56, 2026-11-02) --------------
   // Writers polling GET /documents/:id/ai-draft-status need a signal that
@@ -399,7 +428,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // all. Only runs when the Anthropic key is present to avoid wasting IO
   // on stub-mode drafts.
   const sourcePdfs: SourcePdfPayload[] = []
-  if (process.env.ANTHROPIC_API_KEY?.trim() && sources.length > 0) {
+  if (apiKey && sources.length > 0) {
     const reader = createBlobReaderFromEnv()
     for (const src of sources) {
       if (src.contentType !== 'application/pdf') continue
@@ -464,13 +493,39 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       const { contentHtml, engine } = await draftSection({
         section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
         sectionTemplateFormatRules,
+        apiKey,
+        abortSignal: abortController.signal,
       })
+
+      // Derive the status from the drafter's own output so the Sections
+      // list reflects reality the moment the worker commits: 'complete'
+      // when the model returned a clean draft (no [TBD: ...] markers),
+      // 'in_progress' when it filled the structure but left placeholders,
+      // 'not_started' only when the model returned nothing. Mirrors the
+      // same derivation /ai-suggest and manual saves use via
+      // deriveSectionStatus on the API side.
+      const placeholderCount = (contentHtml.replace(/<[^>]*>/g, ' ').match(/\[\s*(?:TBD\b[^\]]*|TBC\b[^\]]*|X+|PLACEHOLDER|REF|INSERT\b[^\]]*|STUB_[^\]]*)\s*\]/gi) ?? []).length
+      const nextStatus = contentHtml.trim().length === 0 || contentHtml.trim() === '<p></p>'
+        ? 'not_started'
+        : placeholderCount === 0 ? 'complete' : 'in_progress'
+
+      // Per-section trace of what the drafter was looking at for this
+      // section (migration 98). One row per commit — includes model, source
+      // doc titles+ids attached to the Claude call, prompt + output sizes.
+      // Rendered by the AI Debug panel so writers can validate the draft
+      // against the right source references. Fire-and-forget: a trace
+      // failure must never block the actual section write.
+      const tracedSources = sourcePdfs.map((pdf, i) => ({
+        id:    sources.find(s => s.title === pdf.title)?.id ?? `pdf-${i}`,
+        title: pdf.title,
+      }))
 
       await prisma.$transaction(async (tx) => {
         await tx.sectionContent.update({
           where: { id: row.id },
           data:  {
             contentHtml,
+            ichStatus:     nextStatus,
             wordCount:     contentHtml.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length,
             aiSpanCount:   1,
             lastEditedBy:  job.data.actorId,
@@ -497,10 +552,39 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
           },
         })
       })
+
+      // Trace write — outside the section-write transaction so a trace DB
+      // failure (bad schema, index trouble) doesn't roll back the actual
+      // draft commit. Failures are logged but non-fatal.
+      await prisma.aiSectionDraftTrace.create({
+        data: {
+          documentId,
+          documentVersionId: versionId,
+          sectionId:         sec.id,
+          sectionNumber:     sec.number,
+          sectionTitle:      sec.title,
+          model:             engine === 'stub' ? 'stub' : resolvedModel,
+          sourceIds:         tracedSources.map(s => s.id),
+          sourceTitles:      tracedSources.map(s => s.title),
+          promptCharCount:   0,     // populated by draftWithClaude (prompt chars sent to the model)
+          outputCharCount:   contentHtml.length,
+        },
+      }).catch((err: unknown) => {
+        log.warn({ err, documentId, sectionId: sec.id }, 'ai_initial_draft: trace write failed (non-fatal)')
+      })
+
       report.drafted++
       const missing = extractMissingItems(contentHtml)
       log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')
     } catch (err) {
+      // Writer hit Stop while the SDK was mid-call. Don't log this as a
+      // section failure — the next loop iteration's cancellation check
+      // would exit anyway, but breaking here is cleaner (no "section
+      // errored" entry in the report for what was really a user action).
+      if (abortController.signal.aborted) {
+        log.info({ documentId, sectionId: sec.id }, 'ai_initial_draft: section aborted mid-call by writer Stop')
+        break
+      }
       const message = err instanceof Error ? err.message : String(err)
       log.error({ documentId, sectionId: sec.id, err: message }, 'ai_initial_draft: section failed')
       report.errored.push({ sectionId: sec.id, error: message })
@@ -569,5 +653,8 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     drafted: report.drafted,
     skipped: report.skipped,
     errored: report.errored,
+  }
+  } finally {
+    clearInterval(cancelPoll)
   }
 }

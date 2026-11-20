@@ -15,7 +15,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
 import { billingPeriod } from '../subscriptions/usage.js'
-import { createAnthropicClientFromEnv } from '../ai-gateway/anthropic-client.js'
+import { createAnthropicClientWithKey } from '../ai-gateway/anthropic-client.js'
+import { resolveAnthropicKey } from '../ai-gateway/resolve-anthropic-key.js'
 import { runConnectionTest } from './test-connection.js'
 import {
   AI_ENGINE_SAVED, availableEngineOptions, resolveAiEngineSettings, validateAiEngineSettings,
@@ -55,15 +56,19 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
   // walks in-memory client state only (no network call). It's safe for
   // every page render without rate-limit concerns.
   app.get('/ai/readiness', { preHandler: requireAuth({ modules: [] }) }, async () => {
-    const engine     = await resolveAiEngineSettings(app.prisma)
-    const configured = app.aiGateway.isConfigured(engine.default)
-    const provider   = engine.default.startsWith('claude-') ? 'anthropic' : engine.default.split('-')[0] ?? 'unknown'
+    const engine   = await resolveAiEngineSettings(app.prisma)
+    const provider = engine.default.startsWith('claude-') ? 'anthropic' : engine.default.split('-')[0] ?? 'unknown'
+    // DB-first resolver so the admin-pasted key (Settings → AI engine →
+    // API keys) counts as "configured" even when ANTHROPIC_API_KEY env
+    // var is empty. Falls back to env. For non-Anthropic providers the
+    // gateway's env-based check still applies.
+    const anthropicKey = provider === 'anthropic' ? await resolveAnthropicKey(app.prisma) : ''
+    const configured = provider === 'anthropic' ? !!anthropicKey : app.aiGateway.isConfigured(engine.default)
     const blockers: string[] = []
     if (!configured) {
-      if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY?.trim()) {
+      if (provider === 'anthropic') {
         blockers.push('ANTHROPIC_API_KEY')
-      }
-      if (blockers.length === 0) {
+      } else {
         blockers.push(`${provider}-credentials`)                                   // generic: unknown provider or opaque gateway state
       }
     }
@@ -82,9 +87,12 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/admin/test-connection', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const { default: model } = await resolveAiEngineSettings(app.prisma)   // test the engine the platform will actually use
-    const key = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
+    // DB-first key resolver — admins who pasted a key via Settings should
+    // be able to Test connection without also shelling into the server to
+    // set ANTHROPIC_API_KEY env var.
+    const key = await resolveAnthropicKey(app.prisma)
     const result = await runConnectionTest({
-      client: createAnthropicClientFromEnv(),   // null without a key — never the offline stub
+      client: key ? createAnthropicClientWithKey(key) : null,   // null without a key — never the offline stub
       model,
       secrets: [key],
     })
@@ -142,7 +150,9 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
     const now = new Date()
     const renewalDate = subscription ? billingPeriod(subscription.rolloverDay, now).next.toISOString().slice(0, 10) : null
 
-    const aiConnected   = !!env.ANTHROPIC_API_KEY
+    // DB-first key check so the Admin Panel reflects a key the admin
+    // just pasted via Settings → AI engine, not only the server env.
+    const aiConnected   = !!(await resolveAnthropicKey(app.prisma))
     const smtpConnected = (env.EMAIL_PROVIDER ?? '').toLowerCase() === 'smtp' && !!env.SMTP_HOST
 
     const notConfigured = (id: string, label: string, extra: Record<string, string> = {}) =>

@@ -539,6 +539,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   // under the hyphenated spelling ("csr-full") is never used by any document. Editing one would look like
   // changing the checklist and change nothing, so those rows are read-only: every change is refused and
   // points at the real template. (The screen shows them under their type with an "old spelling" mark.)
+  const autoCompleteSchemaForCreate = z.string().trim().min(1).max(120)
+    .superRefine((v, ctx) => { const why = autoCompleteTagError(v); if (why) ctx.addIssue({ code: 'custom', message: why }) })
+    .transform(normaliseAutoCompleteTag)
   const isLegacyType = (type: string) => normalizeDeliverableType(type) !== type
   /** Both spellings of a type, for a lookup that must not miss a row filed under the other one. */
   const sameType = (type: string) => [...new Set([type, normalizeDeliverableType(type), normalizeDeliverableType(type).replace(/_/g, '-')])]
@@ -678,6 +681,90 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   //   - project does not exist                                        → 404
   //   - project belongs to a different tenant (for tenant admins)     → 403
   //   - an override already exists for (project, deliverableType)     → 409
+  // POST /checklist-templates — start a new platform checklist template as a draft, optionally with items imported
+  // from a file (the screen parses the CSV and sends rows). It becomes the next version of that deliverable type
+  // (v1 for a new type) and, like any draft, goes live only when another PM approves it. Refused while the type
+  // already has an unapproved draft — finish that one first.
+  const createTemplateSchema = z.object({
+    deliverableType: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,59}$/, 'Use lower-case letters, digits and underscores.'),
+    changeReason: z.string().trim().max(500).optional(),
+    items: z.array(z.object({
+      text: z.string().trim().min(1).max(500),
+      framework: z.string().trim().min(1).max(100),
+      frameworkMandatory: z.boolean().default(false),
+      ownerRaci: z.enum(['R', 'A', 'C', 'Q', 'I']).default('R'),
+      stage: z.enum(CHECKLIST_STAGES),
+      autoCompleteOn: autoCompleteSchemaForCreate.nullable().optional(),
+    })).max(500).default([]),
+  })
+  app.post('/', { preHandler: adminGate }, async (request, reply) => {
+    const parsed = createTemplateSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const actor = request.user!
+    const deliverableType = normalizeDeliverableType(parsed.data.deliverableType)
+
+    const rows = await app.prisma.checklistTemplate.findMany({
+      where: { deliverableType: { in: sameType(deliverableType) }, projectId: null },
+      select: { id: true, version: true, templateStatus: true },
+    })
+    const draft = rows.find(r => r.templateStatus === 'draft')
+    if (draft) {
+      return reply.code(409).send({ error: 'draft_exists', draftId: draft.id, message: 'An unapproved draft already exists for this deliverable type — open it and add the items there.' })
+    }
+    const version = rows.reduce((m, r) => Math.max(m, r.version), 0) + 1
+    const items = parsed.data.items
+
+    const created = await app.prisma.$transaction(async (tx) => {
+      const t = await tx.checklistTemplate.create({
+        data: {
+          deliverableType,
+          projectId: null,
+          version,
+          effectiveDate: new Date(),
+          changeReason: parsed.data.changeReason || (items.length > 0
+            ? `New template with ${items.length} imported item${items.length === 1 ? '' : 's'} on ${new Date().toISOString().slice(0, 10)}`
+            : `New template on ${new Date().toISOString().slice(0, 10)}`),
+          isCurrent: false,                                   // becomes current on approve
+          templateStatus: 'draft',
+          createdBy: actor.id,
+        },
+      })
+      if (items.length > 0) {
+        await tx.checklistTemplateItem.createMany({
+          data: items.map((it, i) => ({
+            templateId: t.id,
+            text: it.text,
+            framework: it.framework,
+            frameworkMandatory: it.frameworkMandatory,
+            ownerRaci: it.ownerRaci,
+            stage: it.stage,
+            autoCompleteOn: it.autoCompleteOn ?? null,
+            sortOrder: (i + 1) * 10,
+          })),
+        })
+      }
+      return t
+    }).catch((err: unknown) => {
+      if ((err as { code?: string })?.code === 'P2002') return null
+      throw err
+    })
+    if (!created) {
+      return reply.code(409).send({ error: 'draft_exists', message: 'Another draft for this deliverable type was just created — refresh the list.' })
+    }
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: actor.id,
+      action: 'checklist_template_created',
+      entityType: 'checklist_template',
+      entityId: created.id,
+      details: { deliverableType, projectId: null, version, itemCount: items.length },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(201).send(created)
+  })
+
   const cloneSchema = z.object({ projectId: z.string().min(1) })
   app.post('/:templateId/clone-to-project', { preHandler: adminGate }, async (request, reply) => {
     const { templateId } = request.params as { templateId: string }
@@ -716,6 +803,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // A project override starts at v1 of its own sequence (unique per deliverableType + projectId + version).
+    // Two clicks racing past the check above meet the unique index: answer that like the check does, never with
+    // the database's own message.
     const created = await app.prisma.$transaction(async (tx) => {
       const t = await tx.checklistTemplate.create({
         data: {
@@ -744,7 +834,16 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
         })
       }
       return t
+    }).catch((err: unknown) => {
+      if ((err as { code?: string })?.code === 'P2002') return null
+      throw err
     })
+    if (!created) {
+      return reply.code(409).send({
+        error: 'override_exists',
+        message: 'This project already has a checklist template for this deliverable type — edit that one instead.',
+      })
+    }
 
     await app.audit.append({
       timestamp: new Date().toISOString(),

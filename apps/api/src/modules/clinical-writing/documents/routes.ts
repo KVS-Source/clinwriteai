@@ -23,6 +23,7 @@ import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatur
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
+import { resolveAnthropicKey } from '../../platform/ai-gateway/resolve-anthropic-key.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { notifyRaciAssigned } from '../../platform/document-raci/notify-assigned.js'
 import { lettersForTransition, transitionForbidden } from './transition-roles.js'
@@ -1189,10 +1190,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
     })
 
+    const anthropicKey = await resolveAnthropicKey(app.prisma)
     return {
       // True when no AI provider key is set and the dev/CI placeholder drafter is switched on: AI text
       // in this deployment is placeholder text, and the editor says so (CW-095).
-      aiStubMode:         stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
+      aiStubMode:         stubAllowed() && !anthropicKey,
       state:              doc.aiDraftState,
       confidenceOverall:  doc.aiConfidenceOverall,
       lastPassNumber:     doc.aiLastPassNumber,
@@ -1411,6 +1413,14 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { passNumber: 'asc' },
     })
 
+    // Per-section drafting traces (migration 98) — most recent 200 for
+    // this document, newest first. Grouped by section in the UI.
+    const sectionDraftTraces = await app.prisma.aiSectionDraftTrace.findMany({
+      where:   { documentId },
+      orderBy: { draftedAt: 'desc' },
+      take:    200,
+    })
+
     // Last 50 AI + section audit events for this document. audit_events
     // lives in raw SQL (not Prisma) per ADR 0002, so we read directly.
     // Includes:
@@ -1455,9 +1465,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ? (templateRow!.sections as Array<Record<string, unknown>>).length
       : 0
 
+    const anthropicKey = await resolveAnthropicKey(app.prisma)
     return {
       snapshotTakenAt: new Date().toISOString(),
-      aiStubMode:      stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
+      aiStubMode:      stubAllowed() && !anthropicKey,
 
       document: {
         id:                   doc.id,
@@ -1578,6 +1589,26 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         confidenceAfter: p.confidenceAfter,
         modelUsed:       p.modelUsed,
         flagsJson:       p.flagsJson,
+      })),
+
+      // Per-section drafting traces (migration 98) — one row per AI section
+      // commit, showing which source documents were in the model's context
+      // and what model was used. Grouped by sectionId so the UI can expand
+      // a section and see every commit for it (most recent first). Capped
+      // to 200 rows per document so a long-running validation loop doesn't
+      // balloon the response; the UI can also drill into a single section
+      // via GET /documents/:id/sections/:sectionId/ai-traces if needed.
+      sectionDraftTraces: sectionDraftTraces.map(t => ({
+        id:               t.id,
+        sectionId:        t.sectionId,
+        sectionNumber:    t.sectionNumber,
+        sectionTitle:     t.sectionTitle,
+        model:            t.model,
+        sourceIds:        t.sourceIds,
+        sourceTitles:     t.sourceTitles,
+        promptCharCount:  t.promptCharCount,
+        outputCharCount:  t.outputCharCount,
+        draftedAt:        t.draftedAt.toISOString(),
       })),
 
       auditTail: auditRows.map((a: { id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown }) => ({
@@ -3128,7 +3159,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // sPM-autosave rollup — additive, non-breaking field. UI can prefer
     // `sessions` for a less-noisy default view (one row per writing burst)
     // while keeping `entries` for raw-row drill-down and compatibility.
-    const sessions = sessionizeHistory(entries)
+    //
+    // Drop sessions whose rolled-up BEFORE / AFTER excerpts are identical —
+    // these are autosave-jitter noise that got past the no-op guard before
+    // we added the visibly-equal check. Keeps historical rows available via
+    // `entries` for the Undo stack + audit; the UI's default sessions view
+    // just stops showing WAS=NOW rows that confuse the writer. Single-row
+    // "sessions" (sessionEntryCount === 1) with equal excerpts are also
+    // dropped — those are single saves that visibly changed nothing.
+    const sessions = sessionizeHistory(entries).filter(s => {
+      if (s.origin === 'undo' || s.origin === 'restore') return true          // explicit actions stay regardless
+      return (s.beforeExcerpt ?? '') !== (s.afterExcerpt ?? '')
+    })
 
     return {
       documentId,

@@ -5,6 +5,8 @@ import { useDocumentStore } from '../../store'
 import { usePlatformStore } from '../../platform/store/platformStore'
 import { AiSectionConfidenceBadge } from '../../components/ai-drafter/AiSectionConfidenceBadge'
 import { TbdsPanel } from './TbdsPanel'
+import { DocumentSourcesPanel } from './DocumentSourcesPanel'
+import { SearchPanel } from './SearchPanel'
 import { scanDocumentForTbds, countAllTbds } from './tbd-scanner'
 
 interface AiSectionStatus {
@@ -27,7 +29,41 @@ interface Props {
   aiConfidenceBySectionId?: Map<string, AiSectionStatus>
 }
 
-type SectionNavTab = 'sections' | 'tbds'
+type SectionNavTab = 'sections' | 'sources' | 'tbds' | 'search'
+
+function TabButton({ label, name, tab, onSelect, badge }: {
+  label:    string
+  name:     SectionNavTab
+  tab:      SectionNavTab
+  onSelect: (t: SectionNavTab) => void
+  badge?:   number
+}) {
+  const active = tab === name
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(name)}
+      data-tab={name}
+      data-active={active || undefined}
+      className="flex flex-1 items-center justify-center gap-1 border-b-2 px-1 py-2 font-mono text-[9px] font-medium uppercase tracking-wider"
+      style={{
+        borderColor:     active ? '#2563EB' : 'transparent',
+        color:           active ? '#1E293B' : '#64748B',
+        backgroundColor: active ? '#F8FAFC' : 'transparent',
+      }}
+    >
+      {label}
+      {typeof badge === 'number' && badge > 0 && (
+        <span
+          className="flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold"
+          style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  )
+}
 
 // Presence avatar colours — matches design-system Pattern 7
 const USER_AVATAR: Record<string, { bg: string; fg: string }> = {
@@ -114,46 +150,15 @@ export function SectionNavigator({
   return (
     <div className="flex w-[220px] flex-none flex-col border-r border-slate-200" style={{ backgroundColor: '#F8FAFC', minHeight: 0 }} data-section-nav>
 
-      {/* Tab bar — Sections (default) + TBDs (only when documentId is passed).
-          Reviewer view mounts without documentId so no Replace-all is exposed. */}
+      {/* Tab bar — Sections / Sources / TBDs / Search. Author view only;
+          reviewer view mounts without documentId and keeps the legacy
+          Sections-only header below. */}
       {documentId ? (
         <div className="flex flex-none border-b border-slate-200 bg-white">
-          <button
-            type="button"
-            onClick={() => setTab('sections')}
-            data-tab="sections"
-            data-active={tab === 'sections' || undefined}
-            className="flex-1 border-b-2 px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest"
-            style={{
-              borderColor:     tab === 'sections' ? '#2563EB' : 'transparent',
-              color:           tab === 'sections' ? '#1E293B' : '#64748B',
-              backgroundColor: tab === 'sections' ? '#F8FAFC' : 'transparent',
-            }}
-          >
-            {t('page.section_navigator.header')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('tbds')}
-            data-tab="tbds"
-            data-active={tab === 'tbds' || undefined}
-            className="flex flex-1 items-center justify-center gap-1 border-b-2 px-2 py-2 font-mono text-[10px] font-medium uppercase tracking-widest"
-            style={{
-              borderColor:     tab === 'tbds' ? '#2563EB' : 'transparent',
-              color:           tab === 'tbds' ? '#1E293B' : '#64748B',
-              backgroundColor: tab === 'tbds' ? '#F8FAFC' : 'transparent',
-            }}
-          >
-            TBDs
-            {tbdCount > 0 && (
-              <span
-                className="flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold"
-                style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
-              >
-                {tbdCount}
-              </span>
-            )}
-          </button>
+          <TabButton label={t('page.section_navigator.header')} name="sections" tab={tab} onSelect={setTab} />
+          <TabButton label="Sources"                             name="sources"  tab={tab} onSelect={setTab} />
+          <TabButton label="TBDs" badge={tbdCount}               name="tbds"     tab={tab} onSelect={setTab} />
+          <TabButton label="Search"                              name="search"   tab={tab} onSelect={setTab} />
         </div>
       ) : (
         /* Reviewer / embedded views keep the legacy header. */
@@ -169,6 +174,10 @@ export function SectionNavigator({
 
       {tab === 'tbds' && documentId ? (
         <TbdsPanel documentId={documentId} sections={sections} />
+      ) : tab === 'sources' && documentId ? (
+        <DocumentSourcesPanel documentId={documentId} />
+      ) : tab === 'search' && documentId ? (
+        <SearchPanel documentId={documentId} sections={sections} />
       ) : (
       <>
       {/* Filter-count shown on tabbed header when a query is active. */}

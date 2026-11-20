@@ -1233,6 +1233,7 @@
       "col_start": "Start date",
       "col_countries": "Countries",
       "col_documents": "Documents",
+      "col_ai_spend": "AI spend",
       "col_status": "Status",
       "phase_prefix": "Phase {{phase}}",
       "document_count_one": "{{count}} document",

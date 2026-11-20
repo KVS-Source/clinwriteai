@@ -89,6 +89,11 @@ export interface Project {
     regulatoryWriting:  number
     ideationPublishing: number
   }
+  // Running total AI spend (USD) across every AiCallRecord tagged with this
+  // project. Shown as a single column on the Projects list; the full
+  // breakdown (per model / drafts accepted / latency) lives on the
+  // project overview panel + /reports/projects/:id/ai-usage.
+  aiSpendUsd?: number
 }
 
 export interface TeamMember {

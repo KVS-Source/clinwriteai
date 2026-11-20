@@ -10,6 +10,7 @@ describe('GET /projects documentCount', () => {
   it('adds the grouped document count per project, 0 when none', async () => {
     const groupBy = vi.fn(async () => [{ projectId: 'p1', _count: { _all: 5 } }])
     const empty = vi.fn(async () => [] as Array<{ projectId: string; _count: { _all: number } }>)
+    const emptyAiSpend = vi.fn(async () => [] as Array<{ projectId: string | null; _sum: { costUsd: unknown } }>)
     const app = Fastify()
     app.decorate('prisma', {
       project: { findMany: vi.fn(async () => [
@@ -20,6 +21,7 @@ describe('GET /projects documentCount', () => {
       publication:          { groupBy: empty },
       medContentItem:       { groupBy: empty },
       regulatorySubmission: { groupBy: empty },
+      aiCallRecord:         { groupBy: emptyAiSpend },
     } as never)
     app.decorateRequest('user', null)
     app.addHook('onRequest', async (r) => {
@@ -57,6 +59,7 @@ describe('GET /projects documentCount', () => {
     const swBy = vi.fn(async () => [{ projectId: 'p1', _count: { _all: 2 } }])
     const mwBy = vi.fn(async () => [{ projectId: 'p1', _count: { _all: 1 } }])
     const rwBy = vi.fn(async () => [] as Array<{ projectId: string; _count: { _all: number } }>)
+    const aiSpendBy = vi.fn(async () => [] as Array<{ projectId: string | null; _sum: { costUsd: unknown } }>)
     const app = Fastify()
     app.decorate('prisma', {
       project: { findMany: vi.fn(async () => [{ id: 'p1', name: 'One', teamMembers: [] }]) },
@@ -64,6 +67,7 @@ describe('GET /projects documentCount', () => {
       publication:          { groupBy: swBy },
       medContentItem:       { groupBy: mwBy },
       regulatorySubmission: { groupBy: rwBy },
+      aiCallRecord:         { groupBy: aiSpendBy },
     } as never)
     app.decorateRequest('user', null)
     app.addHook('onRequest', async (r) => {
@@ -82,5 +86,42 @@ describe('GET /projects documentCount', () => {
       medicalWriting:    1,
       regulatoryWriting: 0,
     })
+  })
+
+  it('rolls up AiCallRecord costUsd into aiSpendUsd per project', async () => {
+    const emptyGroup = vi.fn(async () => [] as Array<{ projectId: string; _count: { _all: number } }>)
+    const aiSpendBy = vi.fn(async () => [
+      { projectId: 'p1', _sum: { costUsd: 12.3456 } },
+      { projectId: 'p2', _sum: { costUsd: 0.0001 } },
+      { projectId: null, _sum: { costUsd: 99 } },         // platform-level calls — ignored
+    ])
+    const app = Fastify()
+    app.decorate('prisma', {
+      project: { findMany: vi.fn(async () => [
+        { id: 'p1', name: 'One', teamMembers: [] },
+        { id: 'p2', name: 'Two', teamMembers: [] },
+        { id: 'p3', name: 'Three', teamMembers: [] },     // no calls → aiSpendUsd = 0
+      ]) },
+      document:             { groupBy: emptyGroup },
+      publication:          { groupBy: emptyGroup },
+      medContentItem:       { groupBy: emptyGroup },
+      regulatorySubmission: { groupBy: emptyGroup },
+      aiCallRecord:         { groupBy: aiSpendBy },
+    } as never)
+    app.decorateRequest('user', null)
+    app.addHook('onRequest', async (r) => {
+      const user: AuthenticatedUser = { id: 'u', email: 'e@v', role: 'admin', modules: ['A'], tenantId: null }
+      Object.assign(r, { user })
+    })
+    await app.register(projectRoutes)
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/' })
+    const body = res.json() as Array<{ id: string; aiSpendUsd: number }>
+    expect(body.map(p => [p.id, p.aiSpendUsd])).toEqual([
+      ['p1', 12.3456],
+      ['p2', 0.0001],
+      ['p3', 0],
+    ])
   })
 })

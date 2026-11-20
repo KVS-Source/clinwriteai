@@ -50,9 +50,9 @@ function FolderIcon() {
   )
 }
 
-// Row columns: project · TA · phase · start date · submission countries · documents · status · gear · chevron
-const ROW_GRID = 'minmax(220px,2fr) minmax(120px,1fr) 100px 120px minmax(120px,1fr) 120px 120px 28px 14px'
-type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
+// Row columns: project · TA · phase · start date · submission countries · documents · AI spend · status · gear · chevron
+const ROW_GRID = 'minmax(220px,2fr) minmax(120px,1fr) 100px 120px minmax(120px,1fr) 120px 100px 120px 28px 14px'
+type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'ai' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
 const COLUMN_HEADERS: Array<{ labelKey: string; key: SortKey | null }> = [
@@ -62,8 +62,20 @@ const COLUMN_HEADERS: Array<{ labelKey: string; key: SortKey | null }> = [
   { labelKey: 'page.all_projects.col_start',     key: 'start' },
   { labelKey: 'page.all_projects.col_countries', key: null },
   { labelKey: 'page.all_projects.col_documents', key: 'documents' },
+  { labelKey: 'page.all_projects.col_ai_spend',  key: 'ai' },
   { labelKey: 'page.all_projects.col_status',    key: 'status' },
 ]
+
+function formatUsd(amount: number): string {
+  // Running-total column — compact display: cents to 2dp, ~$1 to 2dp, big
+  // amounts to 0dp with k/M suffix. Keeps the column narrow while staying
+  // precise on the common sub-dollar figures the demo emits.
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`
+  if (amount >= 1_000)     return `$${(amount / 1_000).toFixed(1)}k`
+  if (amount >= 1)         return `$${amount.toFixed(2)}`
+  if (amount > 0)          return `$${amount.toFixed(4)}`
+  return '—'
+}
 // asc → desc → back to the default (newest first) order
 const nextSort = (cur: SortState, key: SortKey): SortState =>
   cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null
@@ -172,6 +184,7 @@ export function AllProjects() {
         case 'phase':     return phaseRank(p.phase ?? '')
         case 'start':     return p.startDate ? Date.parse(p.startDate) : 0
         case 'documents': return p.documentCount ?? 0
+        case 'ai':        return p.aiSpendUsd ?? 0
         case 'status':    return STATUS_RANK[p.status] ?? 99
       }
     }
@@ -360,6 +373,10 @@ export function AllProjects() {
                           : <span className="text-slate-400">—</span>}
                       </div>
                       <div><DocumentCountChips project={project} /></div>
+                      <div className="font-mono text-[12px] text-slate-700 tabular-nums" data-ai-spend={project.aiSpendUsd ?? 0}
+                        title={project.aiSpendUsd != null ? `$${project.aiSpendUsd.toFixed(6)} across all AI calls on this project` : 'No AI usage recorded'}>
+                        {formatUsd(project.aiSpendUsd ?? 0)}
+                      </div>
                       <div data-project-status={project.status}><ProjectStatusPill status={project.status} /></div>
                       {canOpenSettings ? (
                         <button

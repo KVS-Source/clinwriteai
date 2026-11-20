@@ -1361,6 +1361,7 @@
       "col_start":     "開始日",
       "col_countries": "対象国",
       "col_documents": "ドキュメント",
+      "col_ai_spend":  "AI 利用料",
       "col_status":    "ステータス",
 
       "phase_prefix":   "フェーズ {{phase}}",

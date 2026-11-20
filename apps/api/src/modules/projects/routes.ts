@@ -128,7 +128,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     // until a cross-project mapping is agreed.
     const docScope = await documentVisibilityWhere(app.prisma, request.user!)
     const visibleProjectWhere = visible === 'all' ? {} : { projectId: { in: [...visible] } }
-    const [cwCounts, swCounts, mwCounts, rwCounts] = await Promise.all([
+    const [cwCounts, swCounts, mwCounts, rwCounts, aiSpend] = await Promise.all([
       app.prisma.document.groupBy({
         by: ['projectId'],
         where: { deletedAt: null, ...visibleProjectWhere, ...(docScope ?? {}) },
@@ -149,11 +149,26 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         where: { ...visibleProjectWhere },
         _count: { _all: true },
       }).catch(() => [] as Array<{ projectId: string; _count: { _all: number } }>),
+      // Per-project AI spend for the list's "AI spend" column — one
+      // groupBy aggregate against AiCallRecord instead of N per-project
+      // round-trips. Null projectId rows (platform-level calls) are
+      // excluded by the projectId filter. Rows with errorCode still count
+      // toward the sum so the column reflects everything billed.
+      app.prisma.aiCallRecord.groupBy({
+        by: ['projectId'],
+        where: { projectId: { not: null, ...(visible === 'all' ? {} : { in: [...visible] }) } },
+        _sum: { costUsd: true },
+      }).catch(() => [] as Array<{ projectId: string | null; _sum: { costUsd: unknown } }>),
     ])
     const cwByProject = new Map(cwCounts.map(c => [c.projectId, c._count._all]))
     const swByProject = new Map(swCounts.map(c => [c.projectId, c._count._all]))
     const mwByProject = new Map(mwCounts.map(c => [c.projectId, c._count._all]))
     const rwByProject = new Map(rwCounts.map(c => [c.projectId, c._count._all]))
+    const aiSpendByProject = new Map(
+      aiSpend
+        .filter((r): r is { projectId: string; _sum: { costUsd: unknown } } => r.projectId !== null)
+        .map(r => [r.projectId, Number(r._sum.costUsd ?? 0)]),
+    )
     return rows.map(r => {
       const cw = cwByProject.get(r.id) ?? 0
       const sw = swByProject.get(r.id) ?? 0
@@ -172,6 +187,11 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           regulatoryWriting:  rw,
           ideationPublishing: 0,     // Module E uses its own project concept; rollup deferred
         },
+        // Running total AI spend across every call AiCallRecord has tagged
+        // with this projectId. USD. Used by the Projects list's "AI spend"
+        // column; detailed per-project breakdown stays on
+        // /reports/projects/:id/ai-usage.
+        aiSpendUsd: aiSpendByProject.get(r.id) ?? 0,
       }
     })
   })

@@ -10,6 +10,8 @@ import { documentsRoutes } from './routes.js'
 type Row = {
   id: string
   entityType: string
+  entityId?: string
+  subUnitId?: string | null
   documentId: string | null
   sectionId: string | null
   origin: string
@@ -18,7 +20,7 @@ type Row = {
   afterHtml: string
 }
 
-async function build(opts: { row?: Row; canSee?: boolean } = {}) {
+async function build(opts: { row?: Row; prevAfter?: string; canSee?: boolean } = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     // canSeeDocument: the diff is readable by anyone who can see the document.
@@ -29,6 +31,11 @@ async function build(opts: { row?: Row; canSee?: boolean } = {}) {
         if (!opts.row) return null
         return opts.row.id === where.id ? opts.row : null
       }),
+      // Used by deriveBeforeHtml to look up the previous row's afterHtml
+      // when the target row's beforeHtml is null.
+      findFirst: vi.fn(async () =>
+        opts.prevAfter !== undefined ? { afterHtml: opts.prevAfter } : null,
+      ),
     },
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
@@ -92,11 +99,23 @@ describe('GET /section-edits/:id/diff', () => {
     expect(res.json().error).toBe('wrong_entity_type')
   })
 
-  it('returns null beforeHtml for the first-ever save on a section', async () => {
+  it('returns empty beforeHtml for the first-ever save on a section (derived from no previous row)', async () => {
+    // No prevAfter → findFirst returns null → deriveBeforeHtml returns ''.
     const { app } = await build({ row: { ...sampleRow, beforeHtml: null } })
     const res = await app.inject({ method: 'GET', url: '/documents/section-edits/eh-1/diff' })
     expect(res.statusCode).toBe(200)
-    expect(res.json().beforeHtml).toBeNull()
+    expect(res.json().beforeHtml).toBe('')
+    expect(res.json().afterHtml).toBe('<p>After text.</p>')
+  })
+
+  it('derives beforeHtml from the previous row when this row stored null', async () => {
+    const { app } = await build({
+      row: { ...sampleRow, beforeHtml: null },
+      prevAfter: '<p>From previous save.</p>',
+    })
+    const res = await app.inject({ method: 'GET', url: '/documents/section-edits/eh-1/diff' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().beforeHtml).toBe('<p>From previous save.</p>')
     expect(res.json().afterHtml).toBe('<p>After text.</p>')
   })
 })

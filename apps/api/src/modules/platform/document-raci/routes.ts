@@ -306,6 +306,17 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       recipientId: parsed.data.userId, actorId: actor.id, documentId, letter: parsed.data.letter, sectionId,
     })
 
+    // The document may already be waiting for signature with no chain because it had no Approver when the last
+    // Reviewer finished. Adding the first Approver retries the automatic start (a no-op in any other status,
+    // or when a chain is already running). Never fails the assignment.
+    if (parsed.data.letter === 'A') {
+      try {
+        await startChainWhenReviewDone(app, { documentId, actorId: actor.id, ipAddress: request.ip ?? null })
+      } catch (err) {
+        app.log.warn({ err, documentId }, 'automatic signature chain start failed')
+      }
+    }
+
     if (isAdminSelfGrant) {
       await app.audit.append({
         timestamp: new Date().toISOString(),

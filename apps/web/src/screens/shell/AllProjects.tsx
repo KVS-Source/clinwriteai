@@ -11,6 +11,7 @@ import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { useTaLabels } from '../../hooks'
 import { NewProjectForm } from './NewProject'
+import { DocumentCountChips } from './DocumentCountChips'
 import { holdsRole } from '../../config/roles'
 
 function SearchIcon() {
@@ -297,7 +298,6 @@ export function AllProjects() {
                 )}
 
                 {!isLoading && sorted.map((project: Project, i: number) => {
-                  const docs = project.documentCount ?? 0
                   return (
                     <div
                       key={project.id}
@@ -324,7 +324,7 @@ export function AllProjects() {
                             ))
                           : <span className="text-slate-400">—</span>}
                       </div>
-                      <div className="text-slate-500">{t('page.all_projects.document_count', { count: docs })}</div>
+                      <div><DocumentCountChips project={project} /></div>
                       <div data-project-status={project.status}><ProjectStatusPill status={project.status} /></div>
                       <ChevronRightIcon />
                     </div>

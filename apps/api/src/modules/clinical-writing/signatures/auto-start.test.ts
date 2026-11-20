@@ -32,7 +32,7 @@ describe('automatic signature chain after review and the CRM meeting', () => {
     expect(await go(t.app)).toEqual({ chainStarted: true })
     expect(startSignatureChain).toHaveBeenCalledTimes(1)
     expect(startSignatureChain.mock.calls[0]![1]).toMatchObject({
-      actorId: 'u-chair', chainType: 'approvers_first', automatic: true, signers: [expect.objectContaining({ meaning: 'approved' })],
+      actorId: 'u-chair', chainType: 'approvers_first', automatic: true, skipContentCheck: true, signers: [expect.objectContaining({ meaning: 'approved' })],
     })
   })
 

@@ -64,6 +64,7 @@ import {
 } from '../section-locks/service.js'
 import { sessionizeHistory } from './edit-history-sessions.js'
 import { htmlExcerpt } from './html-excerpt.js'
+import { deriveBeforeHtml, enrichWithDerivedBefore } from './edit-history-before.js'
 import {
   blockedBody,
   checkStageAdvanceGate,
@@ -3103,6 +3104,19 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
     const actorMap = new Map(actors.map(a => [a.id, a.name]))
 
+    // Resolve each row's "before" HTML without storing it on the row.
+    // Walks ascending by createdAt, taking the previous row's afterHtml as
+    // this row's effective beforeHtml; legacy rows that still carry a
+    // non-null beforeHtml win. Keeps the panel's WAS/NOW preview + the
+    // Revert button accurate for both pre- and post-drop rows.
+    const rowsAsc = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    const enriched = enrichWithDerivedBefore(rowsAsc.map(r => ({
+      beforeHtml: r.beforeHtml,
+      afterHtml:  r.afterHtml,
+      id:         r.id,
+    })))
+    const effectiveBeforeById = new Map(enriched.map(e => [e.id, e.effectiveBeforeHtml]))
+
     // Precompute intervening-edit counts: for row i (0 = newest), how many
     // ROWS ACROSS ALL USERS are newer than it on the same section. We walk
     // the full set (not just the filtered view) so the modal's warning is
@@ -3143,15 +3157,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         interveningByActor,
         // Row-level previews so the UI can show "Was: … → Now: …" without a
         // round-trip for every row. Full HTML is lazy-fetched via
-        // GET /section-edits/:id/diff on expand.
-        beforeExcerpt:      htmlExcerpt(r.beforeHtml),
+        // GET /section-edits/:id/diff on expand. "before" is derived from
+        // the previous row's afterHtml when the row itself doesn't store it.
+        beforeExcerpt:      htmlExcerpt(effectiveBeforeById.get(r.id) ?? ''),
         afterExcerpt:       htmlExcerpt(r.afterHtml),
-        // Can revert if the document is open for authoring, the snapshot
-        // exists and the section is still on the version this edit was made
-        // on. Sealed-version check happens in the service.
+        // Can revert if the document is open for authoring and the section
+        // is still on the version this edit was made on. Every row has an
+        // effective before (empty string for the first-ever edit — still a
+        // valid restore target); the sealed-version check happens in the
+        // service.
         canRevert:          viewerCanEdit
                               && !contentLocked
-                              && !!r.beforeHtml
                               && r.documentVersionId === doc.currentVersionId,
       }
     })
@@ -3192,6 +3208,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       select: {
         id: true,
         entityType: true,
+        entityId: true,
+        subUnitId: true,
         documentId: true,
         sectionId: true,
         origin: true,
@@ -3207,13 +3225,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (row.documentId && !(await canSeeDocument(app.prisma, request.user!, row.documentId))) {
       return reply.code(404).send({ error: 'not_found' })
     }
+    // Derive the "before" HTML from the previous row's afterHtml when it
+    // isn't stored directly on this row (standard for post-drop rows; legacy
+    // rows that still carry beforeHtml short-circuit the lookup).
+    const beforeHtml = await deriveBeforeHtml(app.prisma, row)
     return {
       editHistoryId: row.id,
       documentId:    row.documentId,
       sectionId:     row.sectionId,
       origin:        row.origin,
       createdAt:     row.createdAt.toISOString(),
-      beforeHtml:    row.beforeHtml,
+      beforeHtml,
       afterHtml:     row.afterHtml,
     }
   })

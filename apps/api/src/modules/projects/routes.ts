@@ -120,21 +120,60 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' },
       include: { teamMembers: true },
     })
-    // One grouped count for all projects (live Module A documents) so the list
-    // can show a real document total per row — counting only the documents
-    // this user can see (contributors: the ones they work on).
+    // Per-module document counts for the Documents column's colour chips
+    // (CW / SW / MW / RW). Each groupBy is one round-trip; four parallel
+    // queries beat one giant union and keep the per-module semantics
+    // readable. Module E (Ideation & Publishing) uses its own project
+    // concept (ideationProjectId) and isn't rolled up here — it stays 0
+    // until a cross-project mapping is agreed.
     const docScope = await documentVisibilityWhere(app.prisma, request.user!)
-    const counts = await app.prisma.document.groupBy({
-      by: ['projectId'],
-      where: {
-        deletedAt: null,
-        ...(visible === 'all' ? {} : { projectId: { in: [...visible] } }),
-        ...(docScope ?? {}),
-      },
-      _count: { _all: true },
+    const visibleProjectWhere = visible === 'all' ? {} : { projectId: { in: [...visible] } }
+    const [cwCounts, swCounts, mwCounts, rwCounts] = await Promise.all([
+      app.prisma.document.groupBy({
+        by: ['projectId'],
+        where: { deletedAt: null, ...visibleProjectWhere, ...(docScope ?? {}) },
+        _count: { _all: true },
+      }),
+      app.prisma.publication.groupBy({
+        by: ['projectId'],
+        where: { ...visibleProjectWhere },
+        _count: { _all: true },
+      }).catch(() => [] as Array<{ projectId: string; _count: { _all: number } }>),
+      app.prisma.medContentItem.groupBy({
+        by: ['projectId'],
+        where: { ...visibleProjectWhere },
+        _count: { _all: true },
+      }).catch(() => [] as Array<{ projectId: string; _count: { _all: number } }>),
+      app.prisma.regulatorySubmission.groupBy({
+        by: ['projectId'],
+        where: { ...visibleProjectWhere },
+        _count: { _all: true },
+      }).catch(() => [] as Array<{ projectId: string; _count: { _all: number } }>),
+    ])
+    const cwByProject = new Map(cwCounts.map(c => [c.projectId, c._count._all]))
+    const swByProject = new Map(swCounts.map(c => [c.projectId, c._count._all]))
+    const mwByProject = new Map(mwCounts.map(c => [c.projectId, c._count._all]))
+    const rwByProject = new Map(rwCounts.map(c => [c.projectId, c._count._all]))
+    return rows.map(r => {
+      const cw = cwByProject.get(r.id) ?? 0
+      const sw = swByProject.get(r.id) ?? 0
+      const mw = mwByProject.get(r.id) ?? 0
+      const rw = rwByProject.get(r.id) ?? 0
+      return {
+        ...projectShape(r),
+        // Total kept for back-compat (used by the current "N documents" cell
+        // + any out-of-tree consumer). Equal to the sum of the per-module
+        // counts below so the two stay in step.
+        documentCount: cw + sw + mw + rw,
+        documentCountByModule: {
+          clinicalWriting:    cw,
+          scientificWriting:  sw,
+          medicalWriting:     mw,
+          regulatoryWriting:  rw,
+          ideationPublishing: 0,     // Module E uses its own project concept; rollup deferred
+        },
+      }
     })
-    const countByProject = new Map(counts.map(c => [c.projectId, c._count._all]))
-    return rows.map(r => ({ ...projectShape(r), documentCount: countByProject.get(r.id) ?? 0 }))
   })
 
   app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {

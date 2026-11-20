@@ -716,6 +716,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // A project override starts at v1 of its own sequence (unique per deliverableType + projectId + version).
+    // Two clicks racing past the check above meet the unique index: answer that like the check does, never with
+    // the database's own message.
     const created = await app.prisma.$transaction(async (tx) => {
       const t = await tx.checklistTemplate.create({
         data: {
@@ -744,7 +747,16 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
         })
       }
       return t
+    }).catch((err: unknown) => {
+      if ((err as { code?: string })?.code === 'P2002') return null
+      throw err
     })
+    if (!created) {
+      return reply.code(409).send({
+        error: 'override_exists',
+        message: 'This project already has a checklist template for this deliverable type — edit that one instead.',
+      })
+    }
 
     await app.audit.append({
       timestamp: new Date().toISOString(),

@@ -12,7 +12,7 @@
 // re-type the brackets.
 
 import { useMemo, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useIsFetching } from '@tanstack/react-query'
 import type { Section } from '@platform/types'
 import { documentsApi } from '../../api/documents'
 import { useDocumentStore } from '../../store'
@@ -26,33 +26,65 @@ interface Props {
 export function TbdsPanel({ documentId, sections }: Props) {
   const groups = useMemo(() => scanDocumentForTbds(sections), [sections])
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const qc = useQueryClient()
 
-  if (groups.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center px-5 py-6">
-        <p className="text-center text-[12px] italic text-slate-400">
-          No TBD placeholders found.<br/>
-          The AI drafter inserts <code className="rounded bg-slate-100 px-1 font-mono text-[11px]">[TBD: …]</code> wherever source documents don&rsquo;t contain the fact a section needs.
-        </p>
-      </div>
-    )
+  // "Document is being refetched" — covers initial drafter streaming, manual
+  // refresh, and post-replace invalidation. Shown as a spinner on the
+  // Refresh button so the writer knows new data is on the way.
+  const isFetchingDoc = useIsFetching({ queryKey: ['document', documentId] }) > 0
+
+  const handleRefresh = () => {
+    void qc.invalidateQueries({ queryKey: ['document', documentId] })
+    void qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      {groups.map(group => {
-        const key = group.placeholder
-        const isExpanded = expandedKey === key
-        return (
-          <TbdRow
-            key={key}
-            group={group}
-            documentId={documentId}
-            isExpanded={isExpanded}
-            onToggle={() => setExpandedKey(isExpanded ? null : key)}
-          />
-        )
-      })}
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-none items-center justify-between border-b border-slate-200 bg-white px-3 py-2">
+        <span className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
+          {groups.length === 0 ? 'No TBDs' : `${groups.length} TBD group${groups.length === 1 ? '' : 's'}`}
+        </span>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={isFetchingDoc}
+          title="Re-scan the document for new TBD placeholders"
+          data-tbd-refresh
+          className="flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+               className={isFetchingDoc ? 'animate-spin' : undefined}>
+            <path d="M10.5 6a4.5 4.5 0 1 1-1.3-3.2" />
+            <polyline points="10.5,1.5 10.5,3.5 8.5,3.5" />
+          </svg>
+          {isFetchingDoc ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center px-5 py-6">
+          <p className="text-center text-[12px] italic text-slate-400">
+            No TBD placeholders found.<br/>
+            The AI drafter inserts <code className="rounded bg-slate-100 px-1 font-mono text-[11px]">[TBD: …]</code> wherever source documents don&rsquo;t contain the fact a section needs.
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          {groups.map(group => {
+            const key = group.placeholder
+            const isExpanded = expandedKey === key
+            return (
+              <TbdRow
+                key={key}
+                group={group}
+                documentId={documentId}
+                isExpanded={isExpanded}
+                onToggle={() => setExpandedKey(isExpanded ? null : key)}
+              />
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

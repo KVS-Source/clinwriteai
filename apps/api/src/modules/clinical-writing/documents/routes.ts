@@ -3131,7 +3131,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // sPM-autosave rollup — additive, non-breaking field. UI can prefer
     // `sessions` for a less-noisy default view (one row per writing burst)
     // while keeping `entries` for raw-row drill-down and compatibility.
-    const sessions = sessionizeHistory(entries)
+    //
+    // Drop sessions whose rolled-up BEFORE / AFTER excerpts are identical —
+    // these are autosave-jitter noise that got past the no-op guard before
+    // we added the visibly-equal check. Keeps historical rows available via
+    // `entries` for the Undo stack + audit; the UI's default sessions view
+    // just stops showing WAS=NOW rows that confuse the writer. Single-row
+    // "sessions" (sessionEntryCount === 1) with equal excerpts are also
+    // dropped — those are single saves that visibly changed nothing.
+    const sessions = sessionizeHistory(entries).filter(s => {
+      if (s.origin === 'undo' || s.origin === 'restore') return true          // explicit actions stay regardless
+      return (s.beforeExcerpt ?? '') !== (s.afterExcerpt ?? '')
+    })
 
     return {
       documentId,

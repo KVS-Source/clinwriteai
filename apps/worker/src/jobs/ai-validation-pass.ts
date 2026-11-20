@@ -35,6 +35,7 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
+import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 import type { JobHandler } from './types.js'
 
 interface AiValidationPassPayload {
@@ -143,7 +144,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
   // Combined into one Claude call per pass. Only runs when a key is set
   // AND there's enough drafted content to be worth critiquing.
   let modelUsed: string | null = null
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
+  const apiKey = await resolveAnthropicKey(prisma)
   const hasDraftedContent = rows.some(r => stripTags(r.contentHtml ?? '').length >= MIN_CONTENT_CHARS)
   if (apiKey && hasDraftedContent) {
     try {

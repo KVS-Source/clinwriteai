@@ -128,10 +128,22 @@ export class AnthropicLlmClient implements LlmClient {
  * Factory — picks AnthropicLlmClient when ANTHROPIC_API_KEY is set,
  * else returns null so the gateway can fall back to its stub.
  * Caller: AiGatewayService constructor in service.ts.
+ *
+ * Note: this reads ENV only (the gateway constructor runs at boot, before
+ * any Prisma connection is available). Routes/workers that want the
+ * admin-pasted DB key should call resolveAnthropicKey(prisma) at request
+ * time and construct their own client via `new AnthropicLlmClient(key)`.
  */
 export function createAnthropicClientFromEnv(): AnthropicLlmClient | null {
   const key = process.env.ANTHROPIC_API_KEY?.trim()
   if (!key) return null
   const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-opus-4-7'
   return new AnthropicLlmClient(key, model)
+}
+
+/** Build a client from an arbitrary key — used by routes that resolved the
+ *  admin-pasted DB key via resolveAnthropicKey(prisma) at request time. */
+export function createAnthropicClientWithKey(apiKey: string): AnthropicLlmClient {
+  const model = process.env.ANTHROPIC_DEFAULT_MODEL?.trim() || 'claude-opus-4-7'
+  return new AnthropicLlmClient(apiKey, model)
 }

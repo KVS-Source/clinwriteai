@@ -12,6 +12,8 @@ type Row = {
   id: string
   branding: Record<string, unknown>
   localisation: Record<string, unknown>
+  voice?: Record<string, unknown>
+  sso?: Record<string, unknown>
   updatedBy: string | null
   updatedAt: Date
 }
@@ -59,6 +61,8 @@ describe('GET /platform-settings', () => {
     const body = res.json()
     expect(body.branding).toEqual({})
     expect(body.localisation).toEqual({})
+    expect(body.voice).toEqual({})
+    expect(body.sso).toEqual({})
     expect(body.updatedBy).toBeNull()
     expect(typeof body.updatedAt).toBe('string')
   })
@@ -162,6 +166,90 @@ describe('PATCH /platform-settings/localisation', () => {
     const res = await app.inject({
       method: 'PATCH', url: '/platform-settings/localisation',
       payload: { country: 'USA' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('PATCH /platform-settings/voice', () => {
+  it('merges voice fields and leaves branding + sso untouched', async () => {
+    const { app } = await build({
+      initial: {
+        id: 'default',
+        branding:     { companyName: 'Acme' },
+        localisation: {},
+        voice:        { engine: 'whisper', gdprJurisdiction: 'APAC' },
+        sso:          { enabled: true },
+        updatedBy:    'u-seed',
+        updatedAt:    new Date(),
+      },
+    })
+    const res = await app.inject({
+      method: 'PATCH', url: '/platform-settings/voice',
+      payload: { engine: 'assemblyai' },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.voice).toMatchObject({ engine: 'assemblyai', gdprJurisdiction: 'APAC' })
+    expect(body.branding).toMatchObject({ companyName: 'Acme' })
+    expect(body.sso).toMatchObject({ enabled: true })
+  })
+
+  it('403s when a non-admin tries to save', async () => {
+    const { app } = await build({ role: 'pm' })
+    const res = await app.inject({
+      method: 'PATCH', url: '/platform-settings/voice',
+      payload: { engine: 'whisper' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('400s on an unknown GDPR jurisdiction', async () => {
+    const { app } = await build()
+    const res = await app.inject({
+      method: 'PATCH', url: '/platform-settings/voice',
+      payload: { gdprJurisdiction: 'MARS' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('PATCH /platform-settings/sso', () => {
+  it('toggles enable + stores email domains and the protocol block', async () => {
+    const { app } = await build({ initial: null })
+    const res = await app.inject({
+      method: 'PATCH', url: '/platform-settings/sso',
+      payload: {
+        enabled:      true,
+        protocol:     'oidc',
+        emailDomains: ['acme.com'],
+        oidc:         { issuerUrl: 'https://login.acme.com', clientId: 'client-abc', scopes: ['openid', 'email'] },
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.sso).toMatchObject({
+      enabled:      true,
+      protocol:     'oidc',
+      emailDomains: ['acme.com'],
+      oidc:         { issuerUrl: 'https://login.acme.com', clientId: 'client-abc' },
+    })
+  })
+
+  it('403s when a non-admin tries to save', async () => {
+    const { app } = await build({ role: 'pm' })
+    const res = await app.inject({
+      method: 'PATCH', url: '/platform-settings/sso',
+      payload: { enabled: true },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('400s on a bad OIDC issuer URL', async () => {
+    const { app } = await build()
+    const res = await app.inject({
+      method: 'PATCH', url: '/platform-settings/sso',
+      payload: { protocol: 'oidc', oidc: { issuerUrl: 'not a url', clientId: 'x' } },
     })
     expect(res.statusCode).toBe(400)
   })

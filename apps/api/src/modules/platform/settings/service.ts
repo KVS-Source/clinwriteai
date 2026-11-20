@@ -1,11 +1,11 @@
-// PlatformSettings service — single-row branding + localisation.
+// PlatformSettings service — single-row branding + localisation + voice + sso.
 //
 // Reads tolerate a missing row (fresh install before migration seed
-// runs) by returning {} / {} with a synthetic `updatedAt`. Writes
+// runs) by returning empty sections with a synthetic `updatedAt`. Writes
 // upsert on the fixed 'default' id.
 
 import type { PrismaClient, Prisma } from '@prisma/client'
-import type { Branding, Localisation, PlatformSettingsView } from './schema.js'
+import type { Branding, Localisation, PlatformSettingsView, Voice, Sso } from './schema.js'
 
 const SINGLETON_ID = 'default'
 
@@ -21,6 +21,8 @@ export class PlatformSettingsService {
       return {
         branding:     {},
         localisation: {},
+        voice:        {},
+        sso:          {},
         updatedBy:    null,
         updatedAt:    new Date(0).toISOString(),
       }
@@ -28,46 +30,65 @@ export class PlatformSettingsService {
     return {
       branding:     (row.branding     as unknown as Branding)     ?? {},
       localisation: (row.localisation as unknown as Localisation) ?? {},
+      voice:        (row.voice        as unknown as Voice)        ?? {},
+      sso:          (row.sso          as unknown as Sso)          ?? {},
       updatedBy:    row.updatedBy,
       updatedAt:    row.updatedAt.toISOString(),
     }
   }
 
-  async updateBranding(patch: Branding, actorId: string): Promise<PlatformSettingsView> {
+  // One shared upsert helper — every section update needs to carry the
+  // other sections' current values on CREATE (fresh install path), and only
+  // the touched section + updatedBy on UPDATE. Keeps the per-section
+  // methods a one-liner.
+  private async upsertSection(
+    section: 'branding' | 'localisation' | 'voice' | 'sso',
+    merged:  unknown,
+    actorId: string,
+  ): Promise<void> {
     const current = await this.prisma.platformSettings.findUnique({ where: { id: SINGLETON_ID } })
-    const merged = { ...(current?.branding as unknown as Branding ?? {}), ...patch }
     await this.prisma.platformSettings.upsert({
       where:  { id: SINGLETON_ID },
       create: {
-        id:          SINGLETON_ID,
-        branding:    merged as unknown as Prisma.InputJsonValue,
-        localisation: (current?.localisation as unknown as Prisma.InputJsonValue) ?? {},
-        updatedBy:   actorId,
+        id:           SINGLETON_ID,
+        branding:     section === 'branding'     ? (merged as Prisma.InputJsonValue) : ((current?.branding     as Prisma.InputJsonValue) ?? {}),
+        localisation: section === 'localisation' ? (merged as Prisma.InputJsonValue) : ((current?.localisation as Prisma.InputJsonValue) ?? {}),
+        voice:        section === 'voice'        ? (merged as Prisma.InputJsonValue) : ((current?.voice        as Prisma.InputJsonValue) ?? {}),
+        sso:          section === 'sso'          ? (merged as Prisma.InputJsonValue) : ((current?.sso          as Prisma.InputJsonValue) ?? {}),
+        updatedBy:    actorId,
       },
       update: {
-        branding:  merged as unknown as Prisma.InputJsonValue,
+        [section]: merged as Prisma.InputJsonValue,
         updatedBy: actorId,
       },
     })
+  }
+
+  async updateBranding(patch: Branding, actorId: string): Promise<PlatformSettingsView> {
+    const current = await this.prisma.platformSettings.findUnique({ where: { id: SINGLETON_ID } })
+    const merged = { ...(current?.branding as unknown as Branding ?? {}), ...patch }
+    await this.upsertSection('branding', merged, actorId)
     return this.get()
   }
 
   async updateLocalisation(patch: Localisation, actorId: string): Promise<PlatformSettingsView> {
     const current = await this.prisma.platformSettings.findUnique({ where: { id: SINGLETON_ID } })
     const merged = { ...(current?.localisation as unknown as Localisation ?? {}), ...patch }
-    await this.prisma.platformSettings.upsert({
-      where:  { id: SINGLETON_ID },
-      create: {
-        id:          SINGLETON_ID,
-        branding:    (current?.branding as unknown as Prisma.InputJsonValue) ?? {},
-        localisation: merged as unknown as Prisma.InputJsonValue,
-        updatedBy:   actorId,
-      },
-      update: {
-        localisation: merged as unknown as Prisma.InputJsonValue,
-        updatedBy:    actorId,
-      },
-    })
+    await this.upsertSection('localisation', merged, actorId)
+    return this.get()
+  }
+
+  async updateVoice(patch: Voice, actorId: string): Promise<PlatformSettingsView> {
+    const current = await this.prisma.platformSettings.findUnique({ where: { id: SINGLETON_ID } })
+    const merged = { ...(current?.voice as unknown as Voice ?? {}), ...patch }
+    await this.upsertSection('voice', merged, actorId)
+    return this.get()
+  }
+
+  async updateSso(patch: Sso, actorId: string): Promise<PlatformSettingsView> {
+    const current = await this.prisma.platformSettings.findUnique({ where: { id: SINGLETON_ID } })
+    const merged = { ...(current?.sso as unknown as Sso ?? {}), ...patch }
+    await this.upsertSection('sso', merged, actorId)
     return this.get()
   }
 }

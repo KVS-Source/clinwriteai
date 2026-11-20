@@ -1,6 +1,6 @@
-// Branding + Localisation Zod schemas for PlatformSettings (Phase 3,
-// migration 93). All fields optional on the wire so admins can save a
-// partial update without echoing every value.
+// Branding + Localisation + Voice + SSO Zod schemas for PlatformSettings
+// (Phase 3, migrations 93 + 96). All fields optional on the wire so admins
+// can save a partial update without echoing every value.
 
 import { z } from 'zod'
 
@@ -24,13 +24,53 @@ export const localisationSchema = z.object({
   currency:   z.string().length(3).toUpperCase().optional(),  // ISO-4217
 }).strict()
 
+/** Voice transcription — engine choice + GDPR jurisdiction + retention
+ *  policy. API keys are stored separately on ExternalApiCredential with
+ *  apiId = `voice-<engine>` (same encryption-at-rest trust boundary as
+ *  every other secret the admin pastes). */
+export const voiceSchema = z.object({
+  engine:               z.string().min(1).max(60).optional(),
+  gdprJurisdiction:     z.enum(['EU', 'UK', 'US', 'APAC']).optional(),
+  audioRetentionPolicy: z.enum(['delete-immediately', 'retain-30d', 'retain-90d']).optional(),
+}).strict()
+
+/** SSO — IT admin's identity provider setup for the install. Non-secret
+ *  fields only; the OIDC clientSecret is stored on ExternalApiCredential
+ *  with apiId = 'sso-oidc'. */
+const oidcSchema = z.object({
+  issuerUrl: z.string().max(500).url(),
+  clientId:  z.string().min(1).max(200),
+  scopes:    z.array(z.string().min(1).max(60)).max(20).optional(),
+}).strict()
+
+const samlSchema = z.object({
+  entityId:    z.string().min(1).max(500),
+  metadataUrl: z.string().max(500).url().optional(),
+  acsUrl:      z.string().max(500).url().optional(),
+}).strict()
+
+export const ssoSchema = z.object({
+  enabled:       z.boolean().optional(),
+  protocol:      z.enum(['oidc', 'saml']).nullable().optional(),
+  /** Login emails ending in one of these domains get routed through SSO
+   *  (e.g. ["acme.com", "acme.co.in"]). Empty list = SSO available but
+   *  domain-routing off (all users prompted to choose). */
+  emailDomains:  z.array(z.string().min(2).max(120)).max(50).optional(),
+  oidc:          oidcSchema.optional().nullable(),
+  saml:          samlSchema.optional().nullable(),
+}).strict()
+
 export type Branding     = z.infer<typeof brandingSchema>
 export type Localisation = z.infer<typeof localisationSchema>
+export type Voice        = z.infer<typeof voiceSchema>
+export type Sso          = z.infer<typeof ssoSchema>
 
 /** Composite view returned by GET /platform-settings. */
 export const platformSettingsSchema = z.object({
   branding:     brandingSchema,
   localisation: localisationSchema,
+  voice:        voiceSchema,
+  sso:          ssoSchema,
   updatedBy:    z.string().nullable(),
   updatedAt:    z.string(),
 }).strict()
@@ -40,3 +80,5 @@ export type PlatformSettingsView = z.infer<typeof platformSettingsSchema>
 /** Request bodies — PATCH-style; only the changed section is sent. */
 export const updateBrandingSchema     = brandingSchema
 export const updateLocalisationSchema = localisationSchema
+export const updateVoiceSchema        = voiceSchema
+export const updateSsoSchema          = ssoSchema

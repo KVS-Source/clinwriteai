@@ -748,10 +748,13 @@ export function CRMModule() {
   const newMeetingBlocked = openMeeting ? t('page.crm_module.blocked_open', { ref: openMeeting.meetingRef }) : null
   // Finish CRM and send for approval: for the Author, PM or a chair. The server also checks this review round, the
   // Reviewers' "review done" marks and unresolved comments, and says which is missing.
+  // Mandatory checklist items still open: signing could not start, so Finish CRM waits for them (the API refuses too).
+  const checklistOpen = crmAccess?.checklistBlocking?.length ?? 0
   const showFinish = crmAccess?.canFinish === true && (docStatus === 'in-review' || docStatus === 'crm-in-progress')
   const finishBlocked = openMeeting ? t('page.crm_module.blocked_open', { ref: openMeeting.meetingRef })
     : docStatus !== 'in-review' ? t('page.crm_module.finish_blocked_status')
     : !heldInReview ? t('page.crm_module.finish_blocked_none')
+    : checklistOpen > 0 ? t('page.crm_module.finish_blocked_checklist', { count: checklistOpen })
     : null
 
   // Informed (I) changes nothing in a meeting they don't chair; the API refuses it too.
@@ -804,6 +807,12 @@ export function CRMModule() {
                 className="rounded-md bg-slate-900 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 data-crm-finish
               >{t('page.crm_module.finish_crm')}</button>
+            )}
+            {showFinish && checklistOpen > 0 && !openMeeting && docStatus === 'in-review' && (
+              <p className="basis-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" role="status" data-crm-finish-checklist-warning>
+                {t('page.crm_module.finish_checklist_warning', { count: checklistOpen })}
+                {' '}{crmAccess!.checklistBlocking!.slice(0, 3).map(b => b.text).join('; ')}{checklistOpen > 3 ? '…' : ''}
+              </p>
             )}
             {afterCrm && (
               <button

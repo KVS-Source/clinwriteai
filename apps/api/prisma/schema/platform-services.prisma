@@ -319,6 +319,14 @@ model PlatformSettings {
   id           String   @id @default("default")
   branding     Json     @default("{}")
   localisation Json     @default("{}")
+  // Voice transcription — engine choice + GDPR jurisdiction + retention
+  // policy. Provider API keys live on ExternalApiCredential so the masked-
+  // GET path is shared with every other credential surface.
+  voice        Json     @default("{}")
+  // SSO — enable toggle, protocol choice, email-domain routing, OIDC/SAML
+  // non-secret fields. OIDC client secret lives on ExternalApiCredential
+  // (apiId='sso-oidc').
+  sso          Json     @default("{}")
   updatedBy    String?
   updatedAt    DateTime @default(now()) @updatedAt
 

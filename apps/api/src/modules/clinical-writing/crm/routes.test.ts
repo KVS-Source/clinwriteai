@@ -21,6 +21,7 @@ function fakePrisma() {
   const comments: Row[] = []
   const resolutions: Row[] = []
   const attendees: Row[] = []
+  const checklistItems: Row[] = []   // pending mandatory checklist items (the signature gate's query)
   // The people the CRM can draw on: the PM and the document's own letters. u-ta is an admin, u-aud an auditor.
   const users: Row[] = [
     { id: 'u-pm', name: 'Priya PM', initials: 'PP', role: 'pm' }, { id: 'u-chair', name: 'Cora Author', initials: null, role: 'contributor' },
@@ -57,6 +58,7 @@ function fakePrisma() {
       findMany: async () => [],
     },
     $queryRawUnsafe: async () => [{ meetingRef: 'CRM-001' }],
+    checklistInstanceItem: { findMany: async () => checklistItems },
     comment: {
       findUnique: async ({ where }: Row) => comments.find(c => c.id === where.id) ?? null,
       findMany: async ({ where }: Row) => comments.filter(c => matches(c, where)),
@@ -91,7 +93,7 @@ function fakePrisma() {
     },
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),
   }
-  return { prisma, documents, meetings, comments, raci, attendees }
+  return { prisma, documents, meetings, comments, raci, attendees, checklistItems }
 }
 
 async function build(user: Row = {}) {
@@ -192,6 +194,24 @@ describe('Finish CRM and send for approval', () => {
     expect(startChainWhenReviewDone).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ documentId: 'DOC-1', actorId: 'u-chair' }))
   })
 
+  it('is refused while mandatory checklist items are open, and the document stays in review', async () => {
+    startChainWhenReviewDone.mockClear()
+    const t = await ready()
+    t.db.checklistItems.push({ id: 'ci-1', text: 'Sponsor approval recorded', stage: 'cross_functional_review', framework: 'ICH', ownerRaci: 'R' })
+    const res = await finish(t.app)
+    expect(res.statusCode).toBe(422)
+    expect(res.json()).toMatchObject({ error: 'checklist_blocked', blockingCount: 1 })
+    expect(t.db.documents[0].status).toBe('in_review')
+    expect(startChainWhenReviewDone).not.toHaveBeenCalled()
+  })
+
+  it('the access check lists the open checklist items, so the screen can hold Finish CRM back', async () => {
+    const t = await ready()
+    t.db.checklistItems.push({ id: 'ci-1', text: 'Sponsor approval recorded', stage: 'cross_functional_review', framework: 'ICH', ownerRaci: 'R' })
+    const res = await t.app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })
+    expect(res.json()).toMatchObject({ canFinish: true, checklistBlocking: [{ id: 'ci-1', text: 'Sponsor approval recorded' }] })
+  })
+
   it('a failed chain start does not fail it', async () => {
     startChainWhenReviewDone.mockRejectedValueOnce(new Error('down'))
     const t = await ready()
@@ -280,7 +300,7 @@ describe('Finish CRM and send for approval', () => {
   it('tells the access probe who may finish', async () => {
     const t = await ready({ id: 'u-c', role: 'contributor' })
     t.db.raci.push({ documentId: 'DOC-1', userId: 'u-c', letter: 'C' })
-    expect((await t.app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json()).toEqual({ canSchedule: true, canFinish: false })
+    expect((await t.app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json()).toEqual({ canSchedule: true, canFinish: false, checklistBlocking: [] })
     const author = await ready()
     expect((await author.app.inject({ method: 'GET', url: '/documents/DOC-1/crm/access' })).json().canFinish).toBe(true)
   })

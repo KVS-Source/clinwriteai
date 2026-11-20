@@ -65,6 +65,9 @@ export const signaturesApi = {
 
   listChains: (documentId: string) =>
     api.get<SignatureChain[]>(`/documents/${documentId}/signature-chains`),
+  /** Why there is no running chain: while the document awaits signature, the reason the automatic start was blocked. */
+  startStatus: (documentId: string) =>
+    api.get<{ status: string; blocked: { error: string; message: string } | null }>(`/documents/${documentId}/signature-chains/start-status`),
 
   getChain: (chainId: string) =>
     api.get<SignatureChain>(`/signature-chains/${chainId}`),

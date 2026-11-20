@@ -9,7 +9,6 @@ import { ApplyTemplateSections } from './ApplyTemplateSections'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
-import { ApiError } from '../../api/client'
 import { raciApi } from '../../api/raci'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
@@ -313,30 +312,13 @@ export function DocumentEditor() {
     }, [documentId, activeSectionData, qc, project?.status, projectId]),
   })
 
-  // Mark complete / Reopen. Any pending typing is saved first — a save moves
-  // the section back to in_progress, so a late autosave would undo the mark.
-  const [sectionStatusError, setSectionStatusError] = useState<string | null>(null)
-  useEffect(() => { setSectionStatusError(null) }, [activeSectionData?.id])
-  const setSectionStatus = useMutation({
-    mutationFn: async (args: { sectionId: string; status: 'complete' | 'in_progress' }) => {
-      await autosave.flush()
-      return documentsApi.setSectionIchStatus(documentId!, args.sectionId, args.status)
-    },
-    onSuccess: () => {
-      setSectionStatusError(null)
-      qc.invalidateQueries({ queryKey: ['document', documentId] })
-      qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })
-    },
-    onError: (err: unknown) => {
-      const body = err instanceof ApiError ? err.body as { message?: string } | null : null
-      setSectionStatusError(body?.message ?? t('page.document_editor.section_status_error'))
-    },
-  })
+  // Section completion is auto-derived server-side on each save (see
+  // deriveSectionStatus in apps/api/.../documents/service.ts). The writer
+  // no longer clicks Mark complete / Reopen — the e-sig gate + the status
+  // badge react to content + [TBD: ...] presence directly. ichApplicable
+  // is still kept for editor-toolbar + ICH validator panel wiring.
   const sectionIsComplete = activeSectionData?.status === 'complete'
-  // ICH E3 governs full CSRs only — other document types have no validator,
-  // so "Mark complete" has nothing to feed and is not shown.
   const ichApplicable = document?.type === 'csr-full' || (document?.type as string) === 'csr_full'
-  const sectionHasText    = draftContent.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() !== ''
 
   // 423 Locked on an autosave is a signal that the foreign lock we thought
   // was stale is actually alive — re-run the acquire so the UI drops into
@@ -1116,44 +1098,29 @@ export function DocumentEditor() {
                         <polyline points="2.2,2.4 2.2,4.6 4.4,4.6" />
                       </svg>
                     </button>
-                    {/* Mark complete / Reopen — the only way a section reaches
-                        "complete" for the ICH E3 validator. Hidden while the
-                        document is locked for authoring, and for non-CSR documents. */}
-                    {!authoringLock && ichApplicable && (
-                      <button
-                        type="button"
-                        onClick={() => setSectionStatus.mutate({
-                          sectionId: activeSectionData.id,
-                          status:    sectionIsComplete ? 'in_progress' : 'complete',
-                        })}
-                        disabled={setSectionStatus.isPending || isLockedByOther || (!sectionIsComplete && !sectionHasText)}
-                        title={
-                          isLockedByOther ? t('page.document_editor.section_locked_other_tooltip')
-                          : !sectionIsComplete && !sectionHasText ? t('page.document_editor.add_content_before_complete')
-                          : sectionIsComplete ? t('page.document_editor.reopen_section_tooltip')
-                          : t('page.document_editor.mark_section_complete_tooltip')
-                        }
-                        data-action={sectionIsComplete ? 'reopen-section' : 'mark-section-complete'}
-                        className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
-                          sectionIsComplete
-                            ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                            : 'border-green-600 bg-white text-green-700 hover:bg-green-50'
-                        }`}
+                    {/* Section status (complete / in-progress / not-started) is
+                        now auto-derived on save from the content: full when
+                        there's real text and no [TBD: ...] placeholders, in-
+                        progress when text is present but placeholders remain,
+                        not-started when empty. The old Mark complete / Reopen
+                        button has been retired — the e-sig gate independently
+                        scans HTML for the same signals, so the counter on the
+                        Sections tab, the progress bar, and the "ready to sign"
+                        guard all converge on one source of truth: the content
+                        itself. */}
+                    {sectionIsComplete && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md border border-green-200 bg-green-50 px-2 py-1 text-[11px] font-semibold text-green-700"
+                        data-section-complete-badge
+                        title={t('page.document_editor.section_auto_complete_tooltip', { defaultValue: 'Complete — no placeholders remain' })}
                       >
-                        {!sectionIsComplete && (
-                          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="2,6.4 4.6,9 10,3.2" />
-                          </svg>
-                        )}
-                        {setSectionStatus.isPending ? t('page.document_editor.saving') : sectionIsComplete ? t('page.document_editor.reopen') : t('page.document_editor.mark_complete')}
-                      </button>
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="2,6.4 4.6,9 10,3.2" />
+                        </svg>
+                        {t('page.document_editor.section_complete_badge', { defaultValue: 'Complete' })}
+                      </span>
                     )}
                   </div>
-                  {sectionStatusError && (
-                    <p className="mt-1 text-[11px] font-semibold text-red-700" role="alert" data-section-status-error>
-                      {sectionStatusError}
-                    </p>
-                  )}
                   {/* Section meta — demoted from the pre-f196934 bottom bar so
                       the AI prompt dock owns the bottom of the pane. Lives
                       inline under the title. */}

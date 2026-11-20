@@ -190,6 +190,27 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     }))
   })
 
+  // Why the E-Signature tab has no chain to show. Signing starts by itself when the CRM is finished (Approvers
+  // first); nobody starts a chain by hand. While the document awaits signature with no running chain, this
+  // returns the reason the automatic start was blocked (the last signature_auto_start_blocked audit entry).
+  app.get('/documents/:documentId/signature-chains/start-status', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanReadDocumentRecord(app.prisma, request.user!, doc))) {
+      return reply.code(403).send({ error: 'signature_access_forbidden', message: "You don't have access to this document's signature records." })
+    }
+    if (doc.status !== 'pending_signature') return { status: doc.status, blocked: null }
+    const running = await app.prisma.signatureChain.findFirst({ where: { documentId, status: { in: ['in_progress', 'complete'] } } })
+    if (running) return { status: doc.status, blocked: null }
+    const page = await app.audit.pageForEntity('document', documentId, { action: 'signature_auto_start_blocked', limit: 1 })
+    const reason = (page.rows[0]?.details as { reason?: { error?: unknown; message?: unknown } } | null)?.reason
+    return {
+      status:  doc.status,
+      blocked: reason ? { error: String(reason.error ?? 'blocked'), message: String(reason.message ?? '') } : null,
+    }
+  })
+
   app.get('/signature-chains/:chainId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { chainId } = request.params as { chainId: string }
     const chain = await app.prisma.signatureChain.findUnique({

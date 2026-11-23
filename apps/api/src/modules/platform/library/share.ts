@@ -38,7 +38,9 @@ import { libraryItemPdf } from './pdf-file.js'
 import { sharedWatermark } from './watermark.js'
 import { versionLabel } from './shape.js'
 
-export const SHARE_MAX_RECIPIENTS = 20
+// People per share (SME decision, 2026-11-24: 20 was too wide an audience). The PM can share again for more.
+// The web keeps the same number in MasterLibrary.tsx (SHARE_MAX_RECIPIENTS) — change both together.
+export const SHARE_MAX_RECIPIENTS = 10
 export const SHARE_LINK_DAYS = 14              // an invitation link works for this long
 export const CODE_TTL_MINUTES = 10             // a one-time code works for this long
 export const CODE_MAX_ATTEMPTS = 5             // wrong entries before the code stops working
@@ -100,6 +102,8 @@ export const libraryShareRoutes: FastifyPluginAsync = async (app) => {
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [libraryVisibleTo(user)] } })
     if (!row || row.category === 'best_practice') return reply.code(404).send({ error: 'not_found' })
     if (row.retiredAt) return reply.code(409).send({ error: 'withdrawn', message: 'This document has been withdrawn from the library and can no longer be shared.' })
+    // Only the latest version goes out (SME decision, 2026-11-24): an earlier one is kept for audit, not shared.
+    if (!row.isCurrent) return reply.code(409).send({ error: 'superseded', message: 'This is an earlier version of the document. Share the latest version instead.' })
 
     const emails = [...new Set(parsed.data.emails)].filter(e => e !== user.email.toLowerCase())
     if (!emails.length) return reply.code(400).send({ error: 'share_with_self', message: 'Add at least one person other than yourself.' })
@@ -221,27 +225,69 @@ export const libraryShareRoutes: FastifyPluginAsync = async (app) => {
 
 export const SHARE_HISTORY_MAX = 1000
 
-export interface ShareHistoryEntry { sharedWith: string; sharedBy: string | null; sharedAt: string }
+export interface ShareHistoryEntry {
+  sharedWith: string
+  sharedBy: string | null
+  sharedAt: string
+  /** Times this person opened the document under this share (SME request, 2026-11-24). */
+  openCount: number
+  lastOpenedAt: string | null
+}
 
-/** One row per recipient of every share of this library entry, newest first. `sharedBy` is null for a removed account. */
+/**
+ * One row per recipient of every share of this library entry, newest first. `sharedBy` is null for a removed account.
+ *
+ * Opens, all from the append-only audit trail (no counter column to keep in step):
+ *   - someone invited by email: each correct one-time code ('library_share_opened' for this entry and address) —
+ *     reloading inside the viewing session it gives is not another open;
+ *   - a colleague: each time they open it in the Master Library ('library_document_viewed' by that account).
+ * An open belongs to the share it happened under: from that share until the same person is shared with again.
+ */
 export async function shareHistory(app: FastifyInstance, row: { id: string; tags: string[] }): Promise<ShareHistoryEntry[]> {
   const target = auditTarget(row)
-  const { rows: events } = await app.audit.pageForEntity(target.entityType, target.entityId, { action: 'library_document_shared', limit: SHARE_HISTORY_MAX })
-  const mine = events.filter(e => e.details?.libraryItemId === row.id)
+  const [shared, invitesOpened, viewed] = await Promise.all([
+    app.audit.pageForEntity(target.entityType, target.entityId, { action: 'library_document_shared', limit: SHARE_HISTORY_MAX }),
+    app.audit.pageForEntity(target.entityType, target.entityId, { action: 'library_share_opened', limit: SHARE_HISTORY_MAX }),
+    app.audit.pageForEntity('library_section', row.id, { action: 'library_document_viewed', limit: SHARE_HISTORY_MAX }),
+  ])
+  const mine = shared.rows.filter(e => e.details?.libraryItemId === row.id)
   const sharerIds = [...new Set(mine.map(e => e.actorId))]
   const sharers = sharerIds.length
     ? await app.prisma.user.findMany({ where: { id: { in: sharerIds } }, select: { id: true, name: true } })
     : []
   const nameOf = new Map(sharers.map(u => [u.id, u.name]))
-  const out: ShareHistoryEntry[] = []
+
+  // Each open as (who, when). Who: "user:<id>" for a colleague, "email:<address>" for an invitation.
+  const opens: Array<{ who: string; at: number; iso: string }> = []
+  for (const e of invitesOpened.rows) {
+    if (e.details?.libraryItemId === row.id && typeof e.details.email === 'string') opens.push({ who: `email:${e.details.email}`, at: Date.parse(e.timestamp), iso: e.timestamp })
+  }
+  for (const e of viewed.rows) opens.push({ who: `user:${e.actorId}`, at: Date.parse(e.timestamp), iso: e.timestamp })
+
+  type Out = ShareHistoryEntry & { who: string; at: number }
+  const out: Out[] = []
   for (const e of mine) {   // already newest first
-    const recipients = Array.isArray(e.details.recipients) ? e.details.recipients as Array<{ email?: unknown }> : []
+    const recipients = Array.isArray(e.details.recipients) ? e.details.recipients as Array<{ kind?: unknown; id?: unknown; email?: unknown }> : []
     for (const r of recipients) {
       if (typeof r?.email !== 'string') continue
-      out.push({ sharedWith: r.email, sharedBy: nameOf.get(e.actorId) ?? null, sharedAt: e.timestamp })
+      const who = r.kind === 'user' && typeof r.id === 'string' ? `user:${r.id}` : `email:${r.email}`
+      out.push({ sharedWith: r.email, sharedBy: nameOf.get(e.actorId) ?? null, sharedAt: e.timestamp, openCount: 0, lastOpenedAt: null, who, at: Date.parse(e.timestamp) })
     }
   }
-  return out
+  // Rows are newest first, so the first row seen for a person is their latest share; each earlier one ends where
+  // the next one starts.
+  const nextShareAt = new Map<string, number>()
+  for (const o of out) {
+    const until = nextShareAt.get(o.who) ?? Infinity
+    let last = -Infinity
+    for (const op of opens) {
+      if (op.who !== o.who || op.at < o.at || op.at >= until) continue
+      o.openCount++
+      if (op.at > last) { last = op.at; o.lastOpenedAt = op.iso }
+    }
+    nextShareAt.set(o.who, o.at)
+  }
+  return out.map(({ who: _who, at: _at, ...entry }) => entry)
 }
 
 // --------------------------------------------------------------------------------------------------------------
@@ -262,9 +308,12 @@ async function loadShare(app: FastifyInstance, token: string, reply: FastifyRepl
   if (share.expiresAt.getTime() <= Date.now()) { await reply.code(410).send({ error: 'expired', message: 'This link has expired. Ask the person who shared the document to share it again.' }); return null }
   const item = await app.prisma.librarySection.findUnique({
     where: { id: share.libraryItemId },
-    select: { id: true, title: true, body: true, tags: true, framework: true, version: true, retiredAt: true },
+    select: { id: true, title: true, body: true, tags: true, framework: true, version: true, retiredAt: true, isCurrent: true },
   })
   if (!item || item.retiredAt) { await reply.code(410).send({ error: 'withdrawn', message: 'This document has been withdrawn and can no longer be read.' }); return null }
+  // A link to a version that a later one has replaced stops working (SME decision, 2026-11-24), so nobody outside
+  // keeps reading an out-of-date document. The share history and audit trail keep the record.
+  if (item.isCurrent === false) { await reply.code(410).send({ error: 'superseded', message: 'A newer version of this document exists. Ask the person who shared it to share the new version.' }); return null }
   return { share, item }
 }
 

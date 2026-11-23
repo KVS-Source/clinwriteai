@@ -3,7 +3,7 @@ import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
-  MasterLibraryShareRecord, MasterLibraryAuditPage, BestPractice,
+  MasterLibraryShareRecord, MasterLibraryVersion, MasterLibraryAuditPage, BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
@@ -250,6 +250,9 @@ export const platformApi = {
     api.upload<MasterLibraryItem>('/library/upload', form),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
+  // Every version of the same document (matched on its source document, not its title), newest first.
+  listLibraryItemVersions: (itemId: string) =>
+    api.get<MasterLibraryVersion[]>(`/library/${encodeURIComponent(itemId)}/versions`),
   // A Project Manager (only) shares a Master Document by email. Colleagues get a notification; anyone
   // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
   shareLibraryItem: (itemId: string, emails: string[]) =>

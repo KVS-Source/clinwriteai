@@ -1815,6 +1815,8 @@ export interface MasterLibraryItem {
   archivedReason?:   string
   // Withdrawn from the library by an admin (as opposed to archived because its project closed).
   isWithdrawn?:      boolean
+  // An earlier version a later one replaced: kept for audit, opened only by a PM or Auditor, never shared.
+  isSuperseded?:     boolean
   // Added by a Project Manager from their computer, not pushed from a signed document.
   uploaded?:         boolean
   // The library entry itself: who pushed this version (editedByName), who pushed the
@@ -1831,6 +1833,22 @@ export interface MasterLibraryItem {
   body?:             string
 }
 
+/** One version of a Master Library document (GET /library/:id/versions), newest first: the library entries of the
+ *  same source document, matched on the source, never on the title. */
+export interface MasterLibraryVersion {
+  id:              string
+  /** The library entry's version, "v2.0". */
+  version:         string
+  /** The source document's version it was pushed from ("v1.0"), when known. */
+  documentVersion: string | null
+  /** ISO 8601 UTC. */
+  pushedAt:        string
+  pushedByName:    string
+  /** The version the library lists (the latest, not withdrawn). */
+  isCurrent:       boolean
+  isWithdrawn:     boolean
+}
+
 /** One row of a Master Library document's share history (GET /library/:id/shares), newest first. One row per
  *  person per share; a re-share is a new row. Never carries link tokens, codes or hashes. */
 export interface MasterLibraryShareRecord {
@@ -1840,6 +1858,11 @@ export interface MasterLibraryShareRecord {
   sharedBy:   string | null
   /** ISO 8601 UTC. */
   sharedAt:   string
+  /** Times the person opened it under this share: each correct one-time code for an invitation, each view for a
+   *  colleague. Counted until the same person is shared with again (that share is a new row). */
+  openCount:  number
+  /** ISO 8601 UTC of the latest of those opens; null when not opened yet. */
+  lastOpenedAt: string | null
 }
 
 /** One row of a Master Library document's Audit trail (GET /library/:id/audit and /audit/full). Only what the

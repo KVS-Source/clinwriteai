@@ -184,12 +184,22 @@ describe('POST /library/:id/share', () => {
     const t = await setup()
     expect((await share(t.app, [])).statusCode).toBe(400)
     expect((await share(t.app, ['not-an-email'])).statusCode).toBe(400)
-    expect((await share(t.app, Array.from({ length: 21 }, (_, i) => `p${i}@x.io`))).statusCode).toBe(400)
+    expect((await share(t.app, Array.from({ length: 11 }, (_, i) => `p${i}@x.io`))).statusCode).toBe(400)   // 10 people per share
     expect((await share(t.app, ['pm@x.io'])).json().error).toBe('share_with_self')
     await closeApp()
     expect((await share((await setup({ item: null })).app, ['raj@x.io'])).statusCode).toBe(404)
     await closeApp()
     expect((await share((await setup({ item: { retiredAt: new Date() } })).app, ['raj@x.io'])).statusCode).toBe(409)
+  })
+
+  it('an earlier (superseded) version is not shared, and nothing is sent', async () => {
+    const t = await setup({ item: { isCurrent: false, supersededBy: 'lib-2' } })
+    const res = await share(t.app, ['raj@x.io', 'ceo@acme.com'])
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('superseded')
+    expect(t.send).not.toHaveBeenCalled()
+    expect(t.mails).toHaveLength(0)
+    expect(t.shares).toHaveLength(0)
   })
 })
 
@@ -210,8 +220,9 @@ describe('GET /library/:id/shares — share history', () => {
     expect(rows).toHaveLength(2)
     expect(rows.map(r => r.sharedWith)).toEqual(['raj@x.io', 'ceo@acme.com'])
     for (const r of rows) {
-      expect(Object.keys(r).sort()).toEqual(['sharedAt', 'sharedBy', 'sharedWith'])
+      expect(Object.keys(r).sort()).toEqual(['lastOpenedAt', 'openCount', 'sharedAt', 'sharedBy', 'sharedWith'])
       expect(r.sharedBy).toBe('Alex PM')
+      expect(r).toMatchObject({ openCount: 0, lastOpenedAt: null })
       expect(Number.isNaN(Date.parse(r.sharedAt as string))).toBe(false)
     }
   })
@@ -226,9 +237,43 @@ describe('GET /library/:id/shares — share history', () => {
     expect(t.shares[0]!.revokedAt).toBeInstanceOf(Date)   // the earlier invitation link stopped working…
     const rows = (await history(t.app)).json()
     expect(rows).toEqual([                                // …but both shares stay in the history
-      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-17T10:30:00.000Z' },
-      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-17T09:00:00.000Z' },
+      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-17T10:30:00.000Z', openCount: 0, lastOpenedAt: null },
+      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-17T09:00:00.000Z', openCount: 0, lastOpenedAt: null },
     ])
+  })
+
+  it('counts each open under the share it happened in: invitations by code, colleagues by view', async () => {
+    const t = await setup()
+    const opened = (timestamp: string, email: string) => t.audit.append({ timestamp, actorId: 'system:library-share', action: 'library_share_opened', entityType: 'document', entityId: 'doc-9', details: { libraryItemId: 'lib-1', email }, ipAddress: null })
+    const viewed = (timestamp: string, actorId: string, entityId = 'lib-1') => t.audit.append({ timestamp, actorId, action: 'library_document_viewed', entityType: 'library_section', entityId, details: {}, ipAddress: null })
+    const shared = (timestamp: string, recipients: unknown[]) => t.audit.append({ timestamp, actorId: 'u1', action: 'library_document_shared', entityType: 'document', entityId: 'doc-9', details: { libraryItemId: 'lib-1', recipients }, ipAddress: null })
+
+    await viewed('2026-11-20T08:00:00.000Z', 'u2')                          // before any share: not counted
+    await shared('2026-11-20T09:00:00.000Z', [{ kind: 'invite', email: 'ceo@acme.com' }, { kind: 'user', id: 'u2', email: 'raj@x.io' }])
+    await opened('2026-11-20T09:10:00.000Z', 'ceo@acme.com')
+    await opened('2026-11-20T11:00:00.000Z', 'ceo@acme.com')
+    await opened('2026-11-20T11:05:00.000Z', 'other@acme.com')              // someone else's invitation
+    await viewed('2026-11-20T09:30:00.000Z', 'u2')
+    await viewed('2026-11-20T09:40:00.000Z', 'u3')                          // not shared with: not counted
+    await viewed('2026-11-20T09:50:00.000Z', 'u2', 'lib-2')                 // another library entry
+    await shared('2026-11-21T09:00:00.000Z', [{ kind: 'invite', email: 'ceo@acme.com' }])   // re-share: a new row
+    await opened('2026-11-21T10:00:00.000Z', 'ceo@acme.com')
+
+    expect((await history(t.app)).json()).toEqual([
+      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-21T09:00:00.000Z', openCount: 1, lastOpenedAt: '2026-11-21T10:00:00.000Z' },
+      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-20T09:00:00.000Z', openCount: 2, lastOpenedAt: '2026-11-20T11:00:00.000Z' },
+      { sharedWith: 'raj@x.io', sharedBy: 'Alex PM', sharedAt: '2026-11-20T09:00:00.000Z', openCount: 1, lastOpenedAt: '2026-11-20T09:30:00.000Z' },
+    ])
+  })
+
+  it('a correct code on a real invitation shows as an open', async () => {
+    const t = await setup()
+    await share(t.app, ['ceo@acme.com'])
+    const token = tokenFrom(t.mails[0]!)
+    await t.app.inject({ method: 'POST', url: `/shared-library/${token}/code` })
+    const res = await t.app.inject({ method: 'POST', url: `/shared-library/${token}/verify`, payload: { code: codeFrom(t.mails[1]!) } })
+    expect(res.statusCode).toBe(200)
+    expect((await history(t.app)).json()).toMatchObject([{ sharedWith: 'ceo@acme.com', openCount: 1 }])
   })
 
   it('an uploaded document (audited on the library entry) has its history too', async () => {
@@ -243,13 +288,13 @@ describe('GET /library/:id/shares — share history', () => {
     await t.audit.append({ ...base, timestamp: '2026-11-13T08:00:00.000Z', action: 'library_document_shared', details: { libraryItemId: 'lib-1', recipients: [{ kind: 'invite', email: 'old@acme.com' }] } })
     await t.audit.append({ ...base, timestamp: '2026-11-13T09:00:00.000Z', action: 'library_document_shared', details: { libraryItemId: 'lib-0', recipients: [{ kind: 'invite', email: 'v0@acme.com' }] } })
     await t.audit.append({ ...base, timestamp: '2026-11-13T10:00:00.000Z', action: 'library_share_opened', details: { libraryItemId: 'lib-1', email: 'opened@acme.com' } })
-    expect((await history(t.app)).json()).toEqual([{ sharedWith: 'old@acme.com', sharedBy: 'Raj', sharedAt: '2026-11-13T08:00:00.000Z' }])
+    expect((await history(t.app)).json()).toEqual([{ sharedWith: 'old@acme.com', sharedBy: 'Raj', sharedAt: '2026-11-13T08:00:00.000Z', openCount: 0, lastOpenedAt: null }])
   })
 
   it('a sharer whose account is gone shows as null', async () => {
     const t = await setup()
     await t.audit.append({ timestamp: '2026-11-13T08:00:00.000Z', actorId: 'u-deleted', action: 'library_document_shared', entityType: 'document', entityId: 'doc-9', details: { libraryItemId: 'lib-1', recipients: [{ kind: 'invite', email: 'x@acme.com' }] }, ipAddress: null })
-    expect((await history(t.app)).json()).toEqual([{ sharedWith: 'x@acme.com', sharedBy: null, sharedAt: '2026-11-13T08:00:00.000Z' }])
+    expect((await history(t.app)).json()).toEqual([{ sharedWith: 'x@acme.com', sharedBy: null, sharedAt: '2026-11-13T08:00:00.000Z', openCount: 0, lastOpenedAt: null }])
   })
 
   it('never returns link tokens, codes, hashes or ids', async () => {
@@ -371,5 +416,15 @@ describe('the invitation link (/shared-library/:token)', () => {
     const w = await invited({ item: { retiredAt: null } })
     ;(w.app as unknown as { prisma: { librarySection: { findUnique: () => Promise<unknown> } } }).prisma.librarySection.findUnique = async () => ({ id: 'lib-1', retiredAt: new Date() })
     expect((await w.app.inject({ method: 'GET', url: `/shared-library/${w.token}` })).json().error).toBe('withdrawn')
+  })
+
+  it('a link to a version that a later one replaced stops working: no page, no code, no document', async () => {
+    const t = await invited()
+    ;(t.app as unknown as { prisma: { librarySection: { findUnique: () => Promise<unknown> } } }).prisma.librarySection.findUnique = async () => ({ id: 'lib-1', retiredAt: null, isCurrent: false })
+    for (const [method, url] of [['GET', ''], ['POST', '/code'], ['GET', '/pdf']] as const) {
+      const res = await t.app.inject({ method, url: `/shared-library/${t.token}${url}` })
+      expect(res.statusCode).toBe(410)
+      expect(res.json().error).toBe('superseded')
+    }
   })
 })

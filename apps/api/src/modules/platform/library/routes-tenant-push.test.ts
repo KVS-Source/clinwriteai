@@ -446,3 +446,70 @@ describe('GET /library/:id — no source-document people', () => {
     expect(chainFind).not.toHaveBeenCalled()
   })
 })
+
+// Earlier versions (SME decision, 2026-11-24): kept for audit, opened only by a PM or Auditor, stamped SUPERSEDED.
+describe('GET /library/:id/pdf — an earlier (superseded) version', () => {
+  const old = () => row('v1', { isCurrent: false, supersededBy: 'v2', tags: ['type:document', 'source:d1'] })
+
+  it('is refused to a contributor or QC, and nothing is recorded as viewed', async () => {
+    for (const role of ['contributor', 'qc'] as const) {
+      const { app, append } = await setup({ role, found: old() })
+      const res = await app.inject({ method: 'GET', url: '/library/v1/pdf' })
+      expect(res.statusCode).toBe(403)
+      expect(res.json().error).toBe('superseded')
+      expect(append).not.toHaveBeenCalled()
+      await current?.close(); current = null
+    }
+  })
+
+  it('opens for a PM or an Auditor, and the view is recorded as of a superseded version', async () => {
+    for (const role of ['pm', 'auditor'] as const) {
+      const { app, append, prisma } = await setup({ role, found: old() })
+      prisma.librarySection.findUnique.mockResolvedValue({ version: 2 } as never)
+      const res = await app.inject({ method: 'GET', url: '/library/v1/pdf' })
+      expect(res.statusCode).toBe(200)
+      expect(res.rawPayload.subarray(0, 5).toString()).toBe('%PDF-')
+      expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_document_viewed', details: expect.objectContaining({ superseded: true }) }))
+      await current?.close(); current = null
+    }
+  })
+
+  it('the item says it is superseded; the latest one does not', async () => {
+    const { app } = await setup({ role: 'pm', found: old() })
+    expect((await app.inject({ method: 'GET', url: '/library/v1' })).json().isSuperseded).toBe(true)
+    await current?.close(); current = null
+    const latest = await setup({ role: 'pm', found: row('v2', { tags: ['type:document', 'source:d1'] }) })
+    expect((await latest.app.inject({ method: 'GET', url: '/library/v2' })).json().isSuperseded).toBe(false)
+  })
+})
+
+// Version history (2026-11-24): versions are the entries of the same source document, never "same title".
+describe('GET /library/:id/versions', () => {
+  it('lists every entry of the same source document, newest first, marking the current one', async () => {
+    const { app, prisma } = await setup({ found: row('v2', { version: 2, tags: ['type:document', 'source:d1', 'docversion:v2.0'] }) })
+    prisma.librarySection.findMany.mockResolvedValue([
+      row('v2', { version: 2, approvedAt: new Date('2026-11-20T00:00:00Z'), tags: ['type:document', 'source:d1', 'docversion:v2.0'] }),
+      row('v1', { version: 1, isCurrent: false, supersededBy: 'v2', tags: ['type:document', 'source:d1', 'docversion:v1.0'] }),
+    ] as never)
+    const res = await app.inject({ method: 'GET', url: '/library/v2/versions' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([
+      { id: 'v2', version: 'v2.0', documentVersion: 'v2.0', pushedAt: '2026-11-20T00:00:00.000Z', pushedByName: 'Dr A', isCurrent: true, isWithdrawn: false },
+      { id: 'v1', version: 'v1.0', documentVersion: 'v1.0', pushedAt: '2026-10-01T00:00:00.000Z', pushedByName: 'Dr A', isCurrent: false, isWithdrawn: false },
+    ])
+    // The versions query (the first findMany; the context lookup after it is separate) matches on the source only.
+    const where = JSON.stringify((prisma.librarySection.findMany.mock.calls[0] as unknown[])[0])
+    expect(where).toContain('"has":"source:d1"')
+    expect(where).not.toContain('title')
+  })
+
+  it('an upload (no source document) is its own only version, and a hidden item is 404', async () => {
+    const { app, prisma } = await setup({ found: row('up', { tags: ['type:document', 'origin:upload'] }) })
+    const res = await app.inject({ method: 'GET', url: '/library/up/versions' })
+    expect(res.json()).toMatchObject([{ id: 'up', version: 'v1.0', isCurrent: true }])
+    expect(prisma.librarySection.findMany.mock.calls.some(c => JSON.stringify(c).includes('source:'))).toBe(false)
+    await current?.close()
+    const hidden = await setup({ found: null })
+    expect((await hidden.app.inject({ method: 'GET', url: '/library/x/versions' })).statusCode).toBe(404)
+  })
+})

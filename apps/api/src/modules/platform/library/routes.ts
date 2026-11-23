@@ -20,7 +20,10 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
 import { textExcerpt, wordStartPattern } from './search.js'
-import { enabledModules, requireAuth } from '../../../auth/rbac.js'
+import { enabledModules, hasRole, requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
+
+// Who may open an earlier (superseded) version of a Master Document (SME decision, 2026-11-24).
+export const SUPERSEDED_READER_ROLES = ['pm', 'auditor'] as const
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
@@ -31,7 +34,7 @@ import { extractTextFromBlob } from '../../clinical-writing/documents/extract-te
 import { fileExtension } from '../uploads/source-files.js'
 import { generateBlobKey } from '../blob/local-storage.js'
 import { libraryItemPdf, PDF_MAX_CHARS } from './pdf-file.js'
-import { viewerWatermark } from './watermark.js'
+import { supersededBanner, viewerWatermark } from './watermark.js'
 import {
   BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
@@ -189,6 +192,14 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   const NOT_YOURS = { error: 'forbidden', message: 'Platform-wide library items can only be changed by a platform admin.' } as const
 
   // One batched lookup for the names/projects a page of rows refers to.
+  /** The version label of the entry that replaced this one ("v2.0"), or null when it can't be found. */
+  async function replacedByLabel(row: { supersededBy: string | null }): Promise<string | null> {
+    const next = row.supersededBy
+      ? await app.prisma.librarySection.findUnique({ where: { id: row.supersededBy }, select: { version: true } })
+      : null
+    return next ? versionLabel(next.version) : null
+  }
+
   async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
     const projectIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
     const documentIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('source:')).map(t => sourceDocumentId(t.slice(7)))))]
@@ -656,8 +667,17 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
+    // An earlier version that a later one replaced (SME decision, 2026-11-24): kept for audit, readable only by a
+    // Project Manager or an Auditor, and stamped "SUPERSEDED" on every page. A withdrawn entry isn't superseded.
+    let banner: string | undefined
+    if (!row.isCurrent && !row.retiredAt) {
+      if (!hasRole(request.user! as AuthenticatedUser, [...SUPERSEDED_READER_ROLES])) {
+        return reply.code(403).send({ error: 'superseded', message: 'This is an earlier version of the document. Only a Project Manager or an Auditor can open it.' })
+      }
+      banner = supersededBanner(await replacedByLabel(row))
+    }
     // Every page carries the reader's email and the time (watermark.ts).
-    const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email) })
+    const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email, new Date(), banner) })
     if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
     // Who opened it in the Master Library — shown in the details panel's Audit trail (audit-trail.ts).
     await app.audit.append({
@@ -666,7 +686,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       action: 'library_document_viewed',
       entityType: 'library_section',
       entityId: row.id,
-      details: { libraryVersion: row.version },
+      details: { libraryVersion: row.version, ...(banner && { superseded: true }) },
       ipAddress: request.ip ?? null,
     })
     return reply
@@ -686,7 +706,34 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return sectionToItem(row, await fetchContext([row]))
   })
 
-  app.get('/sections', { preHandler: requireAuth() }, async (request, reply) => {
+  // GET /library/:id/versions — every library entry of the same document, newest first, for the details panel's
+  // Version history. Matched on the source document (the `source:` tag), never on the title, so two different
+  // documents that happen to share a title are not mixed up. An entry with no source (an upload) is its own only
+  // version. Same visibility as reading the item.
+  app.get('/:id/versions', { preHandler: requireAuth() }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    const sourceTag = row.tags.find(tg => tg.startsWith('source:'))
+    const rows = sourceTag
+      ? await app.prisma.librarySection.findMany({
+          where: { tenantId: row.tenantId, category: row.category, tags: { has: sourceTag }, AND: [visibleTo(request.user!)] },
+          orderBy: [{ version: 'desc' }, { approvedAt: 'desc' }],
+        })
+      : [row]
+    const ctx = await fetchContext(rows)
+    return rows.map(r => ({
+      id: r.id,
+      version: versionLabel(r.version),
+      documentVersion: parseTags(r.tags).docVersion,
+      pushedAt: r.approvedAt.toISOString(),
+      pushedByName: ctx.userNames.get(r.approvedBy) ?? 'Unknown user',
+      isCurrent: r.isCurrent && !r.retiredAt,
+      isWithdrawn: !!r.retiredAt,
+    }))
+  })
+
+  app.get('/sections',{ preHandler: requireAuth() }, async (request, reply) => {
     const parsed = listQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     return app.prisma.librarySection.findMany({

@@ -57,6 +57,7 @@ const ERROR_KEY: Record<string, string> = {
   revoked: 'page.shared_library.err_revoked',
   expired: 'page.shared_library.err_expired',
   withdrawn: 'page.shared_library.err_withdrawn',
+  superseded: 'page.shared_library.err_superseded',
   too_many_codes: 'page.shared_library.err_too_many_codes',
   code_expired: 'page.shared_library.err_code_expired',
   too_many_attempts: 'page.shared_library.err_too_many_attempts',
@@ -83,7 +84,7 @@ export function SharedLibraryDocument() {
     const key = f.error ? ERROR_KEY[f.error] : undefined
     return key ? t(key) : f.message ?? t('page.shared_library.err_generic')
   }
-  const isFatal = (f: Failure) => ['link_invalid', 'revoked', 'expired', 'withdrawn', 'too_many_codes'].includes(f.error ?? '')
+  const isFatal = (f: Failure) => ['link_invalid', 'revoked', 'expired', 'withdrawn', 'superseded', 'too_many_codes'].includes(f.error ?? '')
 
   useEffect(() => {
     let cancelled = false

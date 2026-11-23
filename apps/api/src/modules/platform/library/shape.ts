@@ -157,6 +157,7 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
     tags: t.plain,
     isArchived: archived,
     isWithdrawn: !!row.retiredAt,
+    isSuperseded: !row.isCurrent && !row.retiredAt,
     uploaded: t.uploaded,
     ...(archived && {
       archivedReason: row.retiredAt ? 'Withdrawn from the library' : 'Source project is closed',

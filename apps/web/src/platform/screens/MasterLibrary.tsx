@@ -69,6 +69,9 @@ export function MasterLibrary() {
   const hasRole = usePlatformStore(s => s.hasRole)
   const canUpload = hasRole(['pm'])
   const canShare = hasRole(['pm'])
+  // An earlier (superseded) version opens only for a Project Manager or an Auditor (SME decision, 2026-11-24; the
+  // API enforces the same and stamps every page "SUPERSEDED").
+  const canReadSuperseded = hasRole(['pm', 'auditor'])
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')
@@ -135,18 +138,27 @@ export function MasterLibrary() {
 
   const active = selected ? (items.find(i => i.id === selected.id) ?? selected) : undefined
 
-  // Other versions of the same item (same name, different version) — newest first.
-  const versionHistory = useMemo(() => {
-    if (!active) return []
-    return items
-      .filter(i => i.name.toLowerCase() === active.name.toLowerCase())
-      .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime())
-  }, [items, active])
+  // Every version of this document, newest first, from the API: matched on the source document, not the title (two
+  // documents with the same title used to be mixed up), and including the earlier versions the list leaves out.
+  const versionsQuery = useQuery({
+    queryKey: ['library-versions', active?.id],
+    queryFn: () => platformApi.listLibraryItemVersions(active!.id),
+    enabled: !!active,
+    staleTime: 60_000,
+  })
+  const versionHistory = versionsQuery.data ?? []
+  // Opens another version (fetched: earlier versions aren't in the list) in the details panel.
+  async function openVersion(id: string) {
+    try { setSelected(await platformApi.getLibraryItem(id)) }
+    catch (err) { flash(describeApiError(err).message) }
+  }
 
   // A section's note talks about pulling it into documents; a whole document's doesn't.
   const isSectionItem = active?.itemType === 'section'
-  const immutabilityNote = active?.isArchived
-    ? t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
+  const immutabilityNote = active?.isSuperseded
+    ? t('page.master_library.immutability_superseded')
+    : active?.isArchived
+    ?t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
     : t(isSectionItem ? 'page.master_library.immutability_default' : active?.uploaded ? 'page.master_library.immutability_uploaded' : 'page.master_library.immutability_document')
 
   // A link from a "document shared with you" notification: /master-library/documents?item=<id> opens that
@@ -396,6 +408,9 @@ export function MasterLibrary() {
               {active.isArchived && (
                 <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{t('page.master_library.archived_tag')}</span>
               )}
+              {active.isSuperseded && (
+                <span className="inline-flex items-center rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800" data-superseded-tag>{t('page.master_library.superseded_tag')}</span>
+              )}
             </span>
             <span className="mt-1 block truncate font-mono text-[11px]" data-active-pushed>{t(active.uploaded ? 'page.master_library.uploaded_byline' : 'page.master_library.pushed_byline', { date: formatDay(active.pushedAt), user: active.pushedByName })}</span>
           </>
@@ -433,20 +448,29 @@ export function MasterLibrary() {
               <FieldGrid>
                 {versionHistory.length <= 1 ? (
                   <Field label={<span className="normal-case">{active.version}</span>}>{t('page.master_library.version_single_value')}</Field>
-                ) : versionHistory.map((v, idx) => (
-                  <Field key={v.id} label={<span className="normal-case">{v.version}</span>} current={v.id === active.id}>
-                    <button type="button" onClick={() => setSelected(v)} data-version-row={v.id}
-                      title={t('page.master_library.version_row', { version: v.version, tag: idx === 0 ? t('page.master_library.tag_latest') : t('page.master_library.tag_earlier'), date: formatDay(v.pushedAt), user: v.pushedByName })}
-                      className={`max-w-full truncate text-left hover:underline ${v.id === active.id ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>
-                      {t('page.master_library.version_row_value', { tag: idx === 0 ? t('page.master_library.tag_latest') : t('page.master_library.tag_earlier'), date: formatDay(v.pushedAt), user: v.pushedByName })}
-                    </button>
-                  </Field>
-                ))}
+                ) : versionHistory.map(v => {
+                  const tag = v.isCurrent ? t('page.master_library.tag_latest') : t('page.master_library.tag_earlier')
+                  const title = t('page.master_library.version_row', { version: v.version, tag, date: formatDay(v.pushedAt), user: v.pushedByName })
+                  const text = t('page.master_library.version_row_value', { tag, date: formatDay(v.pushedAt), user: v.pushedByName })
+                  // Another version opens in this panel: the latest for anyone, an earlier one for a PM or Auditor only.
+                  const canOpen = v.id !== active.id && !v.isWithdrawn && (v.isCurrent || canReadSuperseded)
+                  return (
+                    <Field key={v.id} label={<span className="normal-case">{v.version}</span>} current={v.id === active.id}>
+                      {canOpen ? (
+                        <button type="button" onClick={() => void openVersion(v.id)} data-version-row={v.id} data-version-current={v.isCurrent || undefined}
+                          title={title} className="max-w-full truncate text-left text-slate-700 hover:underline">{text}</button>
+                      ) : (
+                        <span data-version-row={v.id} data-version-current={v.isCurrent || undefined} title={title}
+                          className={`block max-w-full truncate ${v.id === active.id ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>{text}</span>
+                      )}
+                    </Field>
+                  )
+                })}
               </FieldGrid>
             </PanelSection>
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              {canShare && !active.isArchived && (
+              {canShare && !active.isArchived && !active.isSuperseded && (
                 <button type="button" onClick={() => setOverlay('share')}
                   className="h-9 rounded-md border px-4 text-[13px] font-semibold"
                   style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
@@ -523,7 +547,8 @@ export function MasterLibrary() {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const SHARE_MAX_RECIPIENTS = 20
+// Same as the API's SHARE_MAX_RECIPIENTS (apps/api/src/modules/platform/library/share.ts) — change both together.
+const SHARE_MAX_RECIPIENTS = 10
 
 // Share a Master Document (Project Manager only) by email address. A colleague with an account gets a
 // notification linking to the document in the app. Anyone else — e.g. a CEO with no account — gets an invitation
@@ -790,6 +815,12 @@ function ShareHistoryList({ itemId }: { itemId: string }) {
             <div className="min-w-0 flex-1 basis-[11rem]">
               <p className="break-words text-[12px] text-slate-800 [overflow-wrap:anywhere]" title={`${t('page.master_library.shared_with')}: ${s.sharedWith}`} data-shared-with>{s.sharedWith}</p>
               <p className="break-words text-[11px] text-slate-500 [overflow-wrap:anywhere]" title={`${t('page.master_library.shared_by')}: ${by}`} data-shared-by>{t('page.master_library.shared_by_line', { name: by })}</p>
+              {/* How many times they opened it under this share, and when last (SME request, 2026-11-24). */}
+              <p className={`text-[11px] ${s.openCount ? 'font-semibold text-slate-700' : 'text-slate-400'}`} data-share-opens={s.openCount ?? 0}>
+                {s.openCount && s.lastOpenedAt
+                  ? t('page.master_library.share_opened', { count: s.openCount, when: formatDateTimeIst(s.lastOpenedAt) })
+                  : t('page.master_library.share_not_opened')}
+              </p>
             </div>
             <span className="flex-none whitespace-nowrap pt-0.5 font-mono text-[10px] text-slate-500" title={t('page.master_library.shared_at')} data-shared-at>{formatDateTimeIst(s.sharedAt)}</span>
           </li>

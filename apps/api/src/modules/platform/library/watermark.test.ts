@@ -2,7 +2,7 @@ import { PDFDocument } from 'pdf-lib'
 import { describe, expect, it, vi } from 'vitest'
 import { extractTextFromBlob } from '../../clinical-writing/documents/extract-text.js'
 import { libraryItemPdf } from './pdf-file.js'
-import { sharedWatermark, viewerWatermark, watermarkPdf, watermarkTime } from './watermark.js'
+import { sharedWatermark, supersededBanner, viewerWatermark, watermarkPdf, watermarkTime } from './watermark.js'
 
 async function pdfWithPages(n: number): Promise<Buffer> {
   const doc = await PDFDocument.create()
@@ -73,5 +73,12 @@ describe('libraryItemPdf with a watermark', () => {
     const pdf = await libraryItemPdf(app, row(), { watermark: viewerWatermark('pm@x.io', AT) })
     expect(pdf).toMatchObject({ ok: true, watermarked: true })
     if (pdf.ok) expect(await textOf(pdf.body)).toContain('Viewed by pm@x.io')
+  })
+
+  it('an earlier version carries the SUPERSEDED line on every page as well', async () => {
+    const app = { blob: { get: vi.fn() }, log } as never
+    const pdf = await libraryItemPdf(app, row(), { watermark: viewerWatermark('pm@x.io', AT, supersededBanner('v2.0')) })
+    expect(pdf.ok).toBe(true)
+    if (pdf.ok) expect(await textOf(pdf.body)).toContain('SUPERSEDED - replaced by v2.0')
   })
 })

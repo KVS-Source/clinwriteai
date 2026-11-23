@@ -531,7 +531,7 @@ export function ESignature() {
   //   />
   // ) : null
 
-  // No active chain: signing starts by itself when the CRM is finished (Approvers first), so there is
+  // No active chain: signing starts by itself when every Reviewer has finished (Approvers first), so there is
   // nothing to start here. Say so, or why the automatic start was blocked.
   if (!chain || chain.status === 'cancelled') {
     return (

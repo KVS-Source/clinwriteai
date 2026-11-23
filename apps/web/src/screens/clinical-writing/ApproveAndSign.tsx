@@ -1,5 +1,5 @@
 // "Approve & E-sign" — an Approver's (A) approval and Part 11 signature in one action, from the Approver
-// View, once review and the CRM meeting are complete (the document is awaiting signature and its chain
+// View, once every Reviewer has finished (the document is awaiting signature and its chain
 // signs Approvers first). Two pop-ups, one after the other:
 //   1. Approve the document: what they are signing (the meaning) and an optional comment.
 //   2. Confirm your identity: their login password (§11.200 re-authentication).

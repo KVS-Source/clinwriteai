@@ -355,7 +355,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (parsed.data.verdict === 'approve' && parsed.data.sectionRef === APPROVE_DOCUMENT_REF) {
       return reply.code(409).send({
         error:   'approve_by_signing',
-        message: 'Approvers approve the document with Approve & E-sign, once review and the CRM meeting are complete.',
+        message: 'Approvers approve the document with Approve & E-sign, once every reviewer has finished.',
       })
     }
 

@@ -259,7 +259,7 @@ export function ReviewerView() {
   })
   const myApproverRows = raciRows.filter(r => r.letter === 'A' && r.userId === me?.id && !r.removedAt && !r.rejectedAt)
   const documentApprovedByMe = myApproverRows.length > 0 && myApproverRows.every(r => !!r.documentApprovedAt)
-  // Approve & E-sign: once review and the CRM meeting are complete the document awaits signature and its
+  // Approve & E-sign: once every Reviewer has finished the document awaits signature and its
   // chain asks every Approver first. My Approver record in that running chain, if any.
   const { data: chains = [] } = useQuery({
     queryKey: ['signature-chains', documentId],

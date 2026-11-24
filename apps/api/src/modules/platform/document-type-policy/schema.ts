@@ -35,6 +35,41 @@ export const bestPracticeDigestSchema = z.object({
 export type Principle          = z.infer<typeof principleSchema>
 export type BestPracticeDigest = z.infer<typeof bestPracticeDigestSchema>
 
+// --- author-input requirements (migration 100) ---------------------------
+
+/** Which document inputs must be present before the AI drafter can run.
+ *  PM toggles each flag per doc type on the Policy admin screen; the
+ *  preflight gates drafting accordingly. Defaults mirror the previous
+ *  hard-coded rules so existing doc types behave the same.
+ *
+ *  - requireSources:  author must attach at least one usable PDF source
+ *  - requireTemplate: a template must resolve (pinned or auto-matched)
+ *  - requirePurpose:  author must fill in `document.purpose` at Create
+ */
+export const policyRequirementsSchema = z.object({
+  requireSources:  z.boolean().default(true),
+  requireTemplate: z.boolean().default(true),
+  requirePurpose:  z.boolean().default(true),
+}).strict()
+
+export type PolicyRequirements = z.infer<typeof policyRequirementsSchema>
+
+export const DEFAULT_POLICY_REQUIREMENTS: PolicyRequirements = {
+  requireSources:  true,
+  requireTemplate: true,
+  requirePurpose:  true,
+}
+
+/** Prisma row's `requirements` column may be null-ish on pre-migration-100
+ *  rows (none in prod; defensive) — coalesce into the all-on default so
+ *  callers never have to deal with undefined flags. */
+export function requirementsOf(row: { requirements?: unknown }): PolicyRequirements {
+  const raw = row.requirements
+  if (!raw || typeof raw !== 'object') return DEFAULT_POLICY_REQUIREMENTS
+  const parsed = policyRequirementsSchema.safeParse(raw)
+  return parsed.success ? parsed.data : DEFAULT_POLICY_REQUIREMENTS
+}
+
 // --- section rules (admin-authored, outside the BP digest) ---------------
 
 export const sectionRuleSchema = z.object({
@@ -65,6 +100,7 @@ export const createPolicySchema = z.object({
   templateId:          z.string().optional().nullable(),
   checklistTemplateId: z.string().optional().nullable(),
   ichFramework:        z.string().max(80).optional().nullable(),
+  requirements:        policyRequirementsSchema.optional(),
 })
 
 /** Default SME-prompt placeholder used on `create` when the admin opts

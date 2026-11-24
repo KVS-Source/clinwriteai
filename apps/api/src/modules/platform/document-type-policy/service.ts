@@ -15,7 +15,7 @@
 //     from production and reintroduced).
 
 import type { PrismaClient } from '@prisma/client'
-import { defaultPlaceholderSmePrompt } from './schema.js'
+import { defaultPlaceholderSmePrompt, DEFAULT_POLICY_REQUIREMENTS } from './schema.js'
 import type {
   BestPracticeDigest, CreatePolicyInput, SectionRules, UpdatePolicyInput, BumpVersionInput,
 } from './schema.js'
@@ -82,6 +82,7 @@ export class DocumentTypePolicyService {
         templateId:          input.templateId          ?? null,
         checklistTemplateId: input.checklistTemplateId ?? null,
         ichFramework:        input.ichFramework        ?? null,
+        requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as object,
         createdBy:           actorId,
         updatedBy:           actorId,
       },
@@ -107,6 +108,7 @@ export class DocumentTypePolicyService {
           templateId:          input.templateId          ?? null,
           checklistTemplateId: input.checklistTemplateId ?? null,
           ichFramework:        input.ichFramework        ?? null,
+          requirements:        (input.requirements ?? (current.requirements ?? DEFAULT_POLICY_REQUIREMENTS)) as unknown as object,
           createdBy:           actorId,
           updatedBy:           actorId,
         },
@@ -142,6 +144,7 @@ export class DocumentTypePolicyService {
         ...(input.templateId          !== undefined && { templateId:          input.templateId }),
         ...(input.checklistTemplateId !== undefined && { checklistTemplateId: input.checklistTemplateId }),
         ...(input.ichFramework        !== undefined && { ichFramework:        input.ichFramework }),
+        ...(input.requirements        !== undefined && { requirements:        input.requirements        as unknown as object }),
         updatedBy: actorId,
       },
     })

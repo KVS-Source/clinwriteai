@@ -16,6 +16,7 @@ import {
   bumpVersionSchema,
   createPolicySchema,
   retireSchema,
+  requirementsOf,
   updatePolicySchema,
 } from './schema.js'
 import {
@@ -56,6 +57,7 @@ interface PolicyRow {
   templateId:          string | null
   checklistTemplateId: string | null
   ichFramework:        string | null
+  requirements:        unknown
   effectiveDate:       Date
   supersededBy:        string | null
   retiredAt:           Date | null
@@ -79,6 +81,7 @@ function shape(row: PolicyRow) {
     templateId:          row.templateId,
     checklistTemplateId: row.checklistTemplateId,
     ichFramework:        row.ichFramework,
+    requirements:        requirementsOf(row),
     effectiveDate:       row.effectiveDate.toISOString(),
     supersededBy:        row.supersededBy,
     retiredAt:           row.retiredAt?.toISOString() ?? null,

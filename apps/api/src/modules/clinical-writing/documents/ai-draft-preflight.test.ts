@@ -18,8 +18,8 @@ const USABLE_UPLOAD = {
 }
 
 function makePrisma(opts: {
-  doc?:          { type: string; projectId: string; deletedAt?: Date | null } | null
-  policy?:       { templateId: string | null; checklistTemplateId: string | null } | null
+  doc?:          { type: string; projectId: string; deletedAt?: Date | null; aiInstructions?: string | null } | null
+  policy?:       { templateId: string | null; checklistTemplateId: string | null; requirements?: unknown } | null
   checklistAuto?: { id: string; version: number } | null
   templateAuto?:  { id: string; label: string; version: number } | null
   sourceLinks?:  Array<{ uploadId: string }>
@@ -27,11 +27,11 @@ function makePrisma(opts: {
   anthropicKey?: string
 }) {
   const doc = opts.doc === undefined
-    ? { id: 'D1', type: 'csr_full', projectId: 'P1', deletedAt: null }
+    ? { id: 'D1', type: 'csr_full', projectId: 'P1', aiInstructions: 'Draft this doc for the primary endpoint', deletedAt: null }
     : opts.doc
   const policy = opts.policy === undefined
-    ? { id: 'pol1', docType: 'csr_full', templateId: null, checklistTemplateId: null }
-    : opts.policy && { id: 'pol1', docType: 'csr_full', ...opts.policy }
+    ? { id: 'pol1', docType: 'csr_full', templateId: null, checklistTemplateId: null, requirements: { requireSources: true, requireTemplate: true, requirePurpose: true } }
+    : opts.policy && { id: 'pol1', docType: 'csr_full', requirements: { requireSources: true, requireTemplate: true, requirePurpose: true }, ...opts.policy }
   const sourceLinks = opts.sourceLinks ?? [{ uploadId: 'u1' }]
   const uploads     = opts.uploads     ?? [USABLE_UPLOAD]
 
@@ -144,5 +144,74 @@ describe('computeDraftPreflight', () => {
     const prisma = makePrisma({ anthropicKey: 'sk-test', doc: null })
     const result = await computeDraftPreflight(prisma, 'D-missing')
     expect(result).toEqual({ ok: false, issues: [] })
+  })
+
+  // --- requirements toggles (migration 100) ------------------------------
+
+  it('flags no_template when policy.requireTemplate and nothing auto-matches', async () => {
+    const prisma = makePrisma({
+      anthropicKey:  'sk-test',
+      checklistAuto: { id: 'cl1', version: 1 },
+      // No templateAuto → resolveTemplate returns 'none'.
+    })
+    const result = await computeDraftPreflight(prisma, 'D1')
+    expect(result.ok).toBe(false)
+    expect(result.issues.map(i => i.code)).toContain('no_template')
+  })
+
+  it('does NOT flag no_template when policy switches it off', async () => {
+    const prisma = makePrisma({
+      anthropicKey:  'sk-test',
+      policy: {
+        templateId: null, checklistTemplateId: null,
+        requirements: { requireSources: true, requireTemplate: false, requirePurpose: true },
+      },
+      checklistAuto: { id: 'cl1', version: 1 },
+    })
+    const result = await computeDraftPreflight(prisma, 'D1')
+    expect(result.issues.map(i => i.code)).not.toContain('no_template')
+  })
+
+  it('flags no_purpose when policy.requirePurpose and aiInstructions is blank', async () => {
+    const prisma = makePrisma({
+      anthropicKey: 'sk-test',
+      doc: { id: 'D1', type: 'csr_full', projectId: 'P1', aiInstructions: null, deletedAt: null } as never,
+      checklistAuto: { id: 'cl1', version: 1 },
+      templateAuto:  { id: 'tmpl1', label: 'CSR', version: 1 },
+    })
+    const result = await computeDraftPreflight(prisma, 'D1')
+    expect(result.ok).toBe(false)
+    expect(result.issues.map(i => i.code)).toContain('no_purpose')
+  })
+
+  it('does NOT flag no_purpose when policy switches it off', async () => {
+    const prisma = makePrisma({
+      anthropicKey: 'sk-test',
+      doc: { id: 'D1', type: 'csr_full', projectId: 'P1', aiInstructions: null, deletedAt: null } as never,
+      policy: {
+        templateId: null, checklistTemplateId: null,
+        requirements: { requireSources: true, requireTemplate: true, requirePurpose: false },
+      },
+      checklistAuto: { id: 'cl1', version: 1 },
+      templateAuto:  { id: 'tmpl1', label: 'CSR', version: 1 },
+    })
+    const result = await computeDraftPreflight(prisma, 'D1')
+    expect(result.issues.map(i => i.code)).not.toContain('no_purpose')
+  })
+
+  it('does NOT flag no_sources when policy switches sources off', async () => {
+    const prisma = makePrisma({
+      anthropicKey: 'sk-test',
+      policy: {
+        templateId: null, checklistTemplateId: null,
+        requirements: { requireSources: false, requireTemplate: true, requirePurpose: true },
+      },
+      checklistAuto: { id: 'cl1', version: 1 },
+      templateAuto:  { id: 'tmpl1', label: 'CSR', version: 1 },
+      sourceLinks: [],
+      uploads: [],
+    })
+    const result = await computeDraftPreflight(prisma, 'D1')
+    expect(result.issues.map(i => i.code)).not.toContain('no_sources')
   })
 })

@@ -30,8 +30,11 @@ import {
   type BestPracticeDigest,
   type AiPromptRecord,
   type BestPracticeRecord,
+  type PolicyRequirements,
+  DEFAULT_POLICY_REQUIREMENTS,
 } from '../api/platformApi'
 import { documentsApi, type DocumentTemplate } from '../../api/documents'
+import { PolicyRequirementsToggles } from '../components/PolicyRequirementsToggles'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 
@@ -387,6 +390,17 @@ function AssociationsPanel({
     onError:    (err: unknown) => { setActionError(errMessage(err, 'Retire failed')); setActionInfo(null) },
   })
 
+  // Requirements PATCH — in-place update on the current policy. The
+  // service rejects edits of a used-by-documents version with 409, in
+  // which case the PM has to bump a new version; we surface that message
+  // verbatim so the admin knows which action to take next.
+  const saveRequirements = useMutation({
+    mutationFn: (next: PolicyRequirements) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { requirements: next }),
+    onSuccess: () => { setActionInfo('Requirements saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const onRetire = () => {
     const reason = window.prompt('Reason for retiring this policy (goes on the audit trail):', '')
     if (!reason || !reason.trim()) return
@@ -452,6 +466,12 @@ function AssociationsPanel({
         detail={null}
         manageTo="/master-library/ich-frameworks"
         manageLabel="Manage in ICH Frameworks"
+      />
+
+      <PolicyRequirementsToggles
+        value={policy.requirements ?? DEFAULT_POLICY_REQUIREMENTS}
+        disabled={saveRequirements.isPending}
+        onChange={next => saveRequirements.mutate(next)}
       />
 
       <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">

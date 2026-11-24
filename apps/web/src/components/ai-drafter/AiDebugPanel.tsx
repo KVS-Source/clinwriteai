@@ -167,9 +167,11 @@ const STATE_META: Record<string, { label: string; chip: string; dot: string }> =
 const ISSUE_LABELS: Record<string, string> = {
   ai_not_configured:     'No AI engine is configured',
   no_policy_for_doctype: 'No policy anchored for this doc type',
+  no_template:           'No template locked for this doc type',
   no_checklist:          'No checklist locked for this doc type',
   no_sources:            'No source documents attached',
   all_sources_dropped:   'Every attached source would be dropped by the drafter',
+  no_purpose:            'Document purpose is missing',
 }
 
 // ---- Time helpers -------------------------------------------------------

@@ -984,6 +984,25 @@ export interface ResolvedPolicyAssets {
   checklist: ResolvedChecklistAsset
 }
 
+/** Per-doc-type input requirements the PM toggles on the Policy admin
+ *  screen (migration 100). Each flag maps to one preflight blocker
+ *  that the AI drafter runs before enqueueing. See
+ *  apps/api/src/modules/clinical-writing/documents/ai-draft-preflight.ts. */
+export interface PolicyRequirements {
+  requireSources:  boolean
+  requireTemplate: boolean
+  /** Maps to the Create wizard's "Instructions for the AI drafter" field
+   *  (persisted on documents.aiInstructions). When true, the field is
+   *  required at Create time and the preflight re-checks it. */
+  requirePurpose:  boolean
+}
+
+export const DEFAULT_POLICY_REQUIREMENTS: PolicyRequirements = {
+  requireSources:  true,
+  requireTemplate: true,
+  requirePurpose:  true,
+}
+
 export interface DocumentTypePolicy {
   id:                  string
   docType:             string
@@ -995,6 +1014,7 @@ export interface DocumentTypePolicy {
   templateId:          string | null
   checklistTemplateId: string | null
   ichFramework:        string | null
+  requirements:        PolicyRequirements
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1019,6 +1039,7 @@ export interface DocumentTypePolicyEditableFields {
   templateId?:          string | null
   checklistTemplateId?: string | null
   ichFramework?:        string | null
+  requirements?:        PolicyRequirements
 }
 
 export interface DocumentTypePolicyCreateBody extends DocumentTypePolicyEditableFields {

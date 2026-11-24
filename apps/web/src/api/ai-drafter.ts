@@ -86,9 +86,11 @@ export const aiDrafterApi = {
 export type PreflightIssueCode =
   | 'ai_not_configured'
   | 'no_policy_for_doctype'
+  | 'no_template'
   | 'no_checklist'
   | 'no_sources'
   | 'all_sources_dropped'
+  | 'no_purpose'
 
 export interface PreflightIssue {
   code:     PreflightIssueCode

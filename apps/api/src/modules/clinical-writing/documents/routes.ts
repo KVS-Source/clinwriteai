@@ -1418,9 +1418,6 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // return 409 so the caller can show "a draft is already running".
   app.post('/:documentId/ai-draft/start', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
-      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
-    }
     const doc = await app.prisma.document.findUnique({
       where:  { id: documentId },
       select: {
@@ -1429,6 +1426,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
+                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
+    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const inFlight = doc.aiDraftState === 'pending'
                   || doc.aiDraftState === 'drafting'
@@ -1511,14 +1511,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // gate as the write side of the editor.
   app.post('/:documentId/ai-draft/stop', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
-      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
-    }
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      select: { id: true, aiDraftState: true, deletedAt: true },
+      select: { id: true, aiDraftState: true, projectId: true, deletedAt: true },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    // Draft control (pause / stop / resume) widens from edit-only to
+    // anyone who can edit + the project PM. The PM commonly kicks the
+    // draft off for a contributor; blocking them from pausing their
+    // own kickoff was a real-world 403.
+    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
+                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
+    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const inFlight = doc.aiDraftState === 'pending'
                   || doc.aiDraftState === 'drafting'
@@ -1555,14 +1559,14 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // was already written.
   app.post('/:documentId/ai-draft/pause', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
-      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
-    }
     const doc = await app.prisma.document.findUnique({
       where:  { id: documentId },
-      select: { id: true, aiDraftState: true, deletedAt: true },
+      select: { id: true, aiDraftState: true, projectId: true, deletedAt: true },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
+                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
+    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const inFlight = doc.aiDraftState === 'pending'
                   || doc.aiDraftState === 'drafting'
@@ -1595,9 +1599,6 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // drafting picks up where the pause left off.
   app.post('/:documentId/ai-draft/resume', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
-      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
-    }
     const doc = await app.prisma.document.findUnique({
       where:  { id: documentId },
       select: {
@@ -1606,6 +1607,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
+                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
+    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
     if (doc.aiDraftState !== 'paused') {
       return reply.code(409).send({ error: 'not_paused', state: doc.aiDraftState })
     }

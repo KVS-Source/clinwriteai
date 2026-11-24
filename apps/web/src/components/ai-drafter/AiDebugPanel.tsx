@@ -338,6 +338,13 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
       qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
     },
   })
+  const resumeMutation = useMutation({
+    mutationFn: () => aiDrafterApi.resumeDraft(documentId),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+    },
+  })
   const [copied, setCopied]   = useState(false)
   const [showRaw, setShowRaw] = useState(false)
 
@@ -464,6 +471,39 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                   />
                 )
               })()}
+
+              {/* PAUSED BANNER — persistent Resume affordance so a writer
+                  who dismissed the toast (or arrived here from the chip)
+                  can always get the draft going again. */}
+              {data.document?.aiDraftState === 'paused' && (
+                <section
+                  className="rounded-lg border border-amber-200 bg-amber-50 p-4"
+                  data-ai-debug-paused
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[14px] font-semibold text-amber-900">Drafting is paused</p>
+                      <p className="mt-0.5 text-[12px] text-amber-800">
+                        The worker exited at a section boundary. Resume re-runs preflight and picks up where it left off — already-written sections stay intact.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => resumeMutation.mutate()}
+                      disabled={resumeMutation.isPending}
+                      className="flex-none rounded-md border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                      data-action="resume-ai-draft"
+                    >
+                      {resumeMutation.isPending ? 'Resuming…' : 'Resume drafting'}
+                    </button>
+                  </div>
+                  {resumeMutation.error && (
+                    <p className="mt-2 rounded border border-rose-200 bg-white px-3 py-1.5 text-[12px] text-rose-800">
+                      {errMessage(resumeMutation.error, 'Resume failed')}
+                    </p>
+                  )}
+                </section>
+              )}
 
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />

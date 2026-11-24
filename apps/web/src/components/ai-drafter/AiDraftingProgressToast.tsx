@@ -75,10 +75,13 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
 
   // Reset the dismiss flag the moment the chain re-enters an in-flight
   // state (so a fresh regenerate shows the toast even if the user
-  // dismissed the last one).
+  // dismissed the last one). Also force-show when state flips to
+  // 'paused' so the Resume button is always reachable — otherwise a
+  // writer who hit X on the in-flight toast then paused via chat
+  // would have no way back to it.
   useEffect(() => {
-    if (summary.inFlight) setDismissed(false)
-  }, [summary.inFlight])
+    if (summary.inFlight || state === 'paused') setDismissed(false)
+  }, [summary.inFlight, state])
 
   // The toast is purely for in-flight drafts + "paused" (so the writer
   // can resume) + the one-off "AI not configured" explainer so writers
@@ -174,21 +177,35 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
             >
               {resumeMut.isPending ? 'Resuming…' : 'Resume'}
             </button>
+            <button
+              type="button"
+              onClick={() => { if (confirm('Discard the paused draft? Already-written sections stay, but the chain is cancelled and cannot be resumed.')) stopMut.mutate() }}
+              disabled={stopMut.isPending || stopMut.isSuccess}
+              className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              data-action="stop-ai-draft"
+            >
+              {stopMut.isPending ? 'Discarding…' : 'Discard'}
+            </button>
             {stopError && <span className="text-[10px] text-rose-700">{stopError}</span>}
           </div>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => setDismissed(true)}
-        aria-label={t('component.ai_drafting_progress_toast.dismiss')}
-        className="flex h-5 w-5 flex-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-      >
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-          <line x1="3" y1="3" x2="9" y2="9" />
-          <line x1="9" y1="3" x2="3" y2="9" />
-        </svg>
-      </button>
+      {/* X is hidden while paused so the writer can't lose the Resume
+          affordance by closing the toast. In-flight + not_configured
+          are dismissible — paused needs an explicit Resume or Discard. */}
+      {state !== 'paused' && (
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          aria-label={t('component.ai_drafting_progress_toast.dismiss')}
+          className="flex h-5 w-5 flex-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        >
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <line x1="3" y1="3" x2="9" y2="9" />
+            <line x1="9" y1="3" x2="3" y2="9" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }

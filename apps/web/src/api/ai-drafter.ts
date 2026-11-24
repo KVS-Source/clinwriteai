@@ -14,6 +14,7 @@ export type AiDraftState =
   | 'complete'     // loop ended cleanly (may have residual flags; see confidence)
   | 'failed'       // worker threw; writer should regenerate from the editor
   | 'cancelled'    // writer hit Stop on the toast; worker exits at next section boundary
+  | 'paused'       // writer hit Pause on the toast; loop exits cleanly, Resume picks up where it left off
   | 'not_configured' // legacy: no AI provider set up; replaced by 'blocked' with preflight issue
   | 'blocked'      // preflight found missing inputs (policy / checklist / sources / AI); AI Debug panel shows Blockers + Continue
 
@@ -66,6 +67,20 @@ export const aiDrafterApi = {
   stopDraft: (documentId: string) =>
     api.post<{ state: AiDraftState; cancelled: boolean }>(
       `/documents/${encodeURIComponent(documentId)}/ai-draft/stop`, {},
+    ),
+  // Pause an in-flight draft. Worker exits the loop cleanly at the
+  // next section boundary; already-drafted sections stay intact.
+  // Resume re-enqueues from where it left off.
+  pauseDraft: (documentId: string) =>
+    api.post<{ state: AiDraftState; paused: boolean }>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/pause`, {},
+    ),
+  // Resume a paused draft. Re-runs preflight (422 draft_blocked if
+  // inputs changed) then re-enqueues the worker. Only legal when
+  // state === 'paused'.
+  resumeDraft: (documentId: string) =>
+    api.post<{ state: AiDraftState; resumed: boolean }>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/resume`, {},
     ),
   // Preflight: reports structured blockers (missing policy / checklist /
   // sources / AI key). Drives the Blockers section + Continue button in

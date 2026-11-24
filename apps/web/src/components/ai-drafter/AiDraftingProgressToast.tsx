@@ -30,6 +30,7 @@ const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
   complete:   'headline_complete',
   failed:     'headline_failed',
   cancelled:  'headline_cancelled',
+  paused:     'headline_paused',
   not_configured: 'headline_not_configured',
   blocked:    'headline_blocked',
 }
@@ -58,6 +59,20 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
     },
   })
 
+  const pauseMut = useMutation({
+    mutationFn: () => aiDrafterApi.pauseDraft(documentId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] }),
+    onError:   (err: unknown) => setStopError(err instanceof ApiError ? `Pause: ${err.status}` : 'Pause failed'),
+  })
+  const resumeMut = useMutation({
+    mutationFn: () => aiDrafterApi.resumeDraft(documentId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-preflight', documentId] })
+    },
+    onError:   (err: unknown) => setStopError(err instanceof ApiError ? `Resume: ${err.status}` : 'Resume failed'),
+  })
+
   // Reset the dismiss flag the moment the chain re-enters an in-flight
   // state (so a fresh regenerate shows the toast even if the user
   // dismissed the last one).
@@ -65,12 +80,13 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
     if (summary.inFlight) setDismissed(false)
   }, [summary.inFlight])
 
-  // The toast is purely for in-flight drafts + the one-off "AI not
-  // configured" explainer so writers don't stare at a hanging progress
-  // bar when the admin hasn't pasted a key. Everything else (complete,
-  // failed, cancelled) is told via the confidence chip in the header.
+  // The toast is purely for in-flight drafts + "paused" (so the writer
+  // can resume) + the one-off "AI not configured" explainer so writers
+  // don't stare at a hanging progress bar when the admin hasn't pasted
+  // a key. Everything else (complete, failed, cancelled, blocked) is
+  // told via the confidence chip in the header.
   if (!state) return null
-  if (!summary.inFlight && state !== 'not_configured') return null
+  if (!summary.inFlight && state !== 'not_configured' && state !== 'paused') return null
   if (dismissed) return null
 
   // "Not configured" renders without a spinner and offers a link to the
@@ -80,7 +96,8 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
 
   const headline = t(`component.ai_drafting_progress_toast.${STATE_HEADLINE_KEY[state]}`)
   const line = buildStatusLine(state, summary, t)
-  const canStop = state === 'pending' || state === 'drafting' || state === 'validating'
+  const canStopOrPause = state === 'pending' || state === 'drafting' || state === 'validating'
+  const canResume      = state === 'paused'
 
   return (
     <div
@@ -90,11 +107,19 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
       aria-live="polite"
       data-testid="ai-drafting-toast"
     >
-      {/* Spinner */}
-      <span
-        className="mt-0.5 h-3.5 w-3.5 flex-none animate-spin rounded-full border-[1.5px]"
-        style={{ borderColor: '#DBEAFE', borderTopColor: '#2563EB' }}
-      />
+      {/* Spinner (in-flight) or static pause glyph (paused) */}
+      {state === 'paused' ? (
+        <span
+          className="mt-0.5 flex h-3.5 w-3.5 flex-none items-center justify-center text-[10px] font-semibold"
+          style={{ color: '#92400E' }}
+          aria-hidden="true"
+        >‖</span>
+      ) : (
+        <span
+          className="mt-0.5 h-3.5 w-3.5 flex-none animate-spin rounded-full border-[1.5px]"
+          style={{ borderColor: '#DBEAFE', borderTopColor: '#2563EB' }}
+        />
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="text-[13px] font-semibold text-slate-900">{headline}</div>
         <div className="text-[12px] text-slate-500">{line}</div>
@@ -115,8 +140,17 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
             <span className="font-mono text-[10px] text-slate-500">{summary.confidence}%</span>
           </div>
         )}
-        {canStop && (
+        {canStopOrPause && (
           <div className="mt-1 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => pauseMut.mutate()}
+              disabled={pauseMut.isPending || pauseMut.isSuccess}
+              className="rounded-md border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+              data-action="pause-ai-draft"
+            >
+              {pauseMut.isPending ? 'Pausing…' : 'Pause'}
+            </button>
             <button
               type="button"
               onClick={() => { if (confirm('Stop the AI draft? Already-written sections stay intact; the chain exits at the next section boundary.')) stopMut.mutate() }}
@@ -125,6 +159,20 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
               data-action="stop-ai-draft"
             >
               {stopMut.isSuccess ? 'Stopping…' : stopMut.isPending ? 'Stopping…' : 'Stop'}
+            </button>
+            {stopError && <span className="text-[10px] text-rose-700">{stopError}</span>}
+          </div>
+        )}
+        {canResume && (
+          <div className="mt-1 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => resumeMut.mutate()}
+              disabled={resumeMut.isPending}
+              className="rounded-md border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              data-action="resume-ai-draft"
+            >
+              {resumeMut.isPending ? 'Resuming…' : 'Resume'}
             </button>
             {stopError && <span className="text-[10px] text-rose-700">{stopError}</span>}
           </div>

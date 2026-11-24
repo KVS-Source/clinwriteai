@@ -30,6 +30,7 @@ const STATE_KEY: Record<AiDraftState, string> = {
   complete:   'state_complete',
   failed:     'state_failed',
   cancelled:  'state_cancelled',
+  paused:     'state_paused',
   not_configured: 'state_not_configured',
   blocked:    'state_blocked',
 }
@@ -51,6 +52,13 @@ export function AiConfidenceChip({ state, summary, onClick }: Props) {
   if (state === 'blocked') {
     const sty = { bg: '#FFF1F2', border: '#FECDD3', fg: '#9F1239', dot: '#E11D48' }
     return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_blocked')} sub={t('component.ai_confidence_chip.blocked_sub')} testid="ai-chip-blocked" onClick={onClick} />
+  }
+
+  // Writer paused the draft mid-run. Amber chip; clicking it shows the
+  // Resume button in the AI Debug / toast surface.
+  if (state === 'paused') {
+    const sty = { bg: '#FFFBEB', border: '#FDE68A', fg: '#92400E', dot: '#D97706' }
+    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_paused')} sub={t('component.ai_confidence_chip.paused_sub')} testid="ai-chip-paused" onClick={onClick} />
   }
 
   // Settled 'failed' is its own tone — not green/amber/rose confidence.

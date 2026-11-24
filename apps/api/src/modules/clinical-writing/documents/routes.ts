@@ -1377,6 +1377,121 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return { state: 'cancelled', cancelled: true }
   })
 
+  // --- POST /:documentId/ai-draft/pause ----------------------------------
+  //
+  // Writer hits Pause on the drafting toast. Unlike Stop (which is a
+  // full cancel), Pause flips state → 'paused' so the loop exits at
+  // the next section boundary AND the UI knows to show a Resume
+  // button. Already-drafted sections stay intact; Resume re-enqueues
+  // the job and the existing-content filter in the worker skips what
+  // was already written.
+  app.post('/:documentId/ai-draft/pause', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: { id: true, aiDraftState: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const inFlight = doc.aiDraftState === 'pending'
+                  || doc.aiDraftState === 'drafting'
+                  || doc.aiDraftState === 'validating'
+    if (!inFlight) {
+      return { state: doc.aiDraftState, paused: false }
+    }
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'paused' },
+    })
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_paused',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { previousState: doc.aiDraftState },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'paused', paused: true }
+  })
+
+  // --- POST /:documentId/ai-draft/resume ---------------------------------
+  //
+  // Resume a paused draft. Re-runs preflight (inputs may have changed)
+  // and re-enqueues the ai_initial_draft worker. The existing-content
+  // filter in the worker skips sections that already have content, so
+  // drafting picks up where the pause left off.
+  app.post('/:documentId/ai-draft/resume', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: {
+        id: true, type: true, projectId: true, assigneeId: true,
+        aiDraftState: true, currentVersionId: true, deletedAt: true,
+      },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (doc.aiDraftState !== 'paused') {
+      return reply.code(409).send({ error: 'not_paused', state: doc.aiDraftState })
+    }
+
+    const preflight = await computeDraftPreflight(app.prisma, documentId)
+    if (!preflight.ok) {
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'blocked' },
+      }).catch(() => undefined)
+      return reply.code(422).send({ error: 'draft_blocked', issues: preflight.issues })
+    }
+
+    const sourceLinks = await app.prisma.documentSource.findMany({
+      where:  { documentId },
+      select: { uploadId: true },
+    })
+    const sourceUploadIds = sourceLinks.map(l => l.uploadId)
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'pending' },
+    })
+    try {
+      await app.queue.enqueue('clinical.ai_initial_draft', {
+        documentId,
+        versionId:       doc.currentVersionId ?? '',
+        projectId:       doc.projectId,
+        type:            doc.type,
+        sourceUploadIds,
+        assigneeId:      doc.assigneeId,
+        actorId:         request.user!.id,
+      }, { jobId: `ai-initial-draft-${documentId}-resume-${Date.now()}` })
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'ai_initial_draft enqueue failed on resume')
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'failed' },
+      }).catch(() => undefined)
+      return reply.code(502).send({ error: 'enqueue_failed' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_resumed',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { sourcesTarget: sourceUploadIds.length },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'pending', resumed: true }
+  })
+
   // --- GET /:documentId/ai-debug ------------------------------------------
   //
   // Verbose provenance dump for a single document — intended for support +

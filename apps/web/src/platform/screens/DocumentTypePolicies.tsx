@@ -401,6 +401,13 @@ function AssociationsPanel({
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
+  const saveIchPins = useMutation({
+    mutationFn: (names: string[]) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { ichFrameworkNames: names }),
+    onSuccess: () => { setActionInfo('ICH framework pins saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const onRetire = () => {
     const reason = window.prompt('Reason for retiring this policy (goes on the audit trail):', '')
     if (!reason || !reason.trim()) return
@@ -459,19 +466,10 @@ function AssociationsPanel({
         manageLabel="Manage in Checklists"
       />
 
-      <AssociationRow
-        label="ICH framework"
-        state={policy.resolved?.ich.effective === 'none' ? 'missing' : (policy.resolved?.ich.effective ?? (policy.ichFramework ? 'pinned' : 'missing'))}
-        summary={
-          policy.resolved?.ich.effective === 'pinned' && policy.resolved.ich.pinned
-            ? `Pinned: ${policy.resolved.ich.pinned.name} · ${policy.resolved.ich.pinned.version}`
-            : policy.resolved?.ich.effective === 'auto' && policy.resolved.ich.auto
-              ? `Auto-matched: ${policy.resolved.ich.auto.name} · ${policy.resolved.ich.auto.version}`
-              : policy.ichFramework || 'No ICH framework pin'
-        }
-        detail={null}
-        manageTo="/master-library/ich-frameworks"
-        manageLabel="Manage in ICH Frameworks"
+      <IchFrameworksPicker
+        policy={policy}
+        onSave={names => saveIchPins.mutate(names)}
+        saving={saveIchPins.isPending}
       />
 
       <PolicyRequirementsToggles
@@ -495,6 +493,163 @@ function AssociationsPanel({
         </button>
       </footer>
     </div>
+  )
+}
+
+// ICH framework multi-select — swaps the generic AssociationRow for an
+// inline picker populated from GET /admin/frameworks. Each row has a
+// checkbox + the framework name + its version/jurisdiction. Chips at
+// the top show the resolver's current view (auto-matched default +
+// pinned list). Dirty state enables Save; "Manage in ICH Frameworks"
+// stays as a secondary action for catalogue CRUD.
+function IchFrameworksPicker({
+  policy, onSave, saving,
+}: {
+  policy:  PolicyEnriched
+  onSave:  (names: string[]) => void
+  saving:  boolean
+}) {
+  const current = useMemo(
+    () => (policy.ichFrameworkNames && policy.ichFrameworkNames.length > 0
+            ? policy.ichFrameworkNames
+            : (policy.ichFramework ? [policy.ichFramework] : [])),
+    [policy.ichFrameworkNames, policy.ichFramework],
+  )
+  const [picked, setPicked] = useState<string[]>(current)
+  useEffect(() => { setPicked(current) }, [current])
+
+  const frameworksQ = useQuery({
+    queryKey: ['regulatory-frameworks'],
+    queryFn:  () => platformApi.listFrameworks(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  // Hide retired entries from the picker; keep already-pinned-retired
+  // names visible as chips so the admin knows what was previously set.
+  const options = useMemo(() => {
+    const rows = frameworksQ.data ?? []
+    return rows.filter(r => r.status === 'Current')
+  }, [frameworksQ.data])
+
+  const toggle = (name: string, checked: boolean) => {
+    setPicked(prev => checked
+      ? (prev.includes(name) ? prev : [...prev, name])
+      : prev.filter(n => n !== name))
+  }
+
+  const dirty = picked.length !== current.length
+             || picked.some((n, i) => n !== current[i])
+
+  const resolved = policy.resolved?.ich
+  const effective = resolved?.effective ?? 'none'
+  const toneClass =
+    effective === 'pinned' ? 'border-indigo-200 bg-indigo-50/40' :
+    effective === 'auto'   ? 'border-sky-200 bg-sky-50/40' :
+                             'border-slate-200 bg-white'
+
+  return (
+    <section className={`rounded-md border ${toneClass} p-3`} data-assoc="ICH framework">
+      <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+            ICH framework
+          </p>
+          <span className="rounded-full border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-mono text-slate-600">
+            {effective === 'pinned' ? `${resolved?.pinned.length ?? 0} pinned`
+             : effective === 'auto' ? 'auto-matched'
+             : 'none'}
+          </span>
+        </div>
+        <Link
+          to="/master-library/ich-frameworks"
+          className="text-[11px] font-semibold text-blue-700 hover:underline"
+        >
+          Manage in ICH Frameworks →
+        </Link>
+      </header>
+
+      {/* Current resolver view — what the drafter sees right now. */}
+      <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
+        {(resolved?.pinned ?? []).map(f => (
+          <span key={`p-${f.name}`} className="rounded border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-indigo-800">
+            Pinned · {f.name} <span className="font-mono text-slate-500">{f.version}</span>
+          </span>
+        ))}
+        {(resolved?.auto ?? []).map(f => (
+          <span key={`a-${f.name}`} className="rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-sky-800">
+            Auto · {f.name} <span className="font-mono text-slate-500">{f.version}</span>
+          </span>
+        ))}
+        {effective === 'none' && (
+          <span className="text-slate-500 italic">No framework resolves yet.</span>
+        )}
+      </div>
+
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[12px] font-semibold text-slate-800">Pin frameworks</p>
+        <p className="text-[11px] text-slate-500">
+          Select every ICH guideline that applies — the drafter cites all of them.
+        </p>
+      </div>
+      {frameworksQ.isLoading && (
+        <p className="text-[11px] italic text-slate-500">Loading frameworks…</p>
+      )}
+      {frameworksQ.isError && (
+        <p className="text-[11px] text-rose-700">Could not load frameworks — try refreshing.</p>
+      )}
+      {!frameworksQ.isLoading && options.length === 0 && (
+        <p className="text-[11px] text-slate-500">
+          No ICH frameworks exist yet. Use <Link to="/master-library/ich-frameworks" className="font-semibold text-blue-700 hover:underline">Manage in ICH Frameworks</Link> to add one.
+        </p>
+      )}
+      {options.length > 0 && (
+        <ul className="max-h-48 overflow-y-auto rounded border border-slate-200 bg-white">
+          {options.map(f => {
+            const checked = picked.includes(f.code)
+            return (
+              <li key={f.id} className="flex items-start gap-2 border-b border-slate-100 px-3 py-1.5 last:border-b-0 text-[12px]">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-3.5 w-3.5 flex-none cursor-pointer accent-blue-600"
+                  checked={checked}
+                  onChange={e => toggle(f.code, e.currentTarget.checked)}
+                  data-ich-option={f.code}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-800">{f.code}</p>
+                  <p className="text-[11px] text-slate-500">
+                    {f.name !== f.code && <>{f.name} · </>}
+                    {f.issuer} · v{f.version}
+                  </p>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {dirty && (
+          <button
+            type="button"
+            onClick={() => setPicked(current)}
+            disabled={saving}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="reset-ich"
+          >
+            Reset
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onSave(picked)}
+          disabled={!dirty || saving}
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          data-action="save-ich-pins"
+        >
+          {saving ? 'Saving…' : 'Save pins'}
+        </button>
+      </div>
+    </section>
   )
 }
 

@@ -82,7 +82,8 @@ export const createPolicySchema = z.object({
   sectionRules:        sectionRulesSchema.optional(),
   templateId:          z.string().optional().nullable(),
   checklistTemplateId: z.string().optional().nullable(),
-  ichFramework:        z.string().max(80).optional().nullable(),
+  ichFramework:        z.string().max(80).optional().nullable(),   // DEPRECATED — see ichFrameworkNames
+  ichFrameworkNames:   z.array(z.string().min(1).max(80)).max(20).optional(),
   requirements:        policyRequirementsSchema.optional(),
 })
 

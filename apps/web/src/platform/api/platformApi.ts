@@ -979,9 +979,16 @@ export interface ResolvedChecklistAsset {
   pinned:    { id: string; version: number } | null
   effective: 'auto' | 'pinned' | 'none'
 }
+export interface ResolvedIchFramework {
+  name:         string
+  version:      string
+  jurisdiction: string
+}
 export interface ResolvedIchAsset {
-  auto:      { name: string; version: string; jurisdiction: string } | null
-  pinned:    { name: string; version: string; jurisdiction: string } | null
+  /** Convention-map default for this doc type (one entry today). */
+  auto:      ResolvedIchFramework[]
+  /** PM-pinned entries from policy.ichFrameworkNames, in display order. */
+  pinned:    ResolvedIchFramework[]
   effective: 'auto' | 'pinned' | 'none'
 }
 export interface ResolvedPolicyAssets {
@@ -1019,7 +1026,12 @@ export interface DocumentTypePolicy {
   sectionRules:        Record<string, unknown> | null
   templateId:          string | null
   checklistTemplateId: string | null
+  /** DEPRECATED — kept for one transition release. UI reads ichFrameworkNames. */
   ichFramework:        string | null
+  /** Multi-value ICH framework pins (migration 102). Each entry matches
+   *  a RegulatoryFramework.name; empty → resolver falls back to the
+   *  doc-type convention map. */
+  ichFrameworkNames:   string[]
   requirements:        PolicyRequirements
   effectiveDate:       string
   supersededBy:        string | null
@@ -1044,7 +1056,10 @@ export interface DocumentTypePolicyEditableFields {
   sectionRules?:        Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
   templateId?:          string | null
   checklistTemplateId?: string | null
+  /** DEPRECATED — keep for a transition release. Writes should set
+   *  ichFrameworkNames instead. */
   ichFramework?:        string | null
+  ichFrameworkNames?:   string[]
   requirements?:        PolicyRequirements
 }
 

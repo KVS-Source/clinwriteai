@@ -37,9 +37,19 @@ export interface ResolvedChecklist {
   effective: 'auto' | 'pinned' | 'none'
 }
 
+export interface ResolvedIchFramework {
+  name:         string
+  version:      string
+  jurisdiction: string
+}
+
 export interface ResolvedIch {
-  auto:      { name: string; version: string; jurisdiction: string } | null
-  pinned:    { name: string; version: string; jurisdiction: string } | null
+  /** Convention-map defaults for this doc type (DOC_TYPE_TO_ICH). */
+  auto:      ResolvedIchFramework[]
+  /** PM-pinned entries on policy.ichFrameworkNames (preferred over auto). */
+  pinned:    ResolvedIchFramework[]
+  /** 'pinned' when the PM pinned any; 'auto' when only the convention applies;
+   *  'none' when neither has an entry that resolves to a live row. */
   effective: 'auto' | 'pinned' | 'none'
 }
 
@@ -128,41 +138,69 @@ async function resolveChecklist(
 async function resolveIch(
   prisma:       PrismaClient,
   docType:      string,
-  pinnedName:   string | null,
+  pinnedNames:  string[],
 ): Promise<ResolvedIch> {
   const normalised = normaliseDocType(docType)
   const autoName   = DOC_TYPE_TO_ICH[normalised] ?? null
 
-  // Look up both candidate rows in one query. Case-insensitive match
-  // on the name because admins occasionally type 'ich e3' or 'ICH-E3'.
-  const names = new Set<string>()
-  if (pinnedName) names.add(pinnedName)
-  if (autoName)   names.add(autoName)
-  if (names.size === 0) {
-    return { auto: null, pinned: null, effective: 'none' }
+  // Look up every candidate row in one query. Case-insensitive match on
+  // the name because admins occasionally type 'ich e3' or 'ICH-E3'. We
+  // trim + lowercase the pin list to dedupe + normalise the lookup.
+  const pinnedWanted = Array.from(new Set(
+    pinnedNames.map(n => n.trim()).filter(Boolean),
+  ))
+  const wanted = new Set<string>(pinnedWanted)
+  if (autoName) wanted.add(autoName)
+  if (wanted.size === 0) {
+    return { auto: [], pinned: [], effective: 'none' }
   }
   const rows = await prisma.regulatoryFramework.findMany({
     where: {
-      name:      { in: Array.from(names), mode: 'insensitive' },
+      name:      { in: Array.from(wanted), mode: 'insensitive' },
       retiredAt: null,
     },
     select: { name: true, version: true, jurisdiction: true },
   })
   const byName = new Map(rows.map(r => [r.name.toLowerCase(), r]))
-  const pinned = pinnedName ? (byName.get(pinnedName.toLowerCase()) ?? null) : null
-  const auto   = autoName   ? (byName.get(autoName.toLowerCase())   ?? null) : null
-  const effective: ResolvedIch['effective'] = pinned ? 'pinned' : (auto ? 'auto' : 'none')
+
+  // Preserve input order when projecting to the array shape so UI
+  // renders pinned entries in the order the PM chose them.
+  const pinned: ResolvedIchFramework[] = []
+  for (const name of pinnedWanted) {
+    const hit = byName.get(name.toLowerCase())
+    if (hit) pinned.push(hit)
+  }
+  const auto: ResolvedIchFramework[] = []
+  if (autoName) {
+    const hit = byName.get(autoName.toLowerCase())
+    if (hit) auto.push(hit)
+  }
+  const effective: ResolvedIch['effective'] =
+    pinned.length > 0 ? 'pinned'
+    : auto.length > 0 ? 'auto'
+    : 'none'
   return { auto, pinned, effective }
 }
 
 export async function resolvePolicyAssets(
   prisma: PrismaClient,
-  policy: { docType: string; templateId: string | null; checklistTemplateId: string | null; ichFramework?: string | null },
+  policy: {
+    docType:              string
+    templateId:           string | null
+    checklistTemplateId:  string | null
+    ichFramework?:        string | null       // DEPRECATED — see ichFrameworkNames
+    ichFrameworkNames?:   string[] | null
+  },
 ): Promise<ResolvedAssets> {
+  // Prefer the new array column; fall back to the legacy single value
+  // during the transition window so unmigrated callers still work.
+  const pinnedNames = policy.ichFrameworkNames && policy.ichFrameworkNames.length > 0
+    ? policy.ichFrameworkNames
+    : (policy.ichFramework ? [policy.ichFramework] : [])
   const [template, checklist, ich] = await Promise.all([
     resolveTemplate(prisma, policy.docType, policy.templateId),
     resolveChecklist(prisma, policy.docType, policy.checklistTemplateId),
-    resolveIch(prisma, policy.docType, policy.ichFramework ?? null),
+    resolveIch(prisma, policy.docType, pinnedNames),
   ])
   return { template, checklist, ich }
 }

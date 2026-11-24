@@ -3518,6 +3518,7 @@
       "edit_eyebrow": "Edit framework",
       "updated_prefix": "updated",
       "scope_legend": "Scope",
+      "ich_status_note": "The status of an ICH guideline follows ich.org: a guideline ICH withdraws is marked superseded at the next sync. No approval is needed.",
       "superseded_note": "This framework is superseded. That can't be reversed — it remains citable on historical submissions.",
       "status_label": "Status",
       "option_current": "Current",

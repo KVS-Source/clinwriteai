@@ -327,6 +327,8 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   // (POST /admin/frameworks/:id/retire). It is one-way — there is no un-retire.
   const alreadySuperseded = active?.status === 'Deprecated'
   const activePending = active ? pendingByFramework.get(active.id) ?? null : null
+  // ICH guidelines have no approval step: their status follows ich.org (the sync marks a withdrawn one superseded).
+  const ichManaged = active?.issuer === 'ICH'
   const canSave = !!active && !readOnly && !alreadySuperseded && !activePending && newStatus === 'Deprecated' && !saving
   const [requestReason, setRequestReason] = useState('')
 
@@ -691,12 +693,24 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                 {t('page.regulatory_framework_admin.last_rejected', { name: lastDecided.decidedByName ?? '—', date: lastDecided.decidedAt ? formatDay(lastDecided.decidedAt) : '—', reason: lastDecided.rejectionReason ?? '', defaultValue: 'The last request was rejected by {{name}} on {{date}}: {{reason}}' })}
               </p>
             )}
-            {!readOnly && !canChangeStatus && !alreadySuperseded && !activePending && (
+            {!readOnly && ichManaged && !alreadySuperseded && !activePending && (
+              <>
+                <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-ich-status-note>
+                  {t('page.regulatory_framework_admin.ich_status_note', { defaultValue: 'The status of an ICH guideline follows ich.org: a guideline ICH withdraws is marked superseded at the next sync. No approval is needed.' })}
+                </p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setOpenId(null)}
+                    data-cancel-framework
+                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
+                </div>
+              </>
+            )}
+            {!readOnly && !ichManaged && !canChangeStatus && !alreadySuperseded && !activePending && (
               <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-status-pm-only>
                 {t('page.regulatory_framework_admin.status_pm_only')}
               </p>
             )}
-            {!readOnly && !activePending && (canChangeStatus || alreadySuperseded) && (alreadySuperseded ? (
+            {!readOnly && !activePending && (alreadySuperseded || (canChangeStatus && !ichManaged)) && (alreadySuperseded ? (
               <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-superseded-note>
                 {t('page.regulatory_framework_admin.superseded_note')}
               </p>
@@ -731,11 +745,14 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                   </label>
                 )}
                 <div className="flex gap-2">
-                  <button type="button" onClick={save} disabled={!canSave}
-                    data-save-framework
-                    className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                  >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.send_for_approval_action', { defaultValue: 'Send for approval →' })}</button>
+                  {/* Only once the PM picks Superseded: there is nothing to approve while the status stays Current. */}
+                  {newStatus === 'Deprecated' && (
+                    <button type="button" onClick={save} disabled={!canSave}
+                      data-save-framework
+                      className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+                    >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.send_for_approval_action', { defaultValue: 'Send for approval →' })}</button>
+                  )}
                   {/* Cancel drops any unsent change and closes the panel. */}
                   <button type="button" onClick={() => { setNewStatus('Current'); setRequestReason(''); setOpenId(null) }}
                     data-cancel-framework

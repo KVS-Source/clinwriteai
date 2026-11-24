@@ -3704,6 +3704,7 @@
       "edit_eyebrow": "フレームワークを編集",
       "updated_prefix": "更新日",
       "scope_legend": "対象分野",
+      "ich_status_note": "ICH ガイドラインのステータスは ich.org に従います。ICH が取り下げたガイドラインは次回の同期で廃止としてマークされます。承認は不要です。",
       "superseded_note": "このフレームワークは廃止されています。元に戻すことはできません — 過去の提出書類では引き続き参照できます。",
       "status_label": "ステータス",
       "option_current": "現行",

@@ -28,7 +28,7 @@ async function open(page: Page, me: Record<string, unknown>, opts: { pendingBy?:
     const w = window as unknown as { __calls: Call[] }
     w.__calls = []
     const frameworks = [
-      { id: 'fw-1', name: 'ICC 45', description: 'ICC 45', jurisdiction: 'ICH', version: 'r1', effectiveDate: '2020-01-01', retiredAt: null as string | null, updatedAt: '2026-10-15' },
+      { id: 'fw-1', name: 'ICC 45', description: 'ICC 45', jurisdiction: 'ICC',   // added by hand: ICH guidelines have no approval version: 'r1', effectiveDate: '2020-01-01', retiredAt: null as string | null, updatedAt: '2026-10-15' },
       { id: 'fw-2', name: 'ICH E3', description: 'ICH E3', jurisdiction: 'ICH', version: 'r1', effectiveDate: '2020-01-01', retiredAt: null as string | null, updatedAt: '2026-10-15' },
     ]
     type R = { id: string; frameworkId: string; status: string; reason: string | null; requestedBy: string; requestedByName: string; requestedAt: string; decidedBy: string | null; decidedByName: string | null; decidedAt: string | null; rejectionReason: string | null }

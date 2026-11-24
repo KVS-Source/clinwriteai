@@ -1,8 +1,10 @@
-// ICH framework auto-pick (migration 100 follow-up).
+// ICH framework auto-pick (migration 100 + 102).
 //
-// resolvePolicyAssets returns { auto, pinned, effective } for ICH the
-// same way it does for template + checklist. 'auto' comes from the
-// DOC_TYPE_TO_ICH convention map; 'pinned' comes from policy.ichFramework.
+// resolvePolicyAssets returns ich = { auto, pinned, effective }:
+//  - 'auto' pulled from the DOC_TYPE_TO_ICH convention map (single row today)
+//  - 'pinned' pulled from policy.ichFrameworkNames (array; migration 102)
+// Both are arrays so a doc type can cite multiple guidelines
+// (Protocol → M11 + E6 + E8).
 
 import { describe, expect, it, vi } from 'vitest'
 import { resolvePolicyAssets } from './resolve-assets.js'
@@ -11,6 +13,7 @@ const FRAMEWORKS = [
   { name: 'ICH E3',  version: '1995',  jurisdiction: 'ICH' },
   { name: 'ICH M11', version: '2023',  jurisdiction: 'ICH' },
   { name: 'ICH E6',  version: 'R3',    jurisdiction: 'ICH' },
+  { name: 'ICH E8',  version: 'R1',    jurisdiction: 'ICH' },
   { name: 'FDA 21 CFR 312', version: '2024', jurisdiction: 'US' },
 ]
 
@@ -34,17 +37,17 @@ function makePrisma(rows: typeof FRAMEWORKS = FRAMEWORKS) {
 }
 
 describe('resolvePolicyAssets — ICH framework', () => {
-  it("auto-matches CSR to ICH E3 when the policy doesn't pin one", async () => {
+  it("auto-matches CSR to ICH E3 when nothing is pinned", async () => {
     const prisma = makePrisma()
     const assets = await resolvePolicyAssets(prisma, {
       docType:             'csr_full',
       templateId:          null,
       checklistTemplateId: null,
-      ichFramework:        null,
+      ichFrameworkNames:   [],
     })
     expect(assets.ich.effective).toBe('auto')
-    expect(assets.ich.auto?.name).toBe('ICH E3')
-    expect(assets.ich.pinned).toBeNull()
+    expect(assets.ich.auto.map(f => f.name)).toEqual(['ICH E3'])
+    expect(assets.ich.pinned).toEqual([])
   })
 
   it('auto-matches Protocol to ICH M11', async () => {
@@ -53,22 +56,21 @@ describe('resolvePolicyAssets — ICH framework', () => {
       docType:             'protocol',
       templateId:          null,
       checklistTemplateId: null,
-      ichFramework:        null,
+      ichFrameworkNames:   [],
     })
-    expect(assets.ich.auto?.name).toBe('ICH M11')
+    expect(assets.ich.auto.map(f => f.name)).toEqual(['ICH M11'])
     expect(assets.ich.effective).toBe('auto')
   })
 
-  it('honours policy.ichFramework as a pin when set', async () => {
+  it('honours ichFrameworkNames pins and preserves order', async () => {
     const prisma = makePrisma()
     const assets = await resolvePolicyAssets(prisma, {
-      docType:             'csr_full',
+      docType:             'protocol',
       templateId:          null,
       checklistTemplateId: null,
-      ichFramework:        'FDA 21 CFR 312',
+      ichFrameworkNames:   ['ICH M11', 'ICH E6', 'ICH E8'],
     })
-    expect(assets.ich.pinned?.name).toBe('FDA 21 CFR 312')
-    expect(assets.ich.auto?.name).toBe('ICH E3')
+    expect(assets.ich.pinned.map(f => f.name)).toEqual(['ICH M11', 'ICH E6', 'ICH E8'])
     expect(assets.ich.effective).toBe('pinned')
   })
 
@@ -78,37 +80,50 @@ describe('resolvePolicyAssets — ICH framework', () => {
       docType:             'csr_full',
       templateId:          null,
       checklistTemplateId: null,
-      ichFramework:        'ich e3',
+      ichFrameworkNames:   ['ich e3'],
     })
-    expect(assets.ich.pinned?.name).toBe('ICH E3')
+    expect(assets.ich.pinned.map(f => f.name)).toEqual(['ICH E3'])
     expect(assets.ich.effective).toBe('pinned')
   })
 
-  it("reports 'none' for an unknown doc type with no pin", async () => {
+  it("reports 'none' for an unknown doc type with no pins", async () => {
     const prisma = makePrisma()
     const assets = await resolvePolicyAssets(prisma, {
       docType:             'advisory_board_report',
       templateId:          null,
       checklistTemplateId: null,
-      ichFramework:        null,
+      ichFrameworkNames:   [],
     })
     expect(assets.ich.effective).toBe('none')
-    expect(assets.ich.auto).toBeNull()
-    expect(assets.ich.pinned).toBeNull()
+    expect(assets.ich.auto).toEqual([])
+    expect(assets.ich.pinned).toEqual([])
   })
 
-  it("reports 'auto' (not 'pinned') when the pinned name doesn't match any row", async () => {
+  it("falls back to 'auto' when a pinned name doesn't match any row", async () => {
     const prisma = makePrisma()
     const assets = await resolvePolicyAssets(prisma, {
       docType:             'csr_full',
       templateId:          null,
       checklistTemplateId: null,
-      ichFramework:        'ICH Z99',   // nonexistent
+      ichFrameworkNames:   ['ICH Z99'],   // nonexistent
     })
-    // Pinned didn't resolve to a row; auto falls back. The auto match
-    // is still populated so the UI can surface the default.
-    expect(assets.ich.pinned).toBeNull()
-    expect(assets.ich.auto?.name).toBe('ICH E3')
+    expect(assets.ich.pinned).toEqual([])
+    expect(assets.ich.auto.map(f => f.name)).toEqual(['ICH E3'])
     expect(assets.ich.effective).toBe('auto')
+  })
+
+  it('reads the legacy ichFramework single field during the transition', async () => {
+    const prisma = makePrisma()
+    const assets = await resolvePolicyAssets(prisma, {
+      docType:             'csr_full',
+      templateId:          null,
+      checklistTemplateId: null,
+      // Old-style single-value pin — resolver prefers it when the new
+      // array is empty, so unmigrated rows still render.
+      ichFramework:        'FDA 21 CFR 312',
+      ichFrameworkNames:   [],
+    })
+    expect(assets.ich.pinned.map(f => f.name)).toEqual(['FDA 21 CFR 312'])
+    expect(assets.ich.effective).toBe('pinned')
   })
 })

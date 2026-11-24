@@ -10,8 +10,8 @@ import { frameworksRoutes } from './routes.js'
 
 type Req = { id: string; frameworkId: string; requestedBy: string; requestedAt: Date; reason: string | null; status: string; decidedBy: string | null; decidedAt: Date | null; rejectionReason: string | null }
 
-async function build(user: { id: string; role: string; roles?: string[] }, seed: { pending?: Partial<Req>; retired?: boolean } = {}) {
-  const fw = { id: 'fw-1', name: 'ICC 45', version: 'r1', retiredAt: seed.retired ? new Date() : null as Date | null }
+async function build(user: { id: string; role: string; roles?: string[] }, seed: { pending?: Partial<Req>; retired?: boolean; ich?: boolean } = {}) {
+  const fw = { id: 'fw-1', name: seed.ich ? 'ICH E14' : 'ICC 45', version: 'r1', jurisdiction: seed.ich ? 'ICH' : 'ICC', retiredAt: seed.retired ? new Date() : null as Date | null }
   const requests: Req[] = seed.pending ? [{
     id: 'req-1', frameworkId: 'fw-1', requestedBy: 'u-pm-a', requestedAt: new Date(), reason: null, status: 'pending',
     decidedBy: null, decidedAt: null, rejectionReason: null, ...seed.pending,
@@ -78,6 +78,19 @@ describe('send for approval', () => {
   it.each([['tenant-admin'], ['qc'], ['contributor']])('%s cannot send for approval (403)', async (role) => {
     const { app } = await build({ id: 'u-x', role })
     expect((await app.inject({ method: 'POST', url: '/fw-1/supersede-request', payload: {} })).statusCode).toBe(403)
+    await app.close()
+  })
+
+  // QA: ICH guidelines have no approval step; their status follows ich.org (the sync supersedes a withdrawn one).
+  it('refuses an ICH guideline: no request, no notification, no audit', async () => {
+    const { app, requests, sent, audit } = await build({ id: 'u-pm-a', role: 'pm' }, { ich: true })
+    const res = await app.inject({ method: 'POST', url: '/fw-1/supersede-request', payload: {} })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'ich_status_from_ich' })
+    expect(res.json().message).toContain('follows ich.org')
+    expect(requests).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+    expect(audit).toHaveLength(0)
     await app.close()
   })
 

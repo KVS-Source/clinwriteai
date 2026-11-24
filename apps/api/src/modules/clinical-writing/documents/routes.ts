@@ -36,6 +36,12 @@ import { DocumentTypePolicyService } from '../../platform/document-type-policy/s
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { computeDraftPreflight } from './ai-draft-preflight.js'
+import {
+  buildAutofillPrompt,
+  loadSourceSnapshots,
+  parseAutofillResponse,
+  type TbdAutofillItem,
+} from './ai-tbd-autofill.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
 import { assignReviewOrder, reviewersWhoseTurnItIs } from '../../platform/document-raci/review-order.js'
@@ -1085,6 +1091,140 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       sectionsAffected: result.updated.length,
       totalOccurrences,
       updated:          result.updated,
+    }
+  })
+
+  // POST /:documentId/tbd-autofill — ask Claude to resolve every [TBD: X]
+  // in the current version against the attached source PDFs. Items the
+  // sources can answer are applied via replaceAcrossSections; items they
+  // can't come back with a one-line diagnostic (missing source,
+  // conflicting values, decision required, etc.) so the writer sees
+  // exactly what to fix next.
+  app.post('/:documentId/tbd-autofill', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: { id: true, type: true, projectId: true, currentVersionId: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!doc.currentVersionId) return reply.code(409).send({ error: 'no_version', message: 'No current version to scan.' })
+
+    const locked = await authoringLock(documentId)
+    if (locked) return reply.code(409).send(locked)
+
+    // Collect unique TBD markers across every section of the current version.
+    const sections = await app.prisma.sectionContent.findMany({
+      where:  { documentVersionId: doc.currentVersionId },
+      select: { contentHtml: true },
+    })
+    const MARKER = /\[\s*TBD\b\s*:?\s*([^\]]*)\]/gi
+    const uniqueByTbd = new Map<string, TbdAutofillItem>()
+    for (const sec of sections) {
+      const html = sec.contentHtml ?? ''
+      const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
+      for (const m of text.matchAll(MARKER)) {
+        const tbd = (m[1] ?? '').replace(/\s+/g, ' ').trim()
+        if (!tbd) continue
+        if (!uniqueByTbd.has(tbd.toLowerCase())) {
+          uniqueByTbd.set(tbd.toLowerCase(), { tbd, marker: m[0]! })
+        }
+      }
+    }
+    const items = Array.from(uniqueByTbd.values()).slice(0, 20)
+    if (items.length === 0) {
+      return { scanned: 0, filled: [], unresolvable: [], missed: [], sectionsAffected: 0 }
+    }
+
+    // Pull source text (cap per file so even 10 PDFs fit the context).
+    const sourceSnapshots = await loadSourceSnapshots(app.prisma, app.blob, documentId)
+
+    const model = await chooseModel(app.prisma)
+    if (!app.aiGateway.isConfigured(model)) {
+      return reply.code(503).send({ error: 'ai_not_configured', message: 'No AI engine is configured — paste a key in Admin → AI engine first.' })
+    }
+
+    const prompt = buildAutofillPrompt(items, sourceSnapshots)
+    let rawResponse = ''
+    try {
+      const res = await app.aiGateway.chat({
+        tenantId:   request.user!.tenantId,
+        projectId:  doc.projectId,
+        actorId:    request.user!.id,
+        module:     'A',
+        intent:     'edit',
+        model,
+        prompt,
+        maxOutputTokens: 2048,
+        documentId,
+      })
+      rawResponse = res.responseText
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'tbd_autofill: AI call failed')
+      return reply.code(502).send({ error: 'ai_call_failed', message: err instanceof Error ? err.message : 'unknown' })
+    }
+
+    const parsed = parseAutofillResponse(rawResponse, items)
+
+    // Apply each resolvable answer via the existing replaceAcrossSections
+    // service — one pass per marker so a bad individual answer doesn't
+    // wreck the whole batch. Accumulate counts for the audit line.
+    const appliedUpdates: Array<{ tbd: string; occurrences: number; sectionIds: string[] }> = []
+    for (const ans of parsed.filled) {
+      if (!ans.value) continue
+      try {
+        const result = await svc.replaceAcrossSections({
+          documentId,
+          find:         ans.marker,
+          replace:      ans.value,
+          editorUserId: request.user!.id,
+        })
+        const occ = result.updated.reduce((n, u) => n + u.occurrences, 0)
+        appliedUpdates.push({ tbd: ans.tbd, occurrences: occ, sectionIds: result.updated.map(u => u.sectionId) })
+      } catch (err) {
+        app.log.warn({ err, documentId, tbd: ans.tbd }, 'tbd_autofill: apply failed for a filled item')
+      }
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_tbd_autofill_run',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    {
+        scanned:            items.length,
+        filledCount:        appliedUpdates.length,
+        unresolvableCount:  parsed.unresolvable.length,
+        missedCount:        parsed.missed.length,
+        totalOccurrences:   appliedUpdates.reduce((n, u) => n + u.occurrences, 0),
+        model,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    // Autocheck — same pattern as tbd-replace. The references-complete
+    // rule may flip now that TBDs are gone.
+    if (appliedUpdates.length > 0) {
+      void runAutocheckForDocument(app.prisma, {
+        documentId,
+        triggeredBy: `system:autocheck-tbd-autofill:${request.user!.id}`,
+        audit:       app.audit,
+      }).catch((err: unknown) => {
+        app.log.warn({ err, documentId }, 'autocheck after tbd autofill failed')
+      })
+    }
+
+    return {
+      scanned:          items.length,
+      filled:           parsed.filled.map(f => ({
+        ...f,
+        occurrences: appliedUpdates.find(u => u.tbd === f.tbd)?.occurrences ?? 0,
+      })),
+      unresolvable:     parsed.unresolvable,
+      missed:           parsed.missed,
+      sectionsAffected: new Set(appliedUpdates.flatMap(u => u.sectionIds)).size,
     }
   })
 

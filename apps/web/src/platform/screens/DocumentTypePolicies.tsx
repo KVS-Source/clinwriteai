@@ -461,8 +461,14 @@ function AssociationsPanel({
 
       <AssociationRow
         label="ICH framework"
-        state={policy.ichFramework ? 'pinned' : 'missing'}
-        summary={policy.ichFramework || 'No ICH framework pin'}
+        state={policy.resolved?.ich.effective === 'none' ? 'missing' : (policy.resolved?.ich.effective ?? (policy.ichFramework ? 'pinned' : 'missing'))}
+        summary={
+          policy.resolved?.ich.effective === 'pinned' && policy.resolved.ich.pinned
+            ? `Pinned: ${policy.resolved.ich.pinned.name} · ${policy.resolved.ich.pinned.version}`
+            : policy.resolved?.ich.effective === 'auto' && policy.resolved.ich.auto
+              ? `Auto-matched: ${policy.resolved.ich.auto.name} · ${policy.resolved.ich.auto.version}`
+              : policy.ichFramework || 'No ICH framework pin'
+        }
         detail={null}
         manageTo="/master-library/ich-frameworks"
         manageLabel="Manage in ICH Frameworks"

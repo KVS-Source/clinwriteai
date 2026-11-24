@@ -15,10 +15,13 @@
 //     admin's explicit choice from the system default and render a chip
 //     with the right "auto" vs "overridden" badge.
 //
-// ICH Frameworks don't auto-match today — there's no applicableDocTypes
-// field on RegulatoryFramework. The policy carries `ichFramework` as a
-// free-string name (which the editor renders as a dropdown from the
-// RegulatoryFramework list). Keep for a later migration if needed.
+// ICH Frameworks auto-match by doc type via a short convention map
+// (DOC_TYPE_TO_ICH below) — a CSR drafter always wants ICH E3 behind
+// it, a Protocol wants M11, an IB wants E6, etc. The policy's
+// ichFramework string is the PM override; when set, it wins over the
+// convention. The resolver returns the actual RegulatoryFramework row
+// (name + version + jurisdiction) so the editor's dropdown + the AI
+// prompt both have a stable handle.
 
 import type { PrismaClient } from '@prisma/client'
 
@@ -34,9 +37,35 @@ export interface ResolvedChecklist {
   effective: 'auto' | 'pinned' | 'none'
 }
 
+export interface ResolvedIch {
+  auto:      { name: string; version: string; jurisdiction: string } | null
+  pinned:    { name: string; version: string; jurisdiction: string } | null
+  effective: 'auto' | 'pinned' | 'none'
+}
+
 export interface ResolvedAssets {
   template:  ResolvedTemplate
   checklist: ResolvedChecklist
+  ich:       ResolvedIch
+}
+
+/** Doc-type → default ICH framework name (matches RegulatoryFramework.name).
+ *  Reads as "when no policy pin, assume this convention". When the PM
+ *  wants something else they set policy.ichFramework; pinned beats auto.
+ *  Doc types normalised to underscore form. Add rows as the catalogue
+ *  grows — unknown types fall through to 'none' which is fine. */
+export const DOC_TYPE_TO_ICH: Record<string, string> = {
+  csr_full:           'ICH E3',
+  csr_synopsis:       'ICH E3',
+  protocol:           'ICH M11',
+  protocol_amendment: 'ICH M11',
+  ib:                 'ICH E6',
+  dsur:               'ICH E2F',
+  psur:               'ICH E2C',
+  ind:                'ICH M4',
+  nda:                'ICH M4',
+  sap:                'ICH E9',
+  csr_appendix:       'ICH E3',
 }
 
 /** Normalise a docType the way checklist seeding already does — hyphen→underscore. */
@@ -96,13 +125,44 @@ async function resolveChecklist(
   return { auto, pinned, effective }
 }
 
+async function resolveIch(
+  prisma:       PrismaClient,
+  docType:      string,
+  pinnedName:   string | null,
+): Promise<ResolvedIch> {
+  const normalised = normaliseDocType(docType)
+  const autoName   = DOC_TYPE_TO_ICH[normalised] ?? null
+
+  // Look up both candidate rows in one query. Case-insensitive match
+  // on the name because admins occasionally type 'ich e3' or 'ICH-E3'.
+  const names = new Set<string>()
+  if (pinnedName) names.add(pinnedName)
+  if (autoName)   names.add(autoName)
+  if (names.size === 0) {
+    return { auto: null, pinned: null, effective: 'none' }
+  }
+  const rows = await prisma.regulatoryFramework.findMany({
+    where: {
+      name:      { in: Array.from(names), mode: 'insensitive' },
+      retiredAt: null,
+    },
+    select: { name: true, version: true, jurisdiction: true },
+  })
+  const byName = new Map(rows.map(r => [r.name.toLowerCase(), r]))
+  const pinned = pinnedName ? (byName.get(pinnedName.toLowerCase()) ?? null) : null
+  const auto   = autoName   ? (byName.get(autoName.toLowerCase())   ?? null) : null
+  const effective: ResolvedIch['effective'] = pinned ? 'pinned' : (auto ? 'auto' : 'none')
+  return { auto, pinned, effective }
+}
+
 export async function resolvePolicyAssets(
   prisma: PrismaClient,
-  policy: { docType: string; templateId: string | null; checklistTemplateId: string | null },
+  policy: { docType: string; templateId: string | null; checklistTemplateId: string | null; ichFramework?: string | null },
 ): Promise<ResolvedAssets> {
-  const [template, checklist] = await Promise.all([
+  const [template, checklist, ich] = await Promise.all([
     resolveTemplate(prisma, policy.docType, policy.templateId),
     resolveChecklist(prisma, policy.docType, policy.checklistTemplateId),
+    resolveIch(prisma, policy.docType, policy.ichFramework ?? null),
   ])
-  return { template, checklist }
+  return { template, checklist, ich }
 }

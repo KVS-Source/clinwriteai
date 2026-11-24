@@ -86,7 +86,7 @@ export async function computeDraftPreflight(
     select: {
       id: true, docType: true,
       templateId: true, checklistTemplateId: true,
-      requirements: true,
+      ichFramework: true, requirements: true,
     },
   })
   if (!policy) {

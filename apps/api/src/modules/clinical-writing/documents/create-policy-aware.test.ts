@@ -69,6 +69,7 @@ async function build(opts: { policy?: PolicyRow | null } = {}) {
     // auto-match fallback.
     documentTemplate:  { findUnique: vi.fn(async () => null), findFirst: vi.fn(async () => null) },
     checklistTemplate: { findUnique: vi.fn(async () => null), findFirst: vi.fn(async () => null) },
+    regulatoryFramework: { findMany: vi.fn(async () => []) },
     documentTypePolicy: {
       findFirst: vi.fn(async (arg: { where: Record<string, unknown> }) => {
         policyLookups.push(arg.where)

@@ -56,6 +56,9 @@ function makePrisma(opts: {
     documentUpload: {
       findMany: vi.fn(async () => uploads),
     },
+    regulatoryFramework: {
+      findMany: vi.fn(async () => []),
+    },
     externalApiCredential: {
       findFirst: vi.fn(async () => opts.anthropicKey ? { apiKey: opts.anthropicKey } : null),
     },

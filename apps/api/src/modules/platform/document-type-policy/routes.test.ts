@@ -125,6 +125,9 @@ async function build(opts: {
       findUnique: vi.fn(async () => null),
       findFirst:  vi.fn(async () => null),
     },
+    regulatoryFramework: {
+      findMany:   vi.fn(async () => []),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn((app as unknown as { prisma: unknown }).prisma)),
   } as never)
   app.decorate('audit', { append: audit } as never)

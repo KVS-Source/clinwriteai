@@ -979,9 +979,15 @@ export interface ResolvedChecklistAsset {
   pinned:    { id: string; version: number } | null
   effective: 'auto' | 'pinned' | 'none'
 }
+export interface ResolvedIchAsset {
+  auto:      { name: string; version: string; jurisdiction: string } | null
+  pinned:    { name: string; version: string; jurisdiction: string } | null
+  effective: 'auto' | 'pinned' | 'none'
+}
 export interface ResolvedPolicyAssets {
   template:  ResolvedTemplateAsset
   checklist: ResolvedChecklistAsset
+  ich:       ResolvedIchAsset
 }
 
 /** Per-doc-type input requirements the PM toggles on the Policy admin

@@ -1258,6 +1258,7 @@ export interface PublicationTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1277,6 +1278,7 @@ export interface PublicationTypePolicyCreateBody {
   templateId?:          string | null
   checklistTemplateId?: string | null
   guidelineKey?:        string | null
+  requirements?:        PolicyRequirements
 }
 
 export type PublicationTypePolicyPatchBody = Omit<PublicationTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
@@ -1356,6 +1358,7 @@ export interface MedContentTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1376,6 +1379,7 @@ export interface MedContentTypePolicyCreateBody {
   checklistTemplateId?: string | null
   complianceTrack?:     MedContentComplianceTrack | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export type MedContentTypePolicyPatchBody = Omit<MedContentTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
@@ -1453,6 +1457,7 @@ export interface RegulatoryTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1473,6 +1478,7 @@ export interface RegulatoryTypePolicyCreateBody {
   checklistTemplateId?: string | null
   regulatoryTrack?:     RegulatoryTrack | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export type RegulatoryTypePolicyPatchBody = Omit<RegulatoryTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
@@ -1550,6 +1556,7 @@ export interface IdeationTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1570,6 +1577,7 @@ export interface IdeationTypePolicyCreateBody {
   checklistTemplateId?: string | null
   channelHint?:         IdeationChannelHint | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export type IdeationTypePolicyPatchBody = Omit<IdeationTypePolicyCreateBody, 'docType' | 'smePrompt'> & {

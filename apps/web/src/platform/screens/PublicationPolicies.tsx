@@ -21,9 +21,12 @@ import {
   type PublicationTypePolicy,
   type PublicationAiPromptRecord,
   type PublicationBestPracticeRecord,
+  type PolicyRequirements,
+  DEFAULT_POLICY_REQUIREMENTS,
 } from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { SlidePanel } from '../../components/ui/SlidePanel'
+import { PolicyRequirementsToggles } from '../components/PolicyRequirementsToggles'
 
 // Canonical doc-type slugs for the New Policy picker. Flat per the
 // subtype decision (2026-11-17). Admins anchor one policy per slug;
@@ -407,6 +410,13 @@ function AssociationsPanel({
     onError:    (err: unknown) => { setActionError(errMessage(err, 'Retire failed')); setActionInfo(null) },
   })
 
+  const saveRequirements = useMutation({
+    mutationFn: (next: PolicyRequirements) =>
+      platformApi.updatePublicationTypePolicy(policy.docType, { requirements: next }),
+    onSuccess: () => { setActionInfo('Requirements saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const onRetire = () => {
     const reason = window.prompt('Reason for retiring this policy (goes on the audit trail):', '')
     if (!reason || !reason.trim()) return
@@ -478,6 +488,12 @@ function AssociationsPanel({
           </div>
         </div>
       </section>
+
+      <PolicyRequirementsToggles
+        value={policy.requirements ?? DEFAULT_POLICY_REQUIREMENTS}
+        disabled={saveRequirements.isPending}
+        onChange={next => saveRequirements.mutate(next)}
+      />
 
       <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">
         <p className="font-mono text-[10px] text-slate-400">

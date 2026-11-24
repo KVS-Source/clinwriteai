@@ -12,6 +12,7 @@ import { resolveAiEngineSettings } from '../../platform/config/ai-engine-setting
 import { PublicationAiPromptService, PublicationAiPromptServiceError } from './ai-prompt-service.js'
 import { PublicationBestPracticeService, PublicationBpServiceError } from './best-practice-service.js'
 import { PublicationTypePolicyService, PublicationTypePolicyServiceError } from './type-policy-service.js'
+import { policyRequirementsSchema, requirementsOf } from '../../platform/policy-requirements.js'
 
 const readGate  = requireAuth({ modules: ['B'] })
 const writeGate = requireAuth({ modules: ['B'], roles: ['pm'] })
@@ -112,6 +113,7 @@ function shapePolicy(row: {
   id: string; docType: string; version: number; isCurrent: boolean
   templateId: string | null; checklistTemplateId: string | null; guidelineKey: string | null
   smePrompt: string; bestPracticeDigest: unknown; sectionRules: unknown
+  requirements: unknown
   effectiveDate: Date; retiredAt: Date | null; retiredBy: string | null
   retireReason: string | null; supersededBy: string | null
   createdBy: string; updatedBy: string
@@ -128,6 +130,7 @@ function shapePolicy(row: {
     smePrompt:           row.smePrompt,
     bestPracticeDigest:  row.bestPracticeDigest,
     sectionRules:        row.sectionRules,
+    requirements:        requirementsOf(row),
     effectiveDate:       row.effectiveDate.toISOString(),
     retiredAt:           row.retiredAt?.toISOString() ?? null,
     retiredBy:           row.retiredBy,
@@ -152,6 +155,7 @@ export const publicationTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     templateId:          z.string().nullable().optional(),
     checklistTemplateId: z.string().nullable().optional(),
     guidelineKey:        z.string().nullable().optional(),
+    requirements:        policyRequirementsSchema.optional(),
   })
 
   const patchSchema = z.object({
@@ -161,6 +165,7 @@ export const publicationTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     templateId:          z.string().nullable().optional(),
     checklistTemplateId: z.string().nullable().optional(),
     guidelineKey:        z.string().nullable().optional(),
+    requirements:        policyRequirementsSchema.optional(),
   })
 
   function mapServiceError(err: unknown): { code: number; body: Record<string, unknown> } | null {

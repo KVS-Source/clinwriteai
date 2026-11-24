@@ -142,7 +142,7 @@ export async function visibleProjectIdsForUser(
 const SEE_ALL_DOCUMENT_ROLES: ReadonlySet<string> = new Set([...SEE_ALL_ROLES, 'pm'])
 
 /** Prisma filter limiting documents to the ones `user` works on, or null when they see all. */
-export async function documentVisibilityWhere(prisma: PrismaClient, user: AuthenticatedUser): Promise<Prisma.DocumentWhereInput | null> {
+export async function documentVisibilityWhere(_prisma: PrismaClient, user: AuthenticatedUser): Promise<Prisma.DocumentWhereInput | null> {
   if (hasAnyRole(user, ...SEE_ALL_DOCUMENT_ROLES)) return null
   return {
     OR: [

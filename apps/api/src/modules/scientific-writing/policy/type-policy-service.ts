@@ -8,6 +8,8 @@
 // (same migration path Module A is on).
 
 import type { PrismaClient, Prisma } from '@prisma/client'
+import type { PolicyRequirements } from '../../platform/policy-requirements.js'
+import { DEFAULT_POLICY_REQUIREMENTS } from '../../platform/policy-requirements.js'
 
 export interface PublicationTypePolicyEditableFields {
   smePrompt?:           string
@@ -16,6 +18,7 @@ export interface PublicationTypePolicyEditableFields {
   templateId?:          string | null
   checklistTemplateId?: string | null
   guidelineKey?:        string | null
+  requirements?:        PolicyRequirements
 }
 
 export interface PublicationTypePolicyCreateBody extends PublicationTypePolicyEditableFields {
@@ -63,6 +66,7 @@ export class PublicationTypePolicyService {
         templateId:          input.templateId          ?? null,
         checklistTemplateId: input.checklistTemplateId ?? null,
         guidelineKey:        input.guidelineKey        ?? null,
+        requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as Prisma.InputJsonValue,
         createdBy: actorId,
         updatedBy: actorId,
       },
@@ -82,6 +86,7 @@ export class PublicationTypePolicyService {
         ...(input.templateId          !== undefined && { templateId:          input.templateId }),
         ...(input.checklistTemplateId !== undefined && { checklistTemplateId: input.checklistTemplateId }),
         ...(input.guidelineKey        !== undefined && { guidelineKey:        input.guidelineKey }),
+        ...(input.requirements        !== undefined && { requirements:        input.requirements as unknown as Prisma.InputJsonValue }),
         updatedBy: actorId,
       },
     })

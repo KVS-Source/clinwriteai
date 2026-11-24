@@ -12,6 +12,7 @@ import { resolveAiEngineSettings } from '../../platform/config/ai-engine-setting
 import { MedContentAiPromptService, MedContentAiPromptServiceError } from './ai-prompt-service.js'
 import { MedContentBestPracticeService, MedContentBpServiceError } from './best-practice-service.js'
 import { MedContentTypePolicyService, MedContentTypePolicyServiceError } from './type-policy-service.js'
+import { policyRequirementsSchema, requirementsOf } from '../../platform/policy-requirements.js'
 
 const readGate  = requireAuth({ modules: ['C'] })
 const writeGate = requireAuth({ modules: ['C'], roles: ['pm'] })
@@ -50,6 +51,7 @@ interface PolicyRow {
   templateId: string | null; checklistTemplateId: string | null
   complianceTrack: string | null; reviewTierFormula: string | null
   smePrompt: string; bestPracticeDigest: unknown; sectionRules: unknown
+  requirements: unknown
   effectiveDate: Date; retiredAt: Date | null; retiredBy: string | null
   retireReason: string | null; supersededBy: string | null
   createdBy: string; updatedBy: string
@@ -69,6 +71,7 @@ function shapePolicy(row: PolicyRow) {
     smePrompt:           row.smePrompt,
     bestPracticeDigest:  row.bestPracticeDigest,
     sectionRules:        row.sectionRules,
+    requirements:        requirementsOf(row),
     effectiveDate:       row.effectiveDate.toISOString(),
     retiredAt:           row.retiredAt?.toISOString() ?? null,
     retiredBy:           row.retiredBy,
@@ -159,6 +162,7 @@ export const medContentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     checklistTemplateId: z.string().nullable().optional(),
     complianceTrack:     z.enum(['promotional', 'non_promotional', 'cme', 'advisory']).nullable().optional(),
     reviewTierFormula:   z.string().nullable().optional(),
+    requirements:        policyRequirementsSchema.optional(),
   })
 
   const patchSchema = z.object({
@@ -169,6 +173,7 @@ export const medContentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     checklistTemplateId: z.string().nullable().optional(),
     complianceTrack:     z.enum(['promotional', 'non_promotional', 'cme', 'advisory']).nullable().optional(),
     reviewTierFormula:   z.string().nullable().optional(),
+    requirements:        policyRequirementsSchema.optional(),
   })
 
   function mapServiceError(err: unknown): { code: number; body: Record<string, unknown> } | null {

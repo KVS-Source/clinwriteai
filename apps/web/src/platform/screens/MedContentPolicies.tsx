@@ -17,9 +17,12 @@ import {
   type MedContentAiPromptRecord,
   type MedContentBestPracticeRecord,
   type MedContentComplianceTrack,
+  type PolicyRequirements,
+  DEFAULT_POLICY_REQUIREMENTS,
 } from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { SlidePanel } from '../../components/ui/SlidePanel'
+import { PolicyRequirementsToggles } from '../components/PolicyRequirementsToggles'
 
 const MED_CONTENT_DOC_TYPES: Array<{ value: string; label: string }> = [
   { value: 'hcp_slide_deck',   label: 'HCP slide deck' },
@@ -366,6 +369,13 @@ function AssociationsPanel({ policy, aiReady, onChanged }: { policy: PolicyEnric
     onError:    (err: unknown) => { setActionError(errMessage(err, 'Retire failed')); setActionInfo(null) },
   })
 
+  const saveRequirements = useMutation({
+    mutationFn: (next: PolicyRequirements) =>
+      platformApi.updateMedContentTypePolicy(policy.docType, { requirements: next }),
+    onSuccess: () => { setActionInfo('Requirements saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const onRetire = () => {
     const reason = window.prompt('Reason for retiring this policy:', '')
     if (!reason || !reason.trim()) return
@@ -412,6 +422,12 @@ function AssociationsPanel({ policy, aiReady, onChanged }: { policy: PolicyEnric
           </div>
         </div>
       </section>
+
+      <PolicyRequirementsToggles
+        value={policy.requirements ?? DEFAULT_POLICY_REQUIREMENTS}
+        disabled={saveRequirements.isPending}
+        onChange={next => saveRequirements.mutate(next)}
+      />
 
       <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">
         <p className="font-mono text-[10px] text-slate-400">

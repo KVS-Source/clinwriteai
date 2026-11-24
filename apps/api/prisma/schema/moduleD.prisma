@@ -372,6 +372,8 @@ model RegulatoryTypePolicy {
   smePrompt           String    @default("")
   bestPracticeDigest  Json      @default("{\"principles\":[]}")
   sectionRules        Json      @default("{}")
+  // Author-input requirements (migration 101) — see /platform/policy-requirements.ts.
+  requirements        Json      @default("{\"requireSources\": true, \"requireTemplate\": true, \"requirePurpose\": true}")
   effectiveDate       DateTime  @default(now())
   retiredAt           DateTime?
   retiredBy           String?

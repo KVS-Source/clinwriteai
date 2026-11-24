@@ -1939,6 +1939,23 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     let sectionsSkipped = 0
     let jobStartedAt: Date | null = null
     let lastStepAt:   Date | null = null
+
+    // Source document read stats — fed from source_loaded / source_skipped
+    // steps. One row per source (loaded or skipped) with its reason,
+    // bytes, and category so the UI can show "N/M sources usable, X
+    // dropped (non-PDF, exceeds cap, blob failure)" without a separate
+    // query. The map dedupes per sourceId in case a resumed draft
+    // re-emits the same source.
+    interface SourceRead {
+      sourceId:    string | null
+      title:       string | null
+      status:      'loaded' | 'skipped'
+      reason?:     string
+      bytes?:      number
+      category?:   string | null
+    }
+    const sourcesSeen = new Map<string, SourceRead>()
+
     for (const s of draftStepRows) {
       const d = (s.details ?? {}) as Record<string, unknown>
       const model  = typeof d.model         === 'string' ? d.model : null
@@ -1962,6 +1979,44 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       if (s.kind === 'section_skipped')     sectionsSkipped += 1
       if (s.kind === 'job_started') jobStartedAt = s.timestamp
       if (!lastStepAt || s.timestamp > lastStepAt) lastStepAt = s.timestamp
+
+      if (s.kind === 'source_loaded' || s.kind === 'source_skipped') {
+        const sourceId = typeof d.sourceId === 'string' ? d.sourceId : null
+        // The step message starts with `Loaded "title" (…)` or
+        // `Skipped "title" — …`. Pull the title between the quotes.
+        const titleMatch = /"([^"]+)"/.exec(s.message)
+        const title = titleMatch ? titleMatch[1]! : null
+        const read: SourceRead = {
+          sourceId,
+          title,
+          status:   s.kind === 'source_loaded' ? 'loaded' : 'skipped',
+          bytes:    typeof d.bytes === 'number' ? d.bytes : undefined,
+          category: typeof d.category === 'string' ? d.category : null,
+          reason:   s.kind === 'source_skipped'
+            ? (typeof d.reason === 'string' ? d.reason
+               : typeof d.contentType === 'string' ? `not a PDF (${d.contentType})`
+               : typeof d.err === 'string' ? `blob read failed`
+               : 'unknown reason')
+            : undefined,
+        }
+        sourcesSeen.set(sourceId ?? `_${sourcesSeen.size}`, read)
+      }
+    }
+    const sourcesList = Array.from(sourcesSeen.values())
+    const loadedSources = sourcesList.filter(s => s.status === 'loaded')
+    const skippedSources = sourcesList.filter(s => s.status === 'skipped')
+    const skippedByReason = new Map<string, number>()
+    for (const s of skippedSources) {
+      const key = s.reason ?? 'unknown'
+      skippedByReason.set(key, (skippedByReason.get(key) ?? 0) + 1)
+    }
+    const sourcesSummary = {
+      attached:        sourcesList.length,
+      loaded:          loadedSources.length,
+      skipped:         skippedSources.length,
+      totalBytes:      loadedSources.reduce((n, s) => n + (s.bytes ?? 0), 0),
+      skippedByReason: Array.from(skippedByReason.entries()).map(([reason, count]) => ({ reason, count })),
+      items:           sourcesList.slice(0, 30),  // cap for the header card
     }
     const perModel = Array.from(perModelTotals.entries()).map(([model, agg]) => ({
       model,
@@ -1989,6 +2044,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       lastStepAt:    lastStepAt?.toISOString() ?? null,
       rateCardVersion: activeRateCard.version,
       perModel,
+      sources: sourcesSummary,
     }
 
     // Last 50 AI + section audit events for this document. audit_events

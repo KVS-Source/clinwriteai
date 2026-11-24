@@ -163,6 +163,21 @@ interface DebugBuildSummary {
     calls:        number
     costUsd:      number
   }>
+  sources?: {
+    attached:        number
+    loaded:          number
+    skipped:         number
+    totalBytes:      number
+    skippedByReason: Array<{ reason: string; count: number }>
+    items: Array<{
+      sourceId:  string | null
+      title:     string | null
+      status:    'loaded' | 'skipped'
+      reason?:   string
+      bytes?:    number
+      category?: string | null
+    }>
+  }
 }
 
 // ---- Human-readable label tables ---------------------------------------
@@ -777,6 +792,7 @@ function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
     : summary.elapsedMs < 60_000
       ? `${(summary.elapsedMs / 1000).toFixed(1)}s`
       : `${Math.floor(summary.elapsedMs / 60_000)}m ${Math.round((summary.elapsedMs % 60_000) / 1000)}s`
+  const srcTotalMB = (summary.sources?.totalBytes ?? 0) / (1024 * 1024)
   return (
     <section
       className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4"
@@ -791,14 +807,65 @@ function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
           <span className="font-mono text-[10px] text-indigo-700">rate card {summary.rateCardVersion}</span>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <SummaryCell label="Est. cost"   value={costDisplay}                          sub={`${summary.aiCallCount} Claude call${summary.aiCallCount === 1 ? '' : 's'}`} />
         <SummaryCell label="Tokens"      value={`${(totalTokens / 1000).toFixed(1)}K`} sub={`${summary.totalInputTokens.toLocaleString()} in · ${summary.totalOutputTokens.toLocaleString()} out`} />
+        <SummaryCell label="Sources"     value={`${summary.sources?.loaded ?? 0}/${summary.sources?.attached ?? 0}`}
+                     sub={summary.sources
+                       ? `${srcTotalMB < 1 ? `${(srcTotalMB * 1024).toFixed(0)}KB` : `${srcTotalMB.toFixed(1)}MB`} loaded${summary.sources.skipped ? ` · ${summary.sources.skipped} skipped` : ''}`
+                       : 'no source data'} />
         <SummaryCell label="Sections"    value={`${summary.sectionsDrafted}`}
                      sub={`${summary.sectionsErrored} errored · ${summary.sectionsSkipped} skipped`} />
         <SummaryCell label="Elapsed"     value={elapsedDisplay}
                      sub={`${summary.draftingCalls} draft · ${summary.validationCalls} validate · ${summary.autofillCalls} TBD-fill`} />
       </div>
+
+      {summary.sources && summary.sources.attached > 0 && (
+        <div className="mt-3 border-t border-indigo-200 pt-2">
+          <div className="mb-1 flex items-center justify-between">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-900">
+              Source documents
+            </p>
+            {summary.sources.skipped > 0 && (
+              <span className="text-[11px] text-amber-800">
+                {summary.sources.skippedByReason.map(r => `${r.count} ${r.reason}`).join(' · ')}
+              </span>
+            )}
+          </div>
+          <ul className="flex flex-col divide-y divide-indigo-100 overflow-hidden rounded border border-indigo-100 bg-white">
+            {summary.sources.items.map((s, i) => (
+              <li key={s.sourceId ?? `src-${i}`} className="flex items-center gap-2 px-2 py-1 text-[11px]" data-source-item={s.sourceId ?? ''}>
+                <span
+                  className={`flex-none rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
+                    s.status === 'loaded' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {s.status}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-mono text-slate-700" title={s.title ?? s.sourceId ?? 'untitled'}>
+                  {s.title ?? s.sourceId ?? 'untitled'}
+                </span>
+                {s.category && (
+                  <span className="hidden flex-none rounded border border-slate-200 bg-slate-50 px-1 text-[10px] text-slate-600 md:inline">
+                    {s.category}
+                  </span>
+                )}
+                {s.status === 'loaded' && typeof s.bytes === 'number' && (
+                  <span className="flex-none font-mono text-[10px] text-slate-500">
+                    {s.bytes < 1024 * 1024 ? `${(s.bytes / 1024).toFixed(0)}KB` : `${(s.bytes / (1024 * 1024)).toFixed(1)}MB`}
+                  </span>
+                )}
+                {s.status === 'skipped' && (
+                  <span className="flex-none text-[10px] text-amber-800" title={s.reason}>
+                    {s.reason}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {summary.perModel.length > 0 && (
         <div className="mt-3 border-t border-indigo-200 pt-2">
           <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-900">

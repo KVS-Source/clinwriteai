@@ -600,15 +600,14 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
-    // The last Reviewer finishing, with nobody having returned it, sends the document to approval: every comment
-    // must be resolved by then. Nothing is marked, so they finish once the comments are resolved. Reviewers
-    // before the last may finish with comments still open, and a document that goes back isn't held up.
+    // No Reviewer marks their review done while any comment is open (SME decision, 2026-11-25). Nothing is
+    // marked, so they finish once the comments are resolved. Once a Reviewer has returned the document it is
+    // going back to the author, who resolves the comments there, so the others aren't held up.
     if (row.letter === 'C') {
       const round = await reviewRoundState(app.prisma, documentId)
-      const lastToFinish = round.rejected.length === 0 && round.waiting.every(r => r.id === raciId)
-      if (lastToFinish) {
+      if (round.rejected.length === 0) {
         const unresolved = await countUnresolvedComments(app.prisma, documentId)
-        if (unresolved > 0) return reply.code(409).send(commentsUnresolved(unresolved))
+        if (unresolved > 0) return reply.code(409).send(commentsUnresolved(unresolved, 'you mark your review done'))
       }
     }
 

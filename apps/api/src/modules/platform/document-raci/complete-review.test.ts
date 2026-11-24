@@ -135,10 +135,19 @@ describe('the last person finishing', () => {
     await t.app.close()
   })
 
-  it('a Reviewer who is not the last may finish with comments still open', async () => {
+  it('every Reviewer is refused while a comment is open, not only the last', async () => {
     const t = await build({ status: 'in_review', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-d', 'C')], openComments: 1 })
+    const res = await t.complete('r1')
+    expect(res.statusCode).toBe(409)
+    expect(res.json().message).toContain('before you mark your review done')
+    expect(t.rows[0]!.reviewedAt).toBeNull()
+    await t.app.close()
+  })
+
+  it('does not hold the others up once a Reviewer has returned the document', async () => {
+    const t = await build({ status: 'in_review', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-d', 'C', { rejectedAt: new Date() }), row('r3', 'u-e', 'C')], openComments: 1 })
     expect((await t.complete('r1')).statusCode).toBe(200)
-    expect(t.document.status).toBe('in_review')
+    expect(t.rows[0]!.reviewedAt).not.toBeNull()
     await t.app.close()
   })
 

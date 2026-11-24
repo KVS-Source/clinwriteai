@@ -44,6 +44,7 @@ import {
 } from './ai-tbd-autofill.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
+import { getActiveRateCard, computeCostUsdWithCard } from '../../platform/ai-gateway/rate-card.js'
 import { assignReviewOrder, reviewersWhoseTurnItIs } from '../../platform/document-raci/review-order.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
@@ -1160,8 +1161,28 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(503).send({ error: 'ai_not_configured', message: 'No AI engine is configured — paste a key in Admin → AI engine first.' })
     }
 
+    // Fine-grained step emit so the AI Debug "Worker activity" shows
+    // the autofill run with token + cost context. Uses the same
+    // AiDraftStep table the drafter worker writes to so the summary
+    // rollup picks it up.
+    const autofillStartMs = Date.now()
+    await app.prisma.aiDraftStep.create({
+      data: {
+        documentId,
+        versionId: doc.currentVersionId,
+        kind:      'tbd_autofill_run',
+        message:   `TBD auto-fill starting — scanning ${items.length} TBD${items.length === 1 ? '' : 's'} against ${sourceSnapshots.length} source${sourceSnapshots.length === 1 ? '' : 's'}.`,
+        details:   {
+          scanned: items.length, sources: sourceSnapshots.length, model,
+          sourceTitles: sourceSnapshots.map(s => s.title),
+        } as unknown as object,
+        elapsedMs: 0,
+      },
+    }).catch(() => undefined)
+
     const prompt = buildAutofillPrompt(items, sourceSnapshots)
     let rawResponse = ''
+    let inputTokens = 0, outputTokens = 0
     try {
       const res = await app.aiGateway.chat({
         tenantId:   request.user!.tenantId,
@@ -1175,8 +1196,19 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         documentId,
       })
       rawResponse = res.responseText
+      inputTokens  = res.inputTokens  ?? 0
+      outputTokens = res.outputTokens ?? 0
     } catch (err) {
       app.log.warn({ err, documentId }, 'tbd_autofill: AI call failed')
+      await app.prisma.aiDraftStep.create({
+        data: {
+          documentId, versionId: doc.currentVersionId,
+          kind: 'warning',
+          message: `TBD auto-fill AI call failed: ${err instanceof Error ? err.message.slice(0, 200) : 'unknown'}`,
+          details: {} as unknown as object,
+          elapsedMs: Date.now() - autofillStartMs,
+        },
+      }).catch(() => undefined)
       return reply.code(502).send({ error: 'ai_call_failed', message: err instanceof Error ? err.message : 'unknown' })
     }
 
@@ -1218,6 +1250,27 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress: request.ip ?? null,
     })
+
+    // Step-log completion so the AI Debug "Worker activity" shows the
+    // result alongside the initial-draft steps. Token totals feed the
+    // build-summary rollup.
+    await app.prisma.aiDraftStep.create({
+      data: {
+        documentId, versionId: doc.currentVersionId,
+        kind:    'tbd_autofill_run',
+        message: `TBD auto-fill done — filled ${appliedUpdates.length}, unresolvable ${parsed.unresolvable.length}, missed ${parsed.missed.length}. Tokens: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out.`,
+        details: {
+          scanned:           items.length,
+          filled:            appliedUpdates.length,
+          unresolvable:      parsed.unresolvable.length,
+          missed:            parsed.missed.length,
+          totalOccurrences:  appliedUpdates.reduce((n, u) => n + u.occurrences, 0),
+          model,
+          inputTokens, outputTokens,
+        } as unknown as object,
+        elapsedMs: Date.now() - autofillStartMs,
+      },
+    }).catch(() => undefined)
 
     // Autocheck — same pattern as tbd-replace. The references-complete
     // rule may flip now that TBDs are gone.
@@ -1869,6 +1922,75 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       timestamp: s.timestamp.toISOString(),
     }))
 
+    // Build summary — aggregated over every step with token data.
+    // Rolls up total tokens, estimated cost (per model via rate card),
+    // call counts, sections drafted / errored, and total elapsed time.
+    // The panel renders this as a header card so a writer gets the
+    // "what did this draft cost" answer at a glance.
+    const activeRateCard = await getActiveRateCard(app.prisma)
+    const perModelTotals = new Map<string, { inputTokens: number; outputTokens: number; calls: number }>()
+    let totalInputTokens = 0
+    let totalOutputTokens = 0
+    let draftingCalls = 0
+    let validationCalls = 0
+    let autofillCalls = 0
+    let sectionsDrafted = 0
+    let sectionsErrored = 0
+    let sectionsSkipped = 0
+    let jobStartedAt: Date | null = null
+    let lastStepAt:   Date | null = null
+    for (const s of draftStepRows) {
+      const d = (s.details ?? {}) as Record<string, unknown>
+      const model  = typeof d.model         === 'string' ? d.model : null
+      const inTok  = typeof d.inputTokens   === 'number' ? d.inputTokens  : 0
+      const outTok = typeof d.outputTokens  === 'number' ? d.outputTokens : 0
+      if (inTok > 0 || outTok > 0) {
+        totalInputTokens  += inTok
+        totalOutputTokens += outTok
+        const key = model ?? 'unknown'
+        const bucket = perModelTotals.get(key) ?? { inputTokens: 0, outputTokens: 0, calls: 0 }
+        bucket.inputTokens  += inTok
+        bucket.outputTokens += outTok
+        bucket.calls        += 1
+        perModelTotals.set(key, bucket)
+      }
+      if (s.kind === 'section_response')    draftingCalls   += 1
+      if (s.kind === 'section_ai_call')     validationCalls += 1
+      if (s.kind === 'tbd_autofill_run' && (inTok > 0 || outTok > 0)) autofillCalls += 1
+      if (s.kind === 'section_committed')   sectionsDrafted += 1
+      if (s.kind === 'section_errored')     sectionsErrored += 1
+      if (s.kind === 'section_skipped')     sectionsSkipped += 1
+      if (s.kind === 'job_started') jobStartedAt = s.timestamp
+      if (!lastStepAt || s.timestamp > lastStepAt) lastStepAt = s.timestamp
+    }
+    const perModel = Array.from(perModelTotals.entries()).map(([model, agg]) => ({
+      model,
+      inputTokens:  agg.inputTokens,
+      outputTokens: agg.outputTokens,
+      calls:        agg.calls,
+      costUsd:      computeCostUsdWithCard(activeRateCard.rates, {
+        model, inputTokens: agg.inputTokens, outputTokens: agg.outputTokens,
+      }),
+    }))
+    const totalCostUsd = perModel.reduce((n, m) => n + m.costUsd, 0)
+    const buildSummary = {
+      totalInputTokens,
+      totalOutputTokens,
+      totalCostUsd:  Math.round(totalCostUsd * 1_000_000) / 1_000_000,
+      aiCallCount:   draftingCalls + validationCalls + autofillCalls,
+      draftingCalls,
+      validationCalls,
+      autofillCalls,
+      sectionsDrafted,
+      sectionsErrored,
+      sectionsSkipped,
+      elapsedMs:     (jobStartedAt && lastStepAt) ? (lastStepAt.getTime() - jobStartedAt.getTime()) : null,
+      startedAt:     jobStartedAt?.toISOString() ?? null,
+      lastStepAt:    lastStepAt?.toISOString() ?? null,
+      rateCardVersion: activeRateCard.version,
+      perModel,
+    }
+
     // Last 50 AI + section audit events for this document. audit_events
     // lives in raw SQL (not Prisma) per ADR 0002, so we read directly.
     // Includes:
@@ -2073,6 +2195,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       // Fine-grained worker activity (migration 103). Oldest first.
       // Rendered as the "Worker activity" play-by-play in AI Debug.
       draftSteps,
+      // Rolled-up build summary — token totals, cost estimate, call
+      // counts, elapsed — computed from draftSteps + the active rate
+      // card. Powers the "Build summary" header card.
+      buildSummary,
 
       auditTail: auditRows.map((a: { id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown }) => ({
         auditId:   String(a.id),

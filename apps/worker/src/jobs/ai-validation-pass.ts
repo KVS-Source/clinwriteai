@@ -36,6 +36,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
+import { createStepLogger } from './ai-draft-step.js'
 import type { JobHandler } from './types.js'
 
 interface AiValidationPassPayload {
@@ -101,9 +102,16 @@ function stripTags(html: string): string {
 export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, iteration } = job.data
   const passStartedAt = new Date()
+  const steps = createStepLogger(prisma, log, { documentId, versionId })
+  await steps.emit('validation_pass_start',
+    `Validation pass ${iteration} starting.`, {
+      details: { iteration, cap: MAX_ITERATIONS },
+    })
 
   if (iteration > MAX_ITERATIONS) {
     log.warn({ documentId, iteration }, 'ai_validation_pass: iteration cap reached — stopping chain')
+    await steps.emit('warning',
+      `Validation hit iteration cap (${MAX_ITERATIONS}) — stopping chain.`, { details: { iteration } })
     await prisma.document.update({
       where: { id: documentId },
       data:  { aiDraftState: 'complete' },
@@ -163,7 +171,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         select: { aiInstructions: true },
       })
       const aiInstructions = docRow?.aiInstructions?.trim() || null
-      const aiFlagged = await runLlmChecks({
+      const { flags: aiFlagged, inputTokens: inTok, outputTokens: outTok } = await runLlmChecks({
         apiKey,
         model:     modelUsed,
         docType:   job.data.type,
@@ -183,9 +191,21 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
           .push(flag.reason)
       }
       log.info({ documentId, iteration, aiFlaggedCount: aiFlagged.length }, 'ai_validation_pass: Claude critique applied')
+      await steps.emit('section_ai_call',
+        `Pass ${iteration} critique call — ${aiFlagged.length} section${aiFlagged.length === 1 ? '' : 's'} flagged. Tokens: ${inTok.toLocaleString()} in / ${outTok.toLocaleString()} out.`, {
+          details: {
+            iteration, sectionsReviewed: rows.length, sectionsFlagged: aiFlagged.length,
+            model: modelUsed, inputTokens: inTok, outputTokens: outTok,
+            sourcesAttached: sourcePdfs.length,
+          },
+        })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log.warn({ documentId, iteration, err: message }, 'ai_validation_pass: Claude critique failed — continuing with completeness only')
+      await steps.emit('warning',
+        `Pass ${iteration} critique call failed — continuing with completeness-only check. ${message.slice(0, 200)}`, {
+          details: { iteration, err: message },
+        })
     }
   }
 
@@ -232,6 +252,14 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
     confidenceOverall,
     willStop:      stop,
   }, 'ai_validation_pass: evaluated')
+
+  await steps.emit('validation_pass_end',
+    `Pass ${iteration} complete — ${confidenceOverall}% overall · ${failingIds.length} flagged · ${stop ? 'loop stops' : 'will re-draft flagged sections'}.`, {
+      details: {
+        iteration, sectionsTotal: rows.length, sectionsFailing: failingIds.length,
+        confidenceOverall, modelUsed, willStop: stop,
+      },
+    })
 
   // --- Persist document roll-up + log this pass -------------------------
   const nextState: 'validating' | 'complete' = stop ? 'complete' : 'validating'
@@ -393,7 +421,7 @@ async function runLlmChecks(args: {
   sections:   Array<{ id: string; html: string }>
   sourcePdfs: SourcePdfPayload[]
   aiInstructions: string | null
-}): Promise<AiCheckFlag[]> {
+}): Promise<{ flags: AiCheckFlag[]; inputTokens: number; outputTokens: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
   })
@@ -462,11 +490,14 @@ async function runLlmChecks(args: {
     ],
   })
 
+  const inputTokens  = typeof (message.usage?.input_tokens)  === 'number' ? message.usage.input_tokens  : 0
+  const outputTokens = typeof (message.usage?.output_tokens) === 'number' ? message.usage.output_tokens : 0
+
   const text = message.content
     .map(b => (b.type === 'text' ? (b as { type: 'text'; text: string }).text : ''))
     .join('\n')
     .trim()
-  if (!text) return []
+  if (!text) return { flags: [], inputTokens, outputTokens }
 
   // Strip a possible code-fence wrapper; parse; coerce.
   const stripped = text.replace(/^\s*```[a-zA-Z]*\s*\n?/, '').replace(/\n?\s*```\s*$/, '').trim()
@@ -474,9 +505,9 @@ async function runLlmChecks(args: {
   try {
     parsed = JSON.parse(stripped)
   } catch {
-    return []  // malformed response — treat the pass as critique-skipped
+    return { flags: [], inputTokens, outputTokens }  // malformed response — treat the pass as critique-skipped
   }
-  if (!Array.isArray(parsed)) return []
+  if (!Array.isArray(parsed)) return { flags: [], inputTokens, outputTokens }
 
   const validIds = new Set(args.sections.map(s => s.id))
   const out: AiCheckFlag[] = []
@@ -489,5 +520,5 @@ async function runLlmChecks(args: {
       reason:    typeof row.reason === 'string' ? row.reason.slice(0, 240) : 'needs revision',
     })
   }
-  return out
+  return { flags: out, inputTokens, outputTokens }
 }

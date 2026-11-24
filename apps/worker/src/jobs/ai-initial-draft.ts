@@ -145,16 +145,16 @@ async function draftSection(args: {
   sectionTemplateFormatRules: string | null
   apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
   abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
-}): Promise<{ contentHtml: string; engine: string }> {
+}): Promise<{ contentHtml: string; engine: string; inputTokens: number; outputTokens: number }> {
   if (!args.apiKey) {
     // The caller checks aiConfigured() first, so this is only reached with the dev/CI flag on.
     if (!stubAllowed()) throw new Error('AI not configured')
-    return { contentHtml: buildStubDraftHtml(args), engine: 'stub' }
+    return { contentHtml: buildStubDraftHtml(args), engine: 'stub', inputTokens: 0, outputTokens: 0 }
   }
   // A failed Claude call throws: the section is left empty and reported as errored. Placeholder
   // text is never written into a document as if it were a draft.
-  const html = await draftWithClaude(args)
-  return { contentHtml: html, engine: args.model }
+  const result = await draftWithClaude(args)
+  return { contentHtml: result.html, engine: args.model, inputTokens: result.inputTokens, outputTokens: result.outputTokens }
 }
 
 /** Dev/CI only: AI_ALLOW_STUB=1 lets the placeholder drafter run. Off by default. */
@@ -179,7 +179,7 @@ async function draftWithClaude(args: {
   policy:     PolicyRowForAi | null
   sectionTemplateFormatRules: string | null
   abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
-}): Promise<string> {
+}): Promise<{ html: string; inputTokens: number; outputTokens: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
   })
@@ -275,7 +275,12 @@ async function draftWithClaude(args: {
   if (!text) {
     throw new Error('Claude returned no text content')
   }
-  return stripCodeFence(text)
+  // Usage counters from the Anthropic response — fed into the step log
+  // so the AI Debug panel's build summary can roll up input/output
+  // tokens + estimated cost per document.
+  const inputTokens  = typeof (message.usage?.input_tokens)  === 'number' ? message.usage.input_tokens  : 0
+  const outputTokens = typeof (message.usage?.output_tokens) === 'number' ? message.usage.output_tokens : 0
+  return { html: stripCodeFence(text), inputTokens, outputTokens }
 }
 
 /** "```html\n…\n```" → "…" (Claude occasionally wraps despite the system prompt). */
@@ -573,7 +578,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         })
       const sectionTemplateFormatRules = row.templateFormatRules ?? null
       const sectionStartMs = Date.now()
-      const { contentHtml, engine } = await draftSection({
+      const { contentHtml, engine, inputTokens, outputTokens } = await draftSection({
         section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
         sectionTemplateFormatRules,
         apiKey,
@@ -582,13 +587,15 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       const sectionElapsedMs = Date.now() - sectionStartMs
       const tbdItems = extractMissingItems(contentHtml)
       await steps.emit('section_response',
-        `§${sec.number} drafted in ${(sectionElapsedMs / 1000).toFixed(1)}s — ${contentHtml.length.toLocaleString()} chars${tbdItems.length ? `, ${tbdItems.length} TBD${tbdItems.length === 1 ? '' : 's'} left` : ', no TBDs'}.`, {
+        `§${sec.number} drafted in ${(sectionElapsedMs / 1000).toFixed(1)}s — ${contentHtml.length.toLocaleString()} chars${tbdItems.length ? `, ${tbdItems.length} TBD${tbdItems.length === 1 ? '' : 's'} left` : ', no TBDs'}. Tokens: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out.`, {
           sectionId: sec.id,
           details:   {
             engine, elapsedMs: sectionElapsedMs,
             outputChars: contentHtml.length,
             tbdCount: tbdItems.length,
             tbdSamples: tbdItems.slice(0, 5),
+            model: engine === 'stub' ? 'stub' : resolvedModel,
+            inputTokens, outputTokens,
           },
         })
 

@@ -109,6 +109,7 @@ interface DebugData {
   // Claude's context when that section was produced.
   sectionDraftTraces?: DebugSectionTrace[]
   draftSteps?:        DebugDraftStep[]
+  buildSummary?:      DebugBuildSummary
   auditTail?:         DebugAudit[]
 }
 
@@ -136,6 +137,32 @@ interface DebugDraftStep {
   details?:   Record<string, unknown>
   elapsedMs:  number | null
   timestamp:  string
+}
+
+// Rolled-up build summary — aggregated by the API from draftSteps +
+// the active rate card. Powers the header "Build summary" card.
+interface DebugBuildSummary {
+  totalInputTokens:   number
+  totalOutputTokens:  number
+  totalCostUsd:       number
+  aiCallCount:        number
+  draftingCalls:      number
+  validationCalls:    number
+  autofillCalls:      number
+  sectionsDrafted:    number
+  sectionsErrored:    number
+  sectionsSkipped:    number
+  elapsedMs:          number | null
+  startedAt:          string | null
+  lastStepAt:         string | null
+  rateCardVersion:    string | null
+  perModel: Array<{
+    model:        string
+    inputTokens:  number
+    outputTokens: number
+    calls:        number
+    costUsd:      number
+  }>
 }
 
 // ---- Human-readable label tables ---------------------------------------
@@ -519,6 +546,11 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                 </section>
               )}
 
+              {/* BUILD SUMMARY — token totals, estimated cost, elapsed */}
+              {data.buildSummary && data.buildSummary.aiCallCount > 0 && (
+                <BuildSummaryCard summary={data.buildSummary} />
+              )}
+
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />
 
@@ -728,6 +760,73 @@ function BlockersCard({
         </button>
       </div>
     </section>
+  )
+}
+
+// Build summary header — answers "what did this draft cost + how long
+// did it take + how many Claude calls fell into each bucket" at a
+// glance. Numbers come from the server-side rollup over draftSteps so
+// they stay in sync with the Worker activity list below.
+function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
+  const totalTokens = summary.totalInputTokens + summary.totalOutputTokens
+  const costDisplay = summary.totalCostUsd < 0.01
+    ? `$${summary.totalCostUsd.toFixed(4)}`
+    : `$${summary.totalCostUsd.toFixed(3)}`
+  const elapsedDisplay = summary.elapsedMs === null
+    ? '—'
+    : summary.elapsedMs < 60_000
+      ? `${(summary.elapsedMs / 1000).toFixed(1)}s`
+      : `${Math.floor(summary.elapsedMs / 60_000)}m ${Math.round((summary.elapsedMs % 60_000) / 1000)}s`
+  return (
+    <section
+      className="rounded-lg border border-indigo-200 bg-indigo-50/60 p-4"
+      data-ai-debug-build-summary
+      aria-label="Build summary"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-900">
+          Build summary
+        </h3>
+        {summary.rateCardVersion && (
+          <span className="font-mono text-[10px] text-indigo-700">rate card {summary.rateCardVersion}</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <SummaryCell label="Est. cost"   value={costDisplay}                          sub={`${summary.aiCallCount} Claude call${summary.aiCallCount === 1 ? '' : 's'}`} />
+        <SummaryCell label="Tokens"      value={`${(totalTokens / 1000).toFixed(1)}K`} sub={`${summary.totalInputTokens.toLocaleString()} in · ${summary.totalOutputTokens.toLocaleString()} out`} />
+        <SummaryCell label="Sections"    value={`${summary.sectionsDrafted}`}
+                     sub={`${summary.sectionsErrored} errored · ${summary.sectionsSkipped} skipped`} />
+        <SummaryCell label="Elapsed"     value={elapsedDisplay}
+                     sub={`${summary.draftingCalls} draft · ${summary.validationCalls} validate · ${summary.autofillCalls} TBD-fill`} />
+      </div>
+      {summary.perModel.length > 0 && (
+        <div className="mt-3 border-t border-indigo-200 pt-2">
+          <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-900">
+            Per model
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {summary.perModel.map(m => (
+              <li key={m.model} className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="font-mono text-slate-700">{m.model}</span>
+                <span className="font-mono text-slate-600">
+                  {m.calls} call{m.calls === 1 ? '' : 's'} · {m.inputTokens.toLocaleString()}/{m.outputTokens.toLocaleString()} tok · <strong className="text-indigo-900">${m.costUsd.toFixed(m.costUsd < 0.01 ? 4 : 3)}</strong>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function SummaryCell({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded border border-indigo-200 bg-white px-3 py-2">
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-700">{label}</p>
+      <p className="mt-0.5 text-[16px] font-semibold text-indigo-900">{value}</p>
+      {sub && <p className="text-[11px] text-slate-600">{sub}</p>}
+    </div>
   )
 }
 

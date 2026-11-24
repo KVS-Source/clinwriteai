@@ -12,6 +12,7 @@ import { resolveAiEngineSettings } from '../../platform/config/ai-engine-setting
 import { IdeationAiPromptService, IdeationAiPromptServiceError } from './ai-prompt-service.js'
 import { IdeationBestPracticeService, IdeationBpServiceError } from './best-practice-service.js'
 import { IdeationTypePolicyService, IdeationTypePolicyServiceError } from './type-policy-service.js'
+import { policyRequirementsSchema, requirementsOf } from '../../platform/policy-requirements.js'
 
 const readGate  = requireAuth({ modules: ['E'] })
 const writeGate = requireAuth({ modules: ['E'], roles: ['pm'] })
@@ -50,6 +51,7 @@ interface PolicyRow {
   templateId: string | null; checklistTemplateId: string | null
   channelHint: string | null; reviewTierFormula: string | null
   smePrompt: string; bestPracticeDigest: unknown; sectionRules: unknown
+  requirements: unknown
   effectiveDate: Date; retiredAt: Date | null; retiredBy: string | null
   retireReason: string | null; supersededBy: string | null
   createdBy: string; updatedBy: string
@@ -69,6 +71,7 @@ function shapePolicy(row: PolicyRow) {
     smePrompt:           row.smePrompt,
     bestPracticeDigest:  row.bestPracticeDigest,
     sectionRules:        row.sectionRules,
+    requirements:        requirementsOf(row),
     effectiveDate:       row.effectiveDate.toISOString(),
     retiredAt:           row.retiredAt?.toISOString() ?? null,
     retiredBy:           row.retiredBy,
@@ -161,6 +164,7 @@ export const ideationTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     checklistTemplateId: z.string().nullable().optional(),
     channelHint:     trackEnum,
     reviewTierFormula:   z.string().nullable().optional(),
+    requirements:        policyRequirementsSchema.optional(),
   })
 
   const patchSchema = z.object({
@@ -171,6 +175,7 @@ export const ideationTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     checklistTemplateId: z.string().nullable().optional(),
     channelHint:     trackEnum,
     reviewTierFormula:   z.string().nullable().optional(),
+    requirements:        policyRequirementsSchema.optional(),
   })
 
   function mapServiceError(err: unknown): { code: number; body: Record<string, unknown> } | null {

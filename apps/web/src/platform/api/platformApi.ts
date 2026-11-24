@@ -979,9 +979,41 @@ export interface ResolvedChecklistAsset {
   pinned:    { id: string; version: number } | null
   effective: 'auto' | 'pinned' | 'none'
 }
+export interface ResolvedIchFramework {
+  name:         string
+  version:      string
+  jurisdiction: string
+}
+export interface ResolvedIchAsset {
+  /** Convention-map default for this doc type (one entry today). */
+  auto:      ResolvedIchFramework[]
+  /** PM-pinned entries from policy.ichFrameworkNames, in display order. */
+  pinned:    ResolvedIchFramework[]
+  effective: 'auto' | 'pinned' | 'none'
+}
 export interface ResolvedPolicyAssets {
   template:  ResolvedTemplateAsset
   checklist: ResolvedChecklistAsset
+  ich:       ResolvedIchAsset
+}
+
+/** Per-doc-type input requirements the PM toggles on the Policy admin
+ *  screen (migration 100). Each flag maps to one preflight blocker
+ *  that the AI drafter runs before enqueueing. See
+ *  apps/api/src/modules/clinical-writing/documents/ai-draft-preflight.ts. */
+export interface PolicyRequirements {
+  requireSources:  boolean
+  requireTemplate: boolean
+  /** Maps to the Create wizard's "Instructions for the AI drafter" field
+   *  (persisted on documents.aiInstructions). When true, the field is
+   *  required at Create time and the preflight re-checks it. */
+  requirePurpose:  boolean
+}
+
+export const DEFAULT_POLICY_REQUIREMENTS: PolicyRequirements = {
+  requireSources:  true,
+  requireTemplate: true,
+  requirePurpose:  true,
 }
 
 export interface DocumentTypePolicy {
@@ -994,7 +1026,13 @@ export interface DocumentTypePolicy {
   sectionRules:        Record<string, unknown> | null
   templateId:          string | null
   checklistTemplateId: string | null
+  /** DEPRECATED — kept for one transition release. UI reads ichFrameworkNames. */
   ichFramework:        string | null
+  /** Multi-value ICH framework pins (migration 102). Each entry matches
+   *  a RegulatoryFramework.name; empty → resolver falls back to the
+   *  doc-type convention map. */
+  ichFrameworkNames:   string[]
+  requirements:        PolicyRequirements
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1018,12 +1056,19 @@ export interface DocumentTypePolicyEditableFields {
   sectionRules?:        Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
   templateId?:          string | null
   checklistTemplateId?: string | null
+  /** DEPRECATED — keep for a transition release. Writes should set
+   *  ichFrameworkNames instead. */
   ichFramework?:        string | null
+  ichFrameworkNames?:   string[]
+  requirements?:        PolicyRequirements
 }
 
 export interface DocumentTypePolicyCreateBody extends DocumentTypePolicyEditableFields {
   docType:    string
-  smePrompt:  string          // required on create (API Zod)
+  // Optional on create — server defaults to a "configure in AI Prompts"
+  // placeholder since the real SME text lives on AiPromptRecord, which
+  // the policy auto-resolves per docType.
+  smePrompt?: string
 }
 
 export type DocumentTypePolicyUpdateBody = DocumentTypePolicyEditableFields
@@ -1228,6 +1273,7 @@ export interface PublicationTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1247,6 +1293,7 @@ export interface PublicationTypePolicyCreateBody {
   templateId?:          string | null
   checklistTemplateId?: string | null
   guidelineKey?:        string | null
+  requirements?:        PolicyRequirements
 }
 
 export type PublicationTypePolicyPatchBody = Omit<PublicationTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
@@ -1326,6 +1373,7 @@ export interface MedContentTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1346,6 +1394,7 @@ export interface MedContentTypePolicyCreateBody {
   checklistTemplateId?: string | null
   complianceTrack?:     MedContentComplianceTrack | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export type MedContentTypePolicyPatchBody = Omit<MedContentTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
@@ -1423,6 +1472,7 @@ export interface RegulatoryTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1443,6 +1493,7 @@ export interface RegulatoryTypePolicyCreateBody {
   checklistTemplateId?: string | null
   regulatoryTrack?:     RegulatoryTrack | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export type RegulatoryTypePolicyPatchBody = Omit<RegulatoryTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
@@ -1520,6 +1571,7 @@ export interface IdeationTypePolicy {
   smePrompt:            string
   bestPracticeDigest:   unknown
   sectionRules:         unknown
+  requirements:         PolicyRequirements
   effectiveDate:        string
   retiredAt:            string | null
   retiredBy:            string | null
@@ -1540,6 +1592,7 @@ export interface IdeationTypePolicyCreateBody {
   checklistTemplateId?: string | null
   channelHint?:         IdeationChannelHint | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export type IdeationTypePolicyPatchBody = Omit<IdeationTypePolicyCreateBody, 'docType' | 'smePrompt'> & {

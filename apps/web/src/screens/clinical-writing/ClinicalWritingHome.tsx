@@ -597,7 +597,8 @@ export function ClinicalWritingHome() {
                   <div><StatusPill status={doc.status} size="sm" /></div>
                   <div className="text-slate-500">{doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
                   {/* Admin: the assignee's RACI letter(s), e.g. "Dr Elena Vasquez (R)".
-                      Others: the assignee's name, then the viewer's own letters on this document, e.g. "Ravi Kumar: C". */}
+                      Others: the assignee's name, then the viewer's own letters on this document, e.g. "Ravi Kumar: C"
+                      (not while working as PM: letters are Contributor work). */}
                   {isAdminViewer ? (
                     <div className="truncate text-slate-900 min-w-0" data-assignee-cell title={`${assignee.name}${doc.assigneeRaci?.length ? ` (${doc.assigneeRaci.join(', ')})` : ''}`}>
                       {assignee.name}
@@ -608,7 +609,7 @@ export function ClinicalWritingHome() {
                   ) : (
                     <div className="min-w-0" data-assignee-cell>
                       <div className="truncate text-slate-900" title={assignee.name}>{assignee.name}</div>
-                      {!!doc.myRaci?.length && (
+                      {!isPm && !!doc.myRaci?.length && (
                         <div className="truncate text-xs font-semibold text-blue-700" data-my-raci title={`${currentUser.name}: ${doc.myRaci.join(', ')}`}>
                           {currentUser.name}: {doc.myRaci.join(', ')}
                         </div>

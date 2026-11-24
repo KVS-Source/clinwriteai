@@ -558,6 +558,9 @@ export function ESignature() {
   const missingRecords = records.filter(r => r.status !== 'signed')
   const selected      = selectedIndex !== null ? records[selectedIndex] : null
   const selectedState = selectedIndex !== null ? states[selectedIndex] : null
+  // In an approvers-first chain an Approver approves and signs in one step, "Approve & E-sign" in the Approver
+  // View — they cannot sign their step from this page. (The server records the same signature either way.)
+  const approveInApproverView = selected?.meaning === 'approved' && chain.chainType === 'approvers_first'
   const panelTitle =
     selectedState === 'signed' ? t('page.e_signature.panel_signed')
     : selectedState === 'you' ? t('page.e_signature.panel_you')
@@ -790,7 +793,19 @@ export function ESignature() {
               {(selectedState === 'awaiting' || selectedState === 'queued') && (
                 <PendingPanel record={selected} previous={records[selectedIndex! - 1]} state={selectedState} waitingOn={groupedWaitingOn(chain.chainType, records, selected)} />
               )}
-              {selectedState === 'you' && (
+              {selectedState === 'you' && approveInApproverView && (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-3.5" data-approver-use-approve-and-sign>
+                  <p className="text-[13px] font-semibold text-green-800">{t('page.e_signature.approver_use_approve_title')}</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-green-900">{t('page.e_signature.approver_use_approve_body')}</p>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
+                    className="mt-3 rounded-md bg-green-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-green-700"
+                    data-action="go-approver-view"
+                  >{t('page.e_signature.approver_use_approve_cta')}</button>
+                </div>
+              )}
+              {selectedState === 'you' && !approveInApproverView && (
                 <YouPanel
                   record={selected}
                   credential={credential}
@@ -800,7 +815,7 @@ export function ESignature() {
               )}
             </div>
 
-            {selectedState === 'you' && (
+            {selectedState === 'you' && !approveInApproverView && (
               <div className="flex flex-none flex-col border-t border-slate-200" style={{ backgroundColor: '#F8FAFC' }}>
                 <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2">
                   <button

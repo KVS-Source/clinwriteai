@@ -27,7 +27,7 @@ import { resolveAnthropicKey } from '../../platform/ai-gateway/resolve-anthropic
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { notifyRaciAssigned } from '../../platform/document-raci/notify-assigned.js'
 import { lettersForTransition, transitionForbidden } from './transition-roles.js'
-import { actorCanEditDocumentContent, actorHoldsLetter, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanViewChecklist, actorHoldsLetter, actorCanUseAiChat, actorCanViewVersions, commentsUnresolved, countUnresolvedComments, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
 import { actorManagesProject } from '../../projects/project-managers.js'
@@ -35,6 +35,13 @@ import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
+import { computeDraftPreflight } from './ai-draft-preflight.js'
+import {
+  buildAutofillPrompt,
+  loadSourceSnapshots,
+  parseAutofillResponse,
+  type TbdAutofillItem,
+} from './ai-tbd-autofill.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
 import { assignReviewOrder, reviewersWhoseTurnItIs } from '../../platform/document-raci/review-order.js'
@@ -568,47 +575,59 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // M3 of the New Document rework — fire-and-forget: if the caller
-    // opted into AI drafting AND attached sources, enqueue the worker
-    // job that drafts every section from those sources. Document is
-    // created immediately regardless; the draft fills sections in
-    // asynchronously. On enqueue failure (Redis down) the document still
-    // exists — the user can retry via the editor's AI Chat panel.
-    // No real AI set up: don't queue a draft that could only produce placeholder text. The document is
-    // created with empty sections and the draft status says "AI not configured".
-    const wantsAiDraft = !!parsed.data.aiDraft && sourceUploadIds.length > 0
-    const aiReady = wantsAiDraft ? app.aiGateway.isConfigured(await chooseModel(app.prisma)) : true
-    if (wantsAiDraft && !aiReady) {
-      await app.prisma.document.update({
-        where: { id: document.id },
-        data:  { aiDraftState: 'not_configured' },
-      }).catch(() => undefined)
-    } else if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
-      // Mark the document as 'pending' BEFORE the enqueue so the SPA's
-      // first poll of /ai-draft-status returns something meaningful even
-      // if BullMQ hasn't picked the job up yet.
-      await app.prisma.document.update({
-        where: { id: document.id },
-        data:  { aiDraftState: 'pending' },
-      }).catch(() => undefined)
-      try {
-        await app.queue.enqueue('clinical.ai_initial_draft', {
-          documentId:      document.id,
-          versionId:       version.id,
-          projectId,
-          type:            parsed.data.type,
-          sourceUploadIds,
-          assigneeId:      parsed.data.assigneeId,
-          actorId:         request.user!.id,
-        }, { jobId: `ai-initial-draft-${document.id}` })
-      } catch (err) {
-        app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
-        // Enqueue failed — flip state → 'failed' so the SPA stops polling
-        // and shows an actionable error (writer can regenerate from the
-        // editor's AI Chat panel).
+    // opted into AI drafting, run the preflight gate before enqueueing.
+    // Preflight checks every input the worker needs (AI key, policy,
+    // checklist, usable sources). When any blocker is present we flip
+    // aiDraftState → 'blocked' so the editor opens the AI Debug panel
+    // on arrival and the writer can fix + hit Continue. The document
+    // itself is always created — preflight only gates the drafting job.
+    if (parsed.data.aiDraft) {
+      const preflight = await computeDraftPreflight(app.prisma, document.id)
+      if (!preflight.ok) {
         await app.prisma.document.update({
           where: { id: document.id },
-          data:  { aiDraftState: 'failed' },
+          data:  { aiDraftState: 'blocked' },
         }).catch(() => undefined)
+        // Audit breadcrumb so the AI Debug timeline shows WHY the doc
+        // started blocked instead of silently entering the state.
+        await app.audit.append({
+          timestamp:  new Date().toISOString(),
+          actorId:    request.user!.id,
+          action:     'ai_initial_draft_blocked',
+          entityType: 'document',
+          entityId:   document.id,
+          details:    {
+            source: 'create',
+            issueCodes: preflight.issues.map(i => i.code),
+            issues:     preflight.issues,
+          },
+          ipAddress:  request.ip ?? null,
+        }).catch(() => undefined)
+      } else {
+        // Mark the document as 'pending' BEFORE the enqueue so the SPA's
+        // first poll of /ai-draft-status returns something meaningful even
+        // if BullMQ hasn't picked the job up yet.
+        await app.prisma.document.update({
+          where: { id: document.id },
+          data:  { aiDraftState: 'pending' },
+        }).catch(() => undefined)
+        try {
+          await app.queue.enqueue('clinical.ai_initial_draft', {
+            documentId:      document.id,
+            versionId:       version.id,
+            projectId,
+            type:            parsed.data.type,
+            sourceUploadIds,
+            assigneeId:      parsed.data.assigneeId,
+            actorId:         request.user!.id,
+          }, { jobId: `ai-initial-draft-${document.id}` })
+        } catch (err) {
+          app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
+          await app.prisma.document.update({
+            where: { id: document.id },
+            data:  { aiDraftState: 'failed' },
+          }).catch(() => undefined)
+        }
       }
     }
 
@@ -1090,6 +1109,140 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // POST /:documentId/tbd-autofill — ask Claude to resolve every [TBD: X]
+  // in the current version against the attached source PDFs. Items the
+  // sources can answer are applied via replaceAcrossSections; items they
+  // can't come back with a one-line diagnostic (missing source,
+  // conflicting values, decision required, etc.) so the writer sees
+  // exactly what to fix next.
+  app.post('/:documentId/tbd-autofill', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: { id: true, type: true, projectId: true, currentVersionId: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!doc.currentVersionId) return reply.code(409).send({ error: 'no_version', message: 'No current version to scan.' })
+
+    const locked = await authoringLock(documentId)
+    if (locked) return reply.code(409).send(locked)
+
+    // Collect unique TBD markers across every section of the current version.
+    const sections = await app.prisma.sectionContent.findMany({
+      where:  { documentVersionId: doc.currentVersionId },
+      select: { contentHtml: true },
+    })
+    const MARKER = /\[\s*TBD\b\s*:?\s*([^\]]*)\]/gi
+    const uniqueByTbd = new Map<string, TbdAutofillItem>()
+    for (const sec of sections) {
+      const html = sec.contentHtml ?? ''
+      const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
+      for (const m of text.matchAll(MARKER)) {
+        const tbd = (m[1] ?? '').replace(/\s+/g, ' ').trim()
+        if (!tbd) continue
+        if (!uniqueByTbd.has(tbd.toLowerCase())) {
+          uniqueByTbd.set(tbd.toLowerCase(), { tbd, marker: m[0]! })
+        }
+      }
+    }
+    const items = Array.from(uniqueByTbd.values()).slice(0, 20)
+    if (items.length === 0) {
+      return { scanned: 0, filled: [], unresolvable: [], missed: [], sectionsAffected: 0 }
+    }
+
+    // Pull source text (cap per file so even 10 PDFs fit the context).
+    const sourceSnapshots = await loadSourceSnapshots(app.prisma, app.blob, documentId)
+
+    const model = await chooseModel(app.prisma)
+    if (!app.aiGateway.isConfigured(model)) {
+      return reply.code(503).send({ error: 'ai_not_configured', message: 'No AI engine is configured — paste a key in Admin → AI engine first.' })
+    }
+
+    const prompt = buildAutofillPrompt(items, sourceSnapshots)
+    let rawResponse = ''
+    try {
+      const res = await app.aiGateway.chat({
+        tenantId:   request.user!.tenantId,
+        projectId:  doc.projectId,
+        actorId:    request.user!.id,
+        module:     'A',
+        intent:     'edit',
+        model,
+        prompt,
+        maxOutputTokens: 2048,
+        documentId,
+      })
+      rawResponse = res.responseText
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'tbd_autofill: AI call failed')
+      return reply.code(502).send({ error: 'ai_call_failed', message: err instanceof Error ? err.message : 'unknown' })
+    }
+
+    const parsed = parseAutofillResponse(rawResponse, items)
+
+    // Apply each resolvable answer via the existing replaceAcrossSections
+    // service — one pass per marker so a bad individual answer doesn't
+    // wreck the whole batch. Accumulate counts for the audit line.
+    const appliedUpdates: Array<{ tbd: string; occurrences: number; sectionIds: string[] }> = []
+    for (const ans of parsed.filled) {
+      if (!ans.value) continue
+      try {
+        const result = await svc.replaceAcrossSections({
+          documentId,
+          find:         ans.marker,
+          replace:      ans.value,
+          editorUserId: request.user!.id,
+        })
+        const occ = result.updated.reduce((n, u) => n + u.occurrences, 0)
+        appliedUpdates.push({ tbd: ans.tbd, occurrences: occ, sectionIds: result.updated.map(u => u.sectionId) })
+      } catch (err) {
+        app.log.warn({ err, documentId, tbd: ans.tbd }, 'tbd_autofill: apply failed for a filled item')
+      }
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_tbd_autofill_run',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    {
+        scanned:            items.length,
+        filledCount:        appliedUpdates.length,
+        unresolvableCount:  parsed.unresolvable.length,
+        missedCount:        parsed.missed.length,
+        totalOccurrences:   appliedUpdates.reduce((n, u) => n + u.occurrences, 0),
+        model,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    // Autocheck — same pattern as tbd-replace. The references-complete
+    // rule may flip now that TBDs are gone.
+    if (appliedUpdates.length > 0) {
+      void runAutocheckForDocument(app.prisma, {
+        documentId,
+        triggeredBy: `system:autocheck-tbd-autofill:${request.user!.id}`,
+        audit:       app.audit,
+      }).catch((err: unknown) => {
+        app.log.warn({ err, documentId }, 'autocheck after tbd autofill failed')
+      })
+    }
+
+    return {
+      scanned:          items.length,
+      filled:           parsed.filled.map(f => ({
+        ...f,
+        occurrences: appliedUpdates.find(u => u.tbd === f.tbd)?.occurrences ?? 0,
+      })),
+      unresolvable:     parsed.unresolvable,
+      missed:           parsed.missed,
+      sectionsAffected: new Set(appliedUpdates.flatMap(u => u.sectionIds)).size,
+    }
+  })
+
   // Whether the caller may see versions — lets the screens hide the tab and menu instead of failing them.
   app.get('/:documentId/versions/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId } = request.params as { documentId: string }
@@ -1121,6 +1274,28 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // One version's sections as stored — the Version Diff compares two of these. Read-only.
+  // The text as it was when the document was last sent back to authoring, so the next round's Reviewers and
+  // Approvers read the whole document with the changes highlighted. Every return snapshots a new version and
+  // freezes the returned one (restoreSource.fromVersionId). baseline is null on a first round.
+  app.get('/:documentId/changes-since-return', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanViewChecklist(app.prisma, request.user!, documentId))) return reply.code(403).send(VERSION_VIEW_FORBIDDEN)
+    const versions = await app.prisma.documentVersion.findMany({
+      where: { documentId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true, restoreSource: true },
+    })
+    const RETURN_REASONS = ['review_bounce', 'crm_bounce', 'signature_bounce']
+    for (const v of versions) {
+      const source = v.restoreSource as { reason?: string; fromVersionId?: string } | null
+      if (!source?.fromVersionId || !RETURN_REASONS.includes(source.reason ?? '')) continue
+      const from = await app.prisma.documentVersion.findFirst({
+        where:  { id: source.fromVersionId, documentId },
+        select: { versionNumber: true, sections: { select: { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true } } },
+      })
+      return { baseline: from ? { ...from, returnedAt: v.createdAt.toISOString() } : null }
+    }
+    return { baseline: null }
+  })
+
   app.get('/:documentId/versions/:versionId/sections', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, versionId } = request.params as { documentId: string; versionId: string }
     if (!(await actorCanViewVersions(app.prisma, request.user!, documentId))) return reply.code(403).send(VERSION_VIEW_FORBIDDEN)
@@ -1219,6 +1394,112 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // --- GET /:documentId/ai-draft/preflight -------------------------------
+  //
+  // Reports whether the document is ready to be drafted. Returns a
+  // structured issue list (missing policy / checklist / sources / AI key)
+  // so the AI Debug panel can render actionable blockers instead of the
+  // old modal-error flow. Pure read.
+  app.get('/:documentId/ai-draft/preflight', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+    const result = await computeDraftPreflight(app.prisma, documentId)
+    return result
+  })
+
+  // --- POST /:documentId/ai-draft/start ----------------------------------
+  //
+  // User-triggered "Continue drafting" from the AI Debug panel. Runs the
+  // same preflight the create flow uses; on fail returns 422 with the
+  // issue list so the panel re-renders the blockers. On pass, enqueues
+  // the initial-draft job and flips aiDraftState → 'pending'.
+  //
+  // Only legal when the document is NOT already in flight. If it is, we
+  // return 409 so the caller can show "a draft is already running".
+  app.post('/:documentId/ai-draft/start', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: {
+        id: true, type: true, projectId: true, assigneeId: true,
+        aiDraftState: true, currentVersionId: true, deletedAt: true,
+      },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const inFlight = doc.aiDraftState === 'pending'
+                  || doc.aiDraftState === 'drafting'
+                  || doc.aiDraftState === 'validating'
+    if (inFlight) {
+      return reply.code(409).send({ error: 'draft_in_flight', state: doc.aiDraftState })
+    }
+
+    const preflight = await computeDraftPreflight(app.prisma, documentId)
+    if (!preflight.ok) {
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'blocked' },
+      }).catch(() => undefined)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'ai_initial_draft_blocked',
+        entityType: 'document',
+        entityId:   documentId,
+        details:    {
+          source: 'continue',
+          issueCodes: preflight.issues.map(i => i.code),
+          issues:     preflight.issues,
+        },
+        ipAddress:  request.ip ?? null,
+      }).catch(() => undefined)
+      return reply.code(422).send({ error: 'draft_blocked', issues: preflight.issues })
+    }
+
+    const sourceLinks = await app.prisma.documentSource.findMany({
+      where:  { documentId },
+      select: { uploadId: true },
+    })
+    const sourceUploadIds = sourceLinks.map(l => l.uploadId)
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'pending' },
+    })
+    try {
+      await app.queue.enqueue('clinical.ai_initial_draft', {
+        documentId,
+        versionId:       doc.currentVersionId ?? '',
+        projectId:       doc.projectId,
+        type:            doc.type,
+        sourceUploadIds,
+        assigneeId:      doc.assigneeId,
+        actorId:         request.user!.id,
+      }, { jobId: `ai-initial-draft-${documentId}-${Date.now()}` })
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'ai_initial_draft enqueue failed on manual start')
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'failed' },
+      }).catch(() => undefined)
+      return reply.code(502).send({ error: 'enqueue_failed' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_enqueued',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { trigger: 'manual_continue', sourcesTarget: sourceUploadIds.length },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'pending', enqueued: true }
+  })
+
   // --- POST /:documentId/ai-draft/stop -----------------------------------
   //
   // Cancel an in-flight draft / validation chain. Flips the document's
@@ -1262,6 +1543,121 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress:  request.ip ?? null,
     })
     return { state: 'cancelled', cancelled: true }
+  })
+
+  // --- POST /:documentId/ai-draft/pause ----------------------------------
+  //
+  // Writer hits Pause on the drafting toast. Unlike Stop (which is a
+  // full cancel), Pause flips state → 'paused' so the loop exits at
+  // the next section boundary AND the UI knows to show a Resume
+  // button. Already-drafted sections stay intact; Resume re-enqueues
+  // the job and the existing-content filter in the worker skips what
+  // was already written.
+  app.post('/:documentId/ai-draft/pause', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: { id: true, aiDraftState: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const inFlight = doc.aiDraftState === 'pending'
+                  || doc.aiDraftState === 'drafting'
+                  || doc.aiDraftState === 'validating'
+    if (!inFlight) {
+      return { state: doc.aiDraftState, paused: false }
+    }
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'paused' },
+    })
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_paused',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { previousState: doc.aiDraftState },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'paused', paused: true }
+  })
+
+  // --- POST /:documentId/ai-draft/resume ---------------------------------
+  //
+  // Resume a paused draft. Re-runs preflight (inputs may have changed)
+  // and re-enqueues the ai_initial_draft worker. The existing-content
+  // filter in the worker skips sections that already have content, so
+  // drafting picks up where the pause left off.
+  app.post('/:documentId/ai-draft/resume', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: {
+        id: true, type: true, projectId: true, assigneeId: true,
+        aiDraftState: true, currentVersionId: true, deletedAt: true,
+      },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (doc.aiDraftState !== 'paused') {
+      return reply.code(409).send({ error: 'not_paused', state: doc.aiDraftState })
+    }
+
+    const preflight = await computeDraftPreflight(app.prisma, documentId)
+    if (!preflight.ok) {
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'blocked' },
+      }).catch(() => undefined)
+      return reply.code(422).send({ error: 'draft_blocked', issues: preflight.issues })
+    }
+
+    const sourceLinks = await app.prisma.documentSource.findMany({
+      where:  { documentId },
+      select: { uploadId: true },
+    })
+    const sourceUploadIds = sourceLinks.map(l => l.uploadId)
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'pending' },
+    })
+    try {
+      await app.queue.enqueue('clinical.ai_initial_draft', {
+        documentId,
+        versionId:       doc.currentVersionId ?? '',
+        projectId:       doc.projectId,
+        type:            doc.type,
+        sourceUploadIds,
+        assigneeId:      doc.assigneeId,
+        actorId:         request.user!.id,
+      }, { jobId: `ai-initial-draft-${documentId}-resume-${Date.now()}` })
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'ai_initial_draft enqueue failed on resume')
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'failed' },
+      }).catch(() => undefined)
+      return reply.code(502).send({ error: 'enqueue_failed' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_resumed',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { sourcesTarget: sourceUploadIds.length },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'pending', resumed: true }
   })
 
   // --- GET /:documentId/ai-debug ------------------------------------------
@@ -1441,11 +1837,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           AND action      IN (
             'ai_initial_draft_enqueued',
             'ai_initial_draft_skipped',
+            'ai_initial_draft_blocked',
             'ai_initial_draft_completed',
+            'ai_initial_draft_cancelled',
+            'ai_initial_draft_paused',
+            'ai_initial_draft_resumed',
             'ai_validation_pass_completed',
             'ai_validation_pass_skipped',
             'ai_suggestion_requested',
             'ai_prompt_undone',
+            'ai_tbd_autofill_run',
             'section_marked_complete',
             'section_reverted',
             'section_lock_acquired',
@@ -1467,9 +1868,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       : 0
 
     const anthropicKey = await resolveAnthropicKey(app.prisma)
+    // Live preflight snapshot — same checks the drafter runs. Surfaces
+    // "what's missing right now" even when the state column isn't
+    // 'blocked' (e.g. sources attached before the drafter runs) and
+    // keeps the panel honest after an input is fixed in another tab.
+    const preflight = await computeDraftPreflight(app.prisma, documentId)
     return {
       snapshotTakenAt: new Date().toISOString(),
       aiStubMode:      stubAllowed() && !anthropicKey,
+      preflight,
 
       document: {
         id:                   doc.id,
@@ -1747,6 +2154,26 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
+
+    // The review needs at least one Reviewer (C), and the approval after it at least one Approver (A):
+    // without them the document would stop half-way (SME decision, 2026-11-24).
+    const needed = await app.prisma.documentRaci.findMany({
+      where:  { documentId, letter: { in: ['C', 'A'] }, removedAt: null },
+      select: { letter: true },
+    })
+    const missing = ([['C', 'Reviewer (C)'], ['A', 'Approver (A)']] as const).filter(([letter]) => !needed.some(r => r.letter === letter))
+    if (missing.length > 0) {
+      return reply.code(409).send({
+        error:   'reviewer_approver_required',
+        message: `Add at least one ${missing.map(([, name]) => name).join(' and one ')} in the document's RACI before submitting it for review.`,
+        missing: missing.map(([letter]) => letter),
+      })
+    }
+
+    // No open comments go into review: the author resolves every one first, so a new round never starts
+    // with the last round's backlog (SME decision, 2026-11-25). Applies to each author's submission.
+    const openComments = await countUnresolvedComments(app.prisma, documentId)
+    if (openComments > 0) return reply.code(409).send(commentsUnresolved(openComments, 'you submit the document for review'))
 
     // Gate C — all mandatory items for the current stage must be complete
     // or waived before submission. See checklist/gates.ts. Returns a 409
@@ -2042,6 +2469,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const allowedLetters = lettersForTransition(from, to)
     if (!(await actorHoldsLetter(app.prisma, request.user!, documentId, allowedLetters))) {
       return reply.code(403).send(transitionForbidden(allowedLetters))
+    }
+
+    // Approval starts only with every comment resolved, whichever route gets it there.
+    if (to === 'pending_signature') {
+      const unresolved = await countUnresolvedComments(app.prisma, documentId)
+      if (unresolved > 0) return reply.code(409).send(commentsUnresolved(unresolved))
     }
 
     // A document becomes Signed only through a completed e-signature chain

@@ -34,7 +34,7 @@ import { PASSWORD_MAX_LENGTH, verifyPassword } from '../../../auth/password.js'
 import { DocumentService, hashSections } from '../documents/service.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { recordsToRelease, type ChainType, type SignatureStatus } from './chain-progress.js'
-import { makeNotifySigners, startSignatureChain } from './start-chain.js'
+import { notifyInformedSigned, makeNotifySigners, startSignatureChain } from './start-chain.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain } from './access.js'
 import { resetRaciRound } from '../../platform/document-raci/access.js'
 import { approvalRoundState, bounceToAuthoring } from '../../platform/document-raci/return-to-authoring.js'
@@ -44,8 +44,8 @@ import { nextCommentId } from '../comments/routes.js'
 import { APPROVE_DOCUMENT_REF } from './auto-start.js'
 
 const initiateSchema = z.object({
-  // approvers_first (the default since 2026-11-17): Approvers sign first, then Authors, Reviewers and
-  // Informed together. grouped stays accepted for chains started the old way.
+  // approvers_first (the default since 2026-11-17): Approvers sign first, then Authors and
+  // Reviewers together. grouped stays accepted for chains started the old way.
   chainType: z.enum(['sequential', 'parallel', 'grouped', 'approvers_first']).default('approvers_first'),
   signers: z.array(z.object({
     signerId: z.string().min(1),
@@ -471,6 +471,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     // signing; audited on the document (auto-push.ts). Without the v1.0 snapshot it waits for the late one.
     if (result.chainStatus === 'complete') {
       await autoPushSignedDocument(app, record.chain.documentId, { trigger: 'signing', signedBy: request.user!.id, ipAddress: request.ip ?? null })
+      await notifyInformedSigned(app, doc, record.chainId)
     }
 
     // Every Approver has now finished (signed or returned) and at least one returned the document: it goes back

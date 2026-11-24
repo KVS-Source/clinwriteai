@@ -461,17 +461,22 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   const report: Report = { drafted: 0, skipped: 0, errored: [] }
 
   for (const sec of sections) {
-    // Co-operative cancellation check — writer hit Stop on the toast
-    // (POST /ai-draft/stop flipped aiDraftState → 'cancelled'). Bail
-    // without starting another section; already-drafted sections stay
-    // intact. We skip chaining validation too (early return after the
-    // loop checks for this state).
+    // Co-operative cancellation / pause check — writer hit Stop (→
+    // 'cancelled') or Pause (→ 'paused') on the toast. Both exit the
+    // loop at the section boundary; the difference is intent — pause
+    // leaves state='paused' so the UI knows to show a Resume button
+    // and the next enqueue picks up where this one left off (the
+    // existing-content filter below skips already-drafted sections).
     const stateCheck = await prisma.document.findUnique({
       where: { id: documentId },
       select: { aiDraftState: true },
     }).catch(() => null)
     if (stateCheck?.aiDraftState === 'cancelled') {
       log.info({ documentId, draftedBeforeStop: report.drafted }, 'ai_initial_draft: cancelled by writer — exiting loop')
+      return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
+    }
+    if (stateCheck?.aiDraftState === 'paused') {
+      log.info({ documentId, draftedBeforePause: report.drafted }, 'ai_initial_draft: paused by writer — exiting loop; Resume re-enqueues from here')
       return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
     }
 

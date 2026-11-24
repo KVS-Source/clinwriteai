@@ -14,7 +14,7 @@ const ROLE_LABEL: Record<string, string> = { R: 'Author', C: 'Reviewer', A: 'App
 const ROLE_BODY: Record<string, string> = {
   R: 'Open the document to start writing.',
   C: 'You will review it once the author submits it for review.',
-  A: 'You will get access to it once review and the CRM meeting are done and it is awaiting signature.',
+  A: 'You can read it now. You approve and sign it once it is awaiting signature.',
   Q: 'You will review it for quality once the author submits it.',
   I: 'You will be kept informed as it progresses.',
 }
@@ -41,11 +41,7 @@ export async function notifyRaciAssigned(app: FastifyInstance, args: {
     const actor = await app.prisma.user.findUnique({ where: { id: args.actorId }, select: { name: true } })
     const role  = ROLE_LABEL[args.letter] ?? args.letter
     const base  = `/projects/${doc.projectId}/clinical-writing/documents/${args.documentId}`
-    // An Approver cannot open the document before it awaits signature, so no link until then.
-    const approverLocked = args.letter === 'A' && doc.status !== 'pending_signature' && doc.status !== 'signed'
-    const linkPath = approverLocked ? undefined
-      : args.letter === 'C' || args.letter === 'Q' || args.letter === 'A' ? `${base}/review`
-      : base
+    const linkPath = args.letter === 'C' || args.letter === 'Q' || args.letter === 'A' ? `${base}/review` : base
     await app.notifications.send({
       recipientId: args.recipientId,
       kind:        RACI_ASSIGNED_KIND,
@@ -54,7 +50,7 @@ export async function notifyRaciAssigned(app: FastifyInstance, args: {
         ? `New document assigned to you: "${doc.title}"`
         : `You've been assigned as ${role} on "${doc.title}"`,
       body:        `${args.newDocument ? 'You are the Author. ' : ''}${ROLE_BODY[args.letter] ?? ''}${actor?.name ? ` Assigned by ${actor.name}.` : ''}`.trim(),
-      ...(linkPath && { linkPath }),
+      linkPath,
       payload:     { documentId: args.documentId, projectId: doc.projectId, letter: args.letter, sectionId: args.sectionId ?? null, assignedBy: args.actorId, newDocument: !!args.newDocument },
     })
   } catch (err) {

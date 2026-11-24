@@ -296,7 +296,7 @@ export function NewDocumentForm({
         // API treats it as "no directive" rather than "clear directive".
         // Only sent when AI is on — otherwise the directive would be stored
         // against a draft that never runs through AI.
-        aiInstructions: aiReady && aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
+        aiInstructions: aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
       }
       return documentsApi.create(projectId, body)
     },
@@ -308,13 +308,19 @@ export function NewDocumentForm({
   })
 
   // Per-step validation. Step 1 is always valid (type has a default).
-  // Step 2 requires at least one source selected. Step 3 requires title +
-  // assignee. The final Create button is only reachable when all three pass.
+  // Step 2 requires sources when the resolved policy says so. Step 3
+  // requires title + assignee. Step 4 (AI instructions) requires a
+  // non-empty value when the policy says Purpose is mandatory for this
+  // doc type (migration 100). The final Create button only unlocks when
+  // every required step passes; defaults are permissive so pre-migration
+  // doc types still work.
+  const requirements = policy?.requirements ?? { requireSources: true, requireTemplate: true, requirePurpose: true }
   const canAdvanceFromStep1 = true
-  const canAdvanceFromStep2 = sourceIds.length > 0
+  const canAdvanceFromStep2 = !requirements.requireSources || sourceIds.length > 0
   // Must be someone on the list: a duplicated document can carry over an assignee who no longer qualifies.
   const canAdvanceFromStep3 = title.trim().length > 0 && assigneeOptions.some(o => o.id === assigneeId) && !isPastDate(targetCompletionDate)
-  const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && !create.isPending
+  const canAdvanceFromStep4 = !requirements.requirePurpose || !aiReady || aiInstructions.trim().length > 0
+  const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && canAdvanceFromStep4 && !create.isPending
 
   const next = () => {
     if (step === 1 && canAdvanceFromStep1) setStep(2)
@@ -356,7 +362,7 @@ export function NewDocumentForm({
         <div className="flex-none border-b border-amber-200 bg-amber-50 px-5 py-2.5">
           <AiReadinessBanner
             readiness={aiReadiness}
-            context="This document will be created blank — AI drafting is skipped. The author can fill sections in by hand; once AI is set up, /ai-suggest rewrites will work."
+            context="This document will be created, but drafting will be blocked until AI is set up. The editor will open AI Debug with a Continue button once the key is pasted."
           />
         </div>
       )}
@@ -627,8 +633,16 @@ export function NewDocumentForm({
               </p>
             </div>
 
-            {/* Author's optional prompt to the AI drafter. */}
-            <AiInstructionsField value={aiInstructions} onChange={setAiInstructions} t={t} />
+            {/* Author's prompt to the AI drafter — optional by default,
+                but policy.requirements.requirePurpose makes it a gate
+                on the Create button. The field itself renders the same;
+                the policy hint next to the label tells the author why. */}
+            <AiInstructionsField
+              value={aiInstructions}
+              onChange={setAiInstructions}
+              required={requirements.requirePurpose}
+              t={t}
+            />
 
             {errorMsg && (
               <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700" role="alert">
@@ -788,7 +802,7 @@ const AI_INSTRUCTIONS_EXAMPLE_KEYS = [
   'mhra_style',
 ] as const
 
-function AiInstructionsField({ value, onChange, t }: { value: string; onChange: (v: string) => void; t: TFunction }) {
+function AiInstructionsField({ value, onChange, required = false, t }: { value: string; onChange: (v: string) => void; required?: boolean; t: TFunction }) {
   const remaining = AI_INSTRUCTIONS_MAX - value.length
   const counterTone =
     value.length > AI_INSTRUCTIONS_MAX ? 'text-rose-600' :
@@ -812,12 +826,20 @@ function AiInstructionsField({ value, onChange, t }: { value: string; onChange: 
       <div className="flex items-baseline justify-between">
         <label htmlFor="ai-instructions" className="text-[12px] font-semibold text-slate-800">
           {t('page.new_document.ai_instructions_label')}
-          <span className="ml-2 font-normal text-slate-500">{t('page.new_document.ai_instructions_optional')}</span>
+          {required
+            ? <span className="ml-2 font-semibold text-rose-600" aria-label="required">*</span>
+            : <span className="ml-2 font-normal text-slate-500">{t('page.new_document.ai_instructions_optional')}</span>
+          }
         </label>
         <span className={`font-mono text-[10px] ${counterTone}`} data-ai-instructions-counter>
           {t('page.new_document.ai_instructions_remaining', { count: remaining })}
         </span>
       </div>
+      {required && value.trim().length === 0 && (
+        <p className="text-[11px] font-semibold text-rose-700" role="alert">
+          Required by policy — this doc type expects a purpose before AI drafting can start.
+        </p>
+      )}
       <p className="text-[12px] text-slate-600">
         {t('page.new_document.ai_instructions_help')}
       </p>

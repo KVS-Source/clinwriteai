@@ -54,6 +54,11 @@ function formatDateTimeIst(iso: string): string {
   const shifted = new Date(new Date(iso).getTime() + IST_OFFSET_MS).toISOString()
   return formatDateTime(shifted).replace(/ UTC$/, ' IST')
 }
+// The day in IST too, so the table, the bylines and the version rows say the same date as the details panel does
+// (the UTC day is the day before for anything pushed between 18:30 and midnight UTC).
+function formatDayIst(iso: string): string {
+  return formatDay(new Date(new Date(iso).getTime() + IST_OFFSET_MS).toISOString())
+}
 
 const labelClass = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
 const selectClass = 'h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-[12px]'
@@ -78,7 +83,6 @@ export function MasterLibrary() {
   const [docTypes,    setDocTypes]    = useState<string[]>([])
   const [tas,         setTas]         = useState<string[]>([])
   const [sort,        setSort]        = useState<SortKey>('recent')
-  const [showWithdrawn, setShowWithdrawn] = useState(false)
   const [page,        setPage]        = useState(1)
   const [pageSize,    setPageSize]    = useState(PAGE_SIZES[1]!)
   const { labels: taLabels } = useTaLabels()
@@ -92,8 +96,8 @@ export function MasterLibrary() {
   }, [search])
   const listParams = useMemo<LibraryListParams>(() => ({
     q: debouncedSearch, itemType: LIST_ITEM_TYPES, docType: docTypes, ta: tas,
-    sort, includeRetired: showWithdrawn, limit: pageSize,
-  }), [debouncedSearch, docTypes, tas, sort, showWithdrawn, pageSize])
+    sort, limit: pageSize,
+  }), [debouncedSearch, docTypes, tas, sort, pageSize])
 
   // Any change to a filter, the sort or the page size starts again from page 1.
   useEffect(() => { setPage(1) }, [listParams])
@@ -120,20 +124,27 @@ export function MasterLibrary() {
     toastTimer.current = setTimeout(() => setToast(null), 3600)
   }
 
+  // The document types offered by the filter and the upload form: the standard ones plus every type the library
+  // holds. Read from the whole library, not just the rows on this page, so a type doesn't vanish from the list when a
+  // search or another page hides its documents.
+  const allTypes = useQuery({
+    queryKey: ['library-doctypes'],
+    queryFn: () => platformApi.listLibraryPage({ itemType: LIST_ITEM_TYPES, limit: 200 }),
+    staleTime: 60_000,
+  })
   const docTypeOptions = useMemo(
-    () => Array.from(new Set([...BASE_DOC_TYPES, ...docTypes, ...items.map(i => i.docType)])).filter(Boolean),
-    [items, docTypes],
+    () => Array.from(new Set([...BASE_DOC_TYPES, ...docTypes, ...(allTypes.data?.items ?? []).map(i => i.docType), ...items.map(i => i.docType)])).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+    [allTypes.data, items, docTypes],
   )
 
   const activeFilterCount =
     (search.trim() ? 1 : 0) +
-    (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) +
-    (showWithdrawn ? 1 : 0)
+    (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0)
   const filtersDirty = activeFilterCount > 0
 
   function resetFilters() {
     setSearch(''); setDocTypes([]); setTas([])
-    setSort('recent'); setShowWithdrawn(false)
+    setSort('recent')
   }
 
   const active = selected ? (items.find(i => i.id === selected.id) ?? selected) : undefined
@@ -147,6 +158,10 @@ export function MasterLibrary() {
     staleTime: 60_000,
   })
   const versionHistory = versionsQuery.data ?? []
+  // Two entries can carry the same version label (older withdrawals restarted the numbering), and a push and its
+  // withdrawal can land on the same day: such rows also show the time, so they can be told apart.
+  const dayOf = (v: { version: string; pushedAt: string }) =>
+    versionHistory.filter(x => x.version === v.version).length > 1 ? formatDateTimeIst(v.pushedAt) : formatDayIst(v.pushedAt)
   // Opens another version (fetched: earlier versions aren't in the list) in the details panel.
   async function openVersion(id: string) {
     try { setSelected(await platformApi.getLibraryItem(id)) }
@@ -260,7 +275,7 @@ export function MasterLibrary() {
             <input
               type="search" placeholder={t('page.master_library.search_placeholder')} value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
-              data-filter-search aria-label={t('page.master_library.search_aria')}
+              data-filter-search aria-label={t('page.master_library.search_aria')} maxLength={200}
               className={`${filterControl} basis-full min-w-0 [@container_(min-width:1100px)]:min-w-[180px] [@container_(min-width:1100px)]:flex-[2_1_0%]`}
             />
 
@@ -346,7 +361,6 @@ export function MasterLibrary() {
                     style={{ backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined }}>
                     <td className="break-words px-4 py-3 font-semibold text-slate-900 [overflow-wrap:anywhere]">
                       {it.name}
-                      {it.isWithdrawn && <span className="ml-2 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">{t('page.master_library.withdrawn_tag')}</span>}
                       {it.isArchived && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" data-archived-tag>{t('page.master_library.archived_tag')}</span>}
                       {/* Found only inside the document: say so, with the words around it, so the row isn't a mystery. */}
                       {it.searchMatch === 'text' && (
@@ -359,7 +373,7 @@ export function MasterLibrary() {
                     <td className="px-4 py-3 text-slate-700">{it.docType || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDayIst(it.pushedAt)}</td>
                     {/* The two buttons open their own side panel and must not also open the details (row click). */}
                     <td className="whitespace-nowrap px-4 py-3 text-center" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation() }}>
                       <div className="flex items-center justify-center gap-2">
@@ -418,7 +432,7 @@ export function MasterLibrary() {
                 <span className="inline-flex items-center rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800" data-superseded-tag>{t('page.master_library.superseded_tag')}</span>
               )}
             </span>
-            <span className="mt-1 block truncate font-mono text-[11px]" data-active-pushed>{t(active.uploaded ? 'page.master_library.uploaded_byline' : 'page.master_library.pushed_byline', { date: formatDay(active.pushedAt), user: active.pushedByName })}</span>
+            <span className="mt-1 block truncate font-mono text-[11px]" data-active-pushed>{t(active.uploaded ? 'page.master_library.uploaded_byline' : 'page.master_library.pushed_byline', { date: formatDayIst(active.pushedAt), user: active.pushedByName })}</span>
           </>
         )}
         storageKey="library-detail" defaultWidth={520} belowTopBar closeOnOutsideClick>
@@ -456,8 +470,8 @@ export function MasterLibrary() {
                   <Field label={<span className="normal-case">{active.version}</span>}>{t('page.master_library.version_single_value')}</Field>
                 ) : versionHistory.map(v => {
                   const tag = t(v.isWithdrawn ? 'page.master_library.withdrawn_tag' : v.isCurrent ? 'page.master_library.tag_latest' : 'page.master_library.tag_earlier')
-                  const title = t('page.master_library.version_row', { version: v.version, tag, date: formatDay(v.pushedAt), user: v.pushedByName })
-                  const text = t('page.master_library.version_row_value', { tag, date: formatDay(v.pushedAt), user: v.pushedByName })
+                  const title = t('page.master_library.version_row', { version: v.version, tag, date: dayOf(v), user: v.pushedByName })
+                  const text = t('page.master_library.version_row_value', { tag, date: dayOf(v), user: v.pushedByName })
                   // Another version opens in this panel: the latest for anyone, an earlier one for a PM or Auditor only.
                   const canOpen = v.id !== active.id && !v.isWithdrawn && (v.isCurrent || canReadSuperseded)
                   return (
@@ -537,7 +551,7 @@ export function MasterLibrary() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         docTypes={docTypeOptions}
-        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); void queryClient.invalidateQueries({ queryKey: ['library-versions'] }) }}
+        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); void queryClient.invalidateQueries({ queryKey: ['library-doctypes'] }); void queryClient.invalidateQueries({ queryKey: ['library-versions'] }) }}
       />
 
       {toast && (

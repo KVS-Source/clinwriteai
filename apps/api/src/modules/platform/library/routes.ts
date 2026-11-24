@@ -19,7 +19,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
-import { textExcerpt, wordStartPattern } from './search.js'
+import { likeLiteral, textExcerpt, wordStartPattern } from './search.js'
 import { enabledModules, hasRole, requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 
 // Who may open an earlier (superseded) version of a Master Document (demo feedback, 2026-11-23).
@@ -248,7 +248,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
   // What a search term matches on the name: anywhere in the title (that's what the reader sees), or a tag.
   const nameMatch = (term: string): Prisma.LibrarySectionWhereInput => ({ OR: [
-    { title: { contains: term, mode: 'insensitive' } },
+    { title: { contains: likeLiteral(term), mode: 'insensitive' } },
     { tags:  { has: term } },
   ] })
 
@@ -802,8 +802,8 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
         ...(!parsed.data.includeRetired && { retiredAt: null }),
         ...(parsed.data.search && {
           OR: [
-            { title: { contains: parsed.data.search, mode: 'insensitive' } },
-            { body: { contains: parsed.data.search, mode: 'insensitive' } },
+            { title: { contains: likeLiteral(parsed.data.search), mode: 'insensitive' } },
+            { body: { contains: likeLiteral(parsed.data.search), mode: 'insensitive' } },
           ],
         }),
       },

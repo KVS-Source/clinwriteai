@@ -1,6 +1,8 @@
 // Header chip(s) showing the signed-in user's RACI role(s) on this document —
 // e.g. "Accountable (Approver)". Built from GET /documents/:id/raci (removed
 // rows dropped); renders nothing when the user holds no role on the document.
+// Never shown while working as Project Manager: RACI letters are Contributor work, so a PM + Contributor
+// sees their chips only after switching to Contributor. Every screen uses this component, so the rule lives here.
 
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -32,12 +34,12 @@ export function MyRaciRole({ documentId, userId: userIdProp }: { documentId: str
     staleTime: 30_000,
   })
 
-  // Working as PM, the user doesn't act as Approver (no Approver View — useDocumentTabAccess), so no A chip either.
+  // `me` is narrowed to the active role, so this follows the top-bar switcher. Applies to every letter.
   const workingAsPm = !!me && holdsRole(me, 'pm')
 
   // One chip per letter; a letter held only on some sections says so in its tooltip.
   const mine = useMemo(() => {
-    const active = rows.filter(r => r.userId === userId && !r.removedAt && !(workingAsPm && r.letter === 'A'))
+    const active = rows.filter(r => r.userId === userId && !r.removedAt)
     return ORDER
       .map(letter => {
         const held = active.filter(r => r.letter === letter)
@@ -46,9 +48,10 @@ export function MyRaciRole({ documentId, userId: userIdProp }: { documentId: str
         return { letter, wholeDoc, sections: held.length }
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
-  }, [rows, userId, workingAsPm])
+  }, [rows, userId])
 
-  if (!userId || mine.length === 0) return null
+  // Nothing until /auth/me answers: before that the active role isn't known.
+  if (!me || workingAsPm || !userId || mine.length === 0) return null
 
   return (
     <div className="flex flex-none items-center gap-1.5" data-my-raci-role>

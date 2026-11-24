@@ -32,7 +32,9 @@ const STATE_LABEL_KEYS: Record<AiDraftState, string> = {
   complete:   'page.ai_drafting_report_panel.state_complete',
   failed:     'page.ai_drafting_report_panel.state_failed',
   cancelled:  'page.ai_drafting_report_panel.state_cancelled',
+  paused:     'page.ai_drafting_report_panel.state_paused',
   not_configured: 'page.ai_drafting_report_panel.state_not_configured',
+  blocked:    'page.ai_drafting_report_panel.state_blocked',
 }
 
 const STATE_TONE: Record<AiDraftState, { bg: string; fg: string }> = {
@@ -42,7 +44,9 @@ const STATE_TONE: Record<AiDraftState, { bg: string; fg: string }> = {
   complete:   { bg: '#F0FDF4', fg: '#15803D' },
   failed:     { bg: '#FFF1F2', fg: '#BE123C' },
   cancelled:  { bg: '#F1F5F9', fg: '#64748B' },
+  paused:     { bg: '#FFFBEB', fg: '#92400E' },
   not_configured: { bg: '#FFFBEB', fg: '#B45309' },
+  blocked:    { bg: '#FFF1F2', fg: '#9F1239' },
 }
 
 const FLAG_LABEL_KEYS: Record<string, string> = {

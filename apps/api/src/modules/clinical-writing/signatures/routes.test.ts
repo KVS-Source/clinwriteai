@@ -511,7 +511,6 @@ describe('signature chain — who may start it', () => {
     signers: [
       ...twoSigners.signers,
       { signerId: 'u-cons', signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
-      { signerId: 'u-info', signerName: 'Ian Informed',   signerRole: 'Informed', meaning: 'acknowledged' },
     ],
   }
 
@@ -538,11 +537,11 @@ describe('signature chain — who may start it', () => {
   })
 
   it('lets the starter leave named people off the chain, and records who was left off in the audit entry', async () => {
-    const res = await startAs(USERS.author, twoSigners)                       // leaves out Reviewer + Informed
+    const res = await startAs(USERS.author, twoSigners)                       // leaves out the Reviewer; Informed is never a signer
     expect(res.statusCode).toBe(201)
     expect(res.json().records).toHaveLength(2)
     const init = t.audit.find(a => a.action === 'signature_initiated')!
-    expect(init.details.omittedNamedSigners.map((m: Row) => m.name).sort()).toEqual(['Cora Consulted', 'Ian Informed'])
+    expect(init.details.omittedNamedSigners.map((m: Row) => m.name).sort()).toEqual(['Cora Consulted'])
   })
 
   it('counts a named person who signs under a different meaning as left off, and says so', async () => {
@@ -589,7 +588,7 @@ describe('signature chain — who may start it', () => {
     const extra = { ...all4, signers: [...all4.signers, { signerId: 'u-extra', signerName: 'Eve Extra', signerRole: 'Reviewer', meaning: 'reviewed' }] }
     const res = await startAs(USERS.author, extra)
     expect(res.statusCode).toBe(201)
-    expect(res.json().records).toHaveLength(5)
+    expect(res.json().records).toHaveLength(4)
   })
 
   it('shows a person with two letters once without breaking the check (dual roles are out of scope)', async () => {
@@ -597,10 +596,18 @@ describe('signature chain — who may start it', () => {
     expect((await startAs(USERS.author, all4)).statusCode).toBe(201)
   })
 
-  it('records the Informed signature with the "acknowledged" meaning, and the Informed person can sign it', async () => {
+  it('refuses a new chain with an Informed signer: they are told, and never sign', async () => {
+    const withInformed = { ...all4, signers: [...all4.signers, { signerId: 'u-info', signerName: 'Ian Informed', signerRole: 'Informed', meaning: 'acknowledged' }] }
+    const res = await startAs(USERS.author, withInformed)
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('informed_cannot_sign')
+    expect(t.db.chains).toHaveLength(0)
+  })
+
+  it('an Informed signer already on a running chain (started before the rule) can still finish it', async () => {
     const chain = (await startAs(USERS.author, { ...all4, chainType: 'parallel' })).json()
-    const rec = chain.records.find((r: Row) => r.signerId === 'u-info')
-    expect(rec.meaning).toBe('acknowledged')
+    const rec = { ...t.db.records.find((r: Row) => r.chainId === chain.id)!, id: 'SIG-OLD', signerId: 'u-info', step: 9, meaning: 'acknowledged', status: 'awaiting' }
+    t.db.records.push(rec)
     t.as(USERS.info)
     const res = await t.app.inject({ method: 'POST', url: `/signature-records/${rec.id}/sign`, payload: signAs() })
     expect(res.statusCode).toBe(200)
@@ -648,7 +655,6 @@ describe('signature chain — who may read the record', () => {
     const all4 = { chainType: 'sequential', signers: [
       ...twoSigners.signers,
       { signerId: 'u-cons', signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
-      { signerId: 'u-info', signerName: 'Ian Informed', signerRole: 'Informed', meaning: 'acknowledged' },
     ] }
     chainId = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: all4 })).json().id
   })
@@ -677,7 +683,7 @@ describe('signature chain — who may read the record', () => {
   })
 })
 
-describe('signature chain — grouped order (Authors, then Reviewers, then Approvers, then Informed)', () => {
+describe('signature chain — grouped order (Authors, then Reviewers, then Approvers)', () => {
   let t: Awaited<ReturnType<typeof build>>
   beforeEach(async () => {
     t = await build()
@@ -689,7 +695,6 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
   })
   // Submitted in a scrambled order on purpose: the server must put the groups in order.
   const signers = [
-    { signerId: 'u-info',    signerName: 'Ian Informed',   signerRole: 'Informed', meaning: 'acknowledged' },
     { signerId: 'u-reviewer', signerName: 'Rob Reviewer',  signerRole: 'Approver', meaning: 'approved' },
     { signerId: 'u-cons',    signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
     { signerId: 'u-author2', signerName: 'Alf Author',     signerRole: 'Author',   meaning: 'authored' },
@@ -702,9 +707,9 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
 
   it('stores the groups in order and has the whole first group awaiting, everyone else queued', async () => {
     const chain = await start()
-    expect(chain.records.map((r: Row) => r.meaning)).toEqual(['authored', 'authored', 'reviewed', 'approved', 'acknowledged'])
-    expect(chain.records.map((r: Row) => r.step)).toEqual([1, 2, 3, 4, 5])
-    expect(status(chain)).toEqual({ 'u-author': 'awaiting', 'u-author2': 'awaiting', 'u-cons': 'queued', 'u-reviewer': 'queued', 'u-info': 'queued' })
+    expect(chain.records.map((r: Row) => r.meaning)).toEqual(['authored', 'authored', 'reviewed', 'approved'])
+    expect(chain.records.map((r: Row) => r.step)).toEqual([1, 2, 3, 4])
+    expect(status(chain)).toEqual({ 'u-author': 'awaiting', 'u-author2': 'awaiting', 'u-cons': 'queued', 'u-reviewer': 'queued' })
     expect(t.notices.map(n => n.recipientId).sort()).toEqual(['u-author', 'u-author2'])     // both Authors are told
   })
 
@@ -721,16 +726,14 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
 
     // The second Author signs: the Reviewer group is released and told.
     expect((await sign(USERS.author2, rec('u-author2'))).statusCode).toBe(200)
-    expect(status(chain)).toMatchObject({ 'u-cons': 'awaiting', 'u-reviewer': 'queued', 'u-info': 'queued' })
+    expect(status(chain)).toMatchObject({ 'u-cons': 'awaiting', 'u-reviewer': 'queued' })
     expect(t.notices.at(-1)).toMatchObject({ recipientId: 'u-cons', kind: 'signature_requested' })
 
-    // Reviewer signs -> Approver; Approver signs -> Informed; Informed signs -> the document is signed.
+    // Reviewer signs -> Approver; Approver signs -> the document is signed.
     await sign(USERS.cons, rec('u-cons'))
-    expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })
-    await sign(USERS.reviewer, rec('u-reviewer'))
-    expect(status(chain)).toMatchObject({ 'u-info': 'awaiting' })
+    expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting' })
     expect(t.db.documents[0].status).toBe('pending_signature')
-    expect((await sign(USERS.info, rec('u-info'))).statusCode).toBe(200)
+    expect((await sign(USERS.reviewer, rec('u-reviewer'))).statusCode).toBe(200)
     expect(t.db.chains[0].status).toBe('complete')
     expect(t.db.documents[0].status).toBe('signed')
   })
@@ -741,11 +744,11 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
     const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
     await sign(USERS.author, rec('u-author'))
     await sign(USERS.author2, rec('u-author2'))
-    expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })     // straight to the Approvers
+    expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting' })     // straight to the Approvers
   })
 })
 
-describe('signature chain — approvers first (Approve & E-sign), then Authors, Reviewers and Informed together', () => {
+describe('signature chain — approvers first (Approve & E-sign), then Authors and Reviewers together', () => {
   let t: Awaited<ReturnType<typeof build>>
   beforeEach(async () => {
     t = await build()
@@ -758,7 +761,6 @@ describe('signature chain — approvers first (Approve & E-sign), then Authors, 
     t.as(USERS.author)
   })
   const signers = [
-    { signerId: 'u-info',     signerName: 'Ian Informed',   signerRole: 'Informed', meaning: 'acknowledged' },
     { signerId: 'u-reviewer', signerName: 'Rob Reviewer',   signerRole: 'Approver', meaning: 'approved' },
     { signerId: 'u-cons',     signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
     { signerId: 'u-author',   signerName: 'Ann Author',     signerRole: 'Author',   meaning: 'authored' },
@@ -771,8 +773,8 @@ describe('signature chain — approvers first (Approve & E-sign), then Authors, 
   it('is the default order, and starts without any separate approval first', async () => {
     const chain = await start()
     expect(chain.chainType).toBe('approvers_first')
-    expect(chain.records.map((r: Row) => r.meaning)).toEqual(['approved', 'approved', 'acknowledged', 'reviewed', 'authored'])
-    expect(status(chain)).toEqual({ 'u-reviewer': 'awaiting', 'u-author2': 'awaiting', 'u-info': 'queued', 'u-cons': 'queued', 'u-author': 'queued' })
+    expect(chain.records.map((r: Row) => r.meaning)).toEqual(['approved', 'approved', 'reviewed', 'authored'])
+    expect(status(chain)).toEqual({ 'u-reviewer': 'awaiting', 'u-author2': 'awaiting', 'u-cons': 'queued', 'u-author': 'queued' })
   })
 
   it('tells each Approver to Approve & E-sign, with a link to the document, not the E-Signature tab', async () => {
@@ -818,9 +820,9 @@ describe('signature chain — approvers first (Approve & E-sign), then Authors, 
       expect(t.db.documents[0].status).toBe('in_authoring')
       expect(t.db.chains[0].status).toBe('cancelled')
       expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ reason: 'signature_bounce', note: 'Not ready to sign.', createdBy: 'u-author2' }))
-      // Their signature stays on the trail, but Authors, Reviewers and Informed were never asked to sign.
+      // Their signature stays on the trail, but Authors and Reviewers were never asked to sign.
       expect(status(chain)['u-reviewer']).toBe('signed')
-      expect(status(chain)).toMatchObject({ 'u-author': 'queued', 'u-cons': 'queued', 'u-info': 'queued' })
+      expect(status(chain)).toMatchObject({ 'u-author': 'queued', 'u-cons': 'queued' })
       expect(t.notices.filter(n => n.linkPath?.endsWith('/sign'))).toHaveLength(0)
       // A new round: no one is left approved or returned.
       expect(t.db.raciRows.find(r => r.id === 'raci-a2')!.rejectedAt).toBeNull()
@@ -836,26 +838,28 @@ describe('signature chain — approvers first (Approve & E-sign), then Authors, 
     expect(t.db.documents[0].status).toBe('pending_signature')
   })
 
-  it('Authors, Reviewers and Informed wait for every Approver, then are released together and told', async () => {
+  it('Authors and Reviewers wait for every Approver, then are released together and told; Informed are told once it is signed', async () => {
     const chain = await start()
     const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
     expect((await sign(USERS.author, rec('u-author'))).json().error).toBe('not_awaiting')
 
     await sign(USERS.reviewer, rec('u-reviewer'))
-    expect(status(chain)).toMatchObject({ 'u-author': 'queued', 'u-cons': 'queued', 'u-info': 'queued' })
+    expect(status(chain)).toMatchObject({ 'u-author': 'queued', 'u-cons': 'queued' })
 
     t.notices.length = 0
     expect((await sign(USERS.author2, rec('u-author2'))).statusCode).toBe(200)
-    expect(status(chain)).toMatchObject({ 'u-author': 'awaiting', 'u-cons': 'awaiting', 'u-info': 'awaiting' })
-    expect(t.notices.map(n => n.recipientId).sort()).toEqual(['u-author', 'u-cons', 'u-info'])
+    expect(status(chain)).toMatchObject({ 'u-author': 'awaiting', 'u-cons': 'awaiting' })
+    expect(t.notices.map(n => n.recipientId).sort()).toEqual(['u-author', 'u-cons'])
     expect(t.notices.every(n => n.linkPath.endsWith('/sign'))).toBe(true)
 
     // They sign in any order; the last one makes the document signed.
-    await sign(USERS.info, rec('u-info'))
     await sign(USERS.cons, rec('u-cons'))
     expect(t.db.documents[0].status).toBe('pending_signature')
     expect((await sign(USERS.author, rec('u-author'))).statusCode).toBe(200)
     expect(t.db.documents[0].status).toBe('signed')
+    const told = t.notices.filter(n => n.kind === 'document.signed')
+    expect(told.map(n => n.recipientId)).toEqual(['u-info'])
+    expect(told[0]!.linkPath).toBe('/projects/PROJ-1/clinical-writing/documents/DOC-1/final')
     expect(t.db.comments).toHaveLength(2)   // one approval per Approver, none for the others
   })
 })

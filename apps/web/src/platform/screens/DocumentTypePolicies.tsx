@@ -30,7 +30,11 @@ import {
   type BestPracticeDigest,
   type AiPromptRecord,
   type BestPracticeRecord,
+  type PolicyRequirements,
+  DEFAULT_POLICY_REQUIREMENTS,
 } from '../api/platformApi'
+import { documentsApi, type DocumentTemplate } from '../../api/documents'
+import { PolicyRequirementsToggles } from '../components/PolicyRequirementsToggles'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 
@@ -386,6 +390,24 @@ function AssociationsPanel({
     onError:    (err: unknown) => { setActionError(errMessage(err, 'Retire failed')); setActionInfo(null) },
   })
 
+  // Requirements PATCH — in-place update on the current policy. The
+  // service rejects edits of a used-by-documents version with 409, in
+  // which case the PM has to bump a new version; we surface that message
+  // verbatim so the admin knows which action to take next.
+  const saveRequirements = useMutation({
+    mutationFn: (next: PolicyRequirements) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { requirements: next }),
+    onSuccess: () => { setActionInfo('Requirements saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
+  const saveIchPins = useMutation({
+    mutationFn: (names: string[]) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { ichFrameworkNames: names }),
+    onSuccess: () => { setActionInfo('ICH framework pins saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const onRetire = () => {
     const reason = window.prompt('Reason for retiring this policy (goes on the audit trail):', '')
     if (!reason || !reason.trim()) return
@@ -444,13 +466,16 @@ function AssociationsPanel({
         manageLabel="Manage in Checklists"
       />
 
-      <AssociationRow
-        label="ICH framework"
-        state={policy.ichFramework ? 'pinned' : 'missing'}
-        summary={policy.ichFramework || 'No ICH framework pin'}
-        detail={null}
-        manageTo="/master-library/ich-frameworks"
-        manageLabel="Manage in ICH Frameworks"
+      <IchFrameworksPicker
+        policy={policy}
+        onSave={names => saveIchPins.mutate(names)}
+        saving={saveIchPins.isPending}
+      />
+
+      <PolicyRequirementsToggles
+        value={policy.requirements ?? DEFAULT_POLICY_REQUIREMENTS}
+        disabled={saveRequirements.isPending}
+        onChange={next => saveRequirements.mutate(next)}
       />
 
       <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">
@@ -468,6 +493,163 @@ function AssociationsPanel({
         </button>
       </footer>
     </div>
+  )
+}
+
+// ICH framework multi-select — swaps the generic AssociationRow for an
+// inline picker populated from GET /admin/frameworks. Each row has a
+// checkbox + the framework name + its version/jurisdiction. Chips at
+// the top show the resolver's current view (auto-matched default +
+// pinned list). Dirty state enables Save; "Manage in ICH Frameworks"
+// stays as a secondary action for catalogue CRUD.
+function IchFrameworksPicker({
+  policy, onSave, saving,
+}: {
+  policy:  PolicyEnriched
+  onSave:  (names: string[]) => void
+  saving:  boolean
+}) {
+  const current = useMemo(
+    () => (policy.ichFrameworkNames && policy.ichFrameworkNames.length > 0
+            ? policy.ichFrameworkNames
+            : (policy.ichFramework ? [policy.ichFramework] : [])),
+    [policy.ichFrameworkNames, policy.ichFramework],
+  )
+  const [picked, setPicked] = useState<string[]>(current)
+  useEffect(() => { setPicked(current) }, [current])
+
+  const frameworksQ = useQuery({
+    queryKey: ['regulatory-frameworks'],
+    queryFn:  () => platformApi.listFrameworks(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  // Hide retired entries from the picker; keep already-pinned-retired
+  // names visible as chips so the admin knows what was previously set.
+  const options = useMemo(() => {
+    const rows = frameworksQ.data ?? []
+    return rows.filter(r => r.status === 'Current')
+  }, [frameworksQ.data])
+
+  const toggle = (name: string, checked: boolean) => {
+    setPicked(prev => checked
+      ? (prev.includes(name) ? prev : [...prev, name])
+      : prev.filter(n => n !== name))
+  }
+
+  const dirty = picked.length !== current.length
+             || picked.some((n, i) => n !== current[i])
+
+  const resolved = policy.resolved?.ich
+  const effective = resolved?.effective ?? 'none'
+  const toneClass =
+    effective === 'pinned' ? 'border-indigo-200 bg-indigo-50/40' :
+    effective === 'auto'   ? 'border-sky-200 bg-sky-50/40' :
+                             'border-slate-200 bg-white'
+
+  return (
+    <section className={`rounded-md border ${toneClass} p-3`} data-assoc="ICH framework">
+      <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+            ICH framework
+          </p>
+          <span className="rounded-full border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-mono text-slate-600">
+            {effective === 'pinned' ? `${resolved?.pinned.length ?? 0} pinned`
+             : effective === 'auto' ? 'auto-matched'
+             : 'none'}
+          </span>
+        </div>
+        <Link
+          to="/master-library/ich-frameworks"
+          className="text-[11px] font-semibold text-blue-700 hover:underline"
+        >
+          Manage in ICH Frameworks →
+        </Link>
+      </header>
+
+      {/* Current resolver view — what the drafter sees right now. */}
+      <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
+        {(resolved?.pinned ?? []).map(f => (
+          <span key={`p-${f.name}`} className="rounded border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-indigo-800">
+            Pinned · {f.name} <span className="font-mono text-slate-500">{f.version}</span>
+          </span>
+        ))}
+        {(resolved?.auto ?? []).map(f => (
+          <span key={`a-${f.name}`} className="rounded border border-sky-300 bg-sky-50 px-2 py-0.5 text-sky-800">
+            Auto · {f.name} <span className="font-mono text-slate-500">{f.version}</span>
+          </span>
+        ))}
+        {effective === 'none' && (
+          <span className="text-slate-500 italic">No framework resolves yet.</span>
+        )}
+      </div>
+
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[12px] font-semibold text-slate-800">Pin frameworks</p>
+        <p className="text-[11px] text-slate-500">
+          Select every ICH guideline that applies — the drafter cites all of them.
+        </p>
+      </div>
+      {frameworksQ.isLoading && (
+        <p className="text-[11px] italic text-slate-500">Loading frameworks…</p>
+      )}
+      {frameworksQ.isError && (
+        <p className="text-[11px] text-rose-700">Could not load frameworks — try refreshing.</p>
+      )}
+      {!frameworksQ.isLoading && options.length === 0 && (
+        <p className="text-[11px] text-slate-500">
+          No ICH frameworks exist yet. Use <Link to="/master-library/ich-frameworks" className="font-semibold text-blue-700 hover:underline">Manage in ICH Frameworks</Link> to add one.
+        </p>
+      )}
+      {options.length > 0 && (
+        <ul className="max-h-48 overflow-y-auto rounded border border-slate-200 bg-white">
+          {options.map(f => {
+            const checked = picked.includes(f.code)
+            return (
+              <li key={f.id} className="flex items-start gap-2 border-b border-slate-100 px-3 py-1.5 last:border-b-0 text-[12px]">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-3.5 w-3.5 flex-none cursor-pointer accent-blue-600"
+                  checked={checked}
+                  onChange={e => toggle(f.code, e.currentTarget.checked)}
+                  data-ich-option={f.code}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-slate-800">{f.code}</p>
+                  <p className="text-[11px] text-slate-500">
+                    {f.name !== f.code && <>{f.name} · </>}
+                    {f.issuer} · v{f.version}
+                  </p>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <div className="mt-2 flex items-center justify-end gap-2">
+        {dirty && (
+          <button
+            type="button"
+            onClick={() => setPicked(current)}
+            disabled={saving}
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="reset-ich"
+          >
+            Reset
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onSave(picked)}
+          disabled={!dirty || saving}
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          data-action="save-ich-pins"
+        >
+          {saving ? 'Saving…' : 'Save pins'}
+        </button>
+      </div>
+    </section>
   )
 }
 
@@ -660,17 +842,26 @@ function CreatePolicyForm({
   onCreated: (docType: string) => void
   onCancel?: () => void
 }) {
-  const [docType, setDocType]     = useState('')
-  const [smePrompt, setSmePrompt] = useState('')
-  const [error, setError]         = useState<string | null>(null)
-  const normalizedDocType = docType.trim().replace(/-/g, '_')
-  const duplicate = taken.includes(normalizedDocType)
+  const [docType, setDocType] = useState('')
+  const [error,   setError]   = useState<string | null>(null)
+
+  // Doc-type catalogue — the same source the New Document wizard uses so
+  // the two surfaces can never drift. Filter out doc types that already
+  // have a policy.
+  const templatesQ = useQuery<DocumentTemplate[]>({
+    queryKey: ['document-templates'],
+    queryFn:  () => documentsApi.listTemplates(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const takenSet = useMemo(() => new Set(taken), [taken])
+  const options  = useMemo(
+    () => (templatesQ.data ?? []).filter(t => !takenSet.has(t.type)),
+    [templatesQ.data, takenSet],
+  )
 
   const create = useMutation({
-    mutationFn: () => platformApi.createDocumentTypePolicy({
-      docType:   normalizedDocType,
-      smePrompt: smePrompt.trim() || `SME prompt for ${normalizedDocType} — configure in AI Prompts.`,
-    }),
+    mutationFn: () => platformApi.createDocumentTypePolicy({ docType }),
     onSuccess: (row) => { setError(null); onCreated(row.docType) },
     onError:   (err: unknown) => setError(errMessage(err, 'Create failed')),
   })
@@ -678,35 +869,28 @@ function CreatePolicyForm({
   return (
     <div className="flex h-full flex-col gap-3 p-4" data-new-policy>
       <p className="text-[12px] text-slate-500">
-        Anchor a doc type in the system so authors can create documents of that kind. After the
-        policy is created, wire up the AI prompt, BP digest, template, checklist, and ICH framework
-        from their own tabs.
+        Anchor a doc type in the system so authors can create documents of that kind. The policy
+        auto-links to the latest approved AI prompt, template, and checklist for this doc type —
+        no manual wiring needed. Manage those assets from their own tabs.
       </p>
       {error && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
       <label className="flex flex-col gap-1">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Doc type (underscored canonical form)</span>
-        <input
-          type="text"
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Doc type</span>
+        <select
           value={docType}
           onChange={e => setDocType(e.currentTarget.value)}
-          placeholder="e.g. protocol_amendment"
           className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px]"
           data-field="create-doc-type"
-        />
-        {duplicate && (
-          <p className="text-[11px] font-semibold text-rose-700" role="alert">A policy for this doc type already exists.</p>
+          disabled={templatesQ.isLoading}
+        >
+          <option value="">{templatesQ.isLoading ? 'Loading doc types…' : 'Select a doc type…'}</option>
+          {options.map(t => (
+            <option key={t.type} value={t.type}>{t.label}</option>
+          ))}
+        </select>
+        {!templatesQ.isLoading && options.length === 0 && (
+          <p className="text-[11px] text-slate-500">Every doc type already has a policy. Retire one first to re-anchor it.</p>
         )}
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Starter SME prompt (optional)</span>
-        <textarea
-          value={smePrompt}
-          onChange={e => setSmePrompt(e.currentTarget.value)}
-          rows={8}
-          placeholder="Leave blank to ship a placeholder — you'll author the real prompt in the AI Prompts tab."
-          className="resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px] leading-relaxed"
-          data-field="create-sme-prompt"
-        />
       </label>
       <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
         {onCancel && (
@@ -723,7 +907,7 @@ function CreatePolicyForm({
         <button
           type="button"
           onClick={() => create.mutate()}
-          disabled={create.isPending || !normalizedDocType || duplicate || !aiReady}
+          disabled={create.isPending || !docType || !aiReady}
           title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
           className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           data-action="create-policy"

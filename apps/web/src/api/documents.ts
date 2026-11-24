@@ -142,6 +142,12 @@ export interface SaveSourceBody {
   overrides?: string[]
 }
 
+export interface ReturnBaseline {
+  versionNumber: string
+  returnedAt: string
+  sections: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string; contentHtml: string }>
+}
+
 export const documentsApi = {
   // Sources a document is based on
   listDocumentSources: (documentId: string) =>
@@ -208,6 +214,18 @@ export const documentsApi = {
       totalOccurrences: number
       updated:          Array<{ sectionId: string; occurrences: number }>
     }>(`/documents/${documentId}/tbd-replace`, body),
+  // AI auto-fill TBDs from attached sources — Claude reads the source
+  // PDFs and returns answers per TBD. Answerable items are applied
+  // server-side via the same replaceAcrossSections; unanswerable items
+  // come back with a diagnostic reason so the writer knows what to fix.
+  tbdAutofill: (documentId: string) =>
+    api.post<{
+      scanned:          number
+      filled:           Array<{ tbd: string; marker: string; value?: string; occurrences: number }>
+      unresolvable:     Array<{ tbd: string; marker: string; reason?: string }>
+      missed:           Array<{ tbd: string; marker: string; reason?: string }>
+      sectionsAffected: number
+    }>(`/documents/${documentId}/tbd-autofill`, {}),
   // Protocol metadata (migration 60). Partial, nullable; server validates.
   updateProtocolMetadata: (documentId: string, patch: ProtocolMetadataPatch) =>
     api.patch<Document>(`/documents/${documentId}/protocol-metadata`, patch),
@@ -227,6 +245,9 @@ export const documentsApi = {
     api.patch<{ reviewDueAt: string | null }>(`/documents/${documentId}/review-due-date`, { date }),
   getVersionAccess: (documentId: string) =>
     api.get<{ canView: boolean }>(`/documents/${documentId}/versions/access`),
+  // The text as it was when the document was last sent back to authoring; null on a first round.
+  getChangesSinceReturn: (documentId: string) =>
+    api.get<{ baseline: ReturnBaseline | null }>(`/documents/${documentId}/changes-since-return`),
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),
   // One version's sections as stored (Version Diff compares two of these).

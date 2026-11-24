@@ -34,7 +34,10 @@ export interface InviteLink {
 // Role dropdown for the invite / edit forms.
 //
 // Canonical set after migration 48 (docs/roles-and-permissions.md §2):
-//   tenant-admin | pm | contributor | auditor | guest
+//   tenant-admin | pm | contributor | auditor | qc
+//
+// Guest is not offered here: a user can no longer be invited or filtered as one. An existing
+// guest account keeps its label (RETIRED_ROLE_LABEL_KEYS) and still shows under "All Roles".
 //
 // Legacy role names (admin, clinical-writer, …) are still accepted by
 // the API for existing users whose rows haven't been rewritten, but
@@ -46,13 +49,15 @@ export const ROLE_OPTIONS: { value: string; labelKey: string; descriptionKey: st
   { value: 'contributor',  labelKey: 'page.user_management_live.role_label_contributor',  descriptionKey: 'page.user_management_live.role_desc_contributor' },
   { value: 'auditor',      labelKey: 'page.user_management_live.role_label_auditor',      descriptionKey: 'page.user_management_live.role_desc_auditor' },
   { value: 'qc',           labelKey: 'page.user_management_live.role_label_qc',           descriptionKey: 'page.user_management_live.role_desc_qc' },
-  { value: 'guest',        labelKey: 'page.user_management_live.role_label_guest',        descriptionKey: 'page.user_management_live.role_desc_guest' },
 ]
+
+// Labels for roles no longer offered but possibly still held.
+const RETIRED_ROLE_LABEL_KEYS: Record<string, string> = { guest: 'page.user_management_live.role_label_guest' }
 
 // Display label for a role: the canonical label when there is one, else the raw (legacy) name.
 export function roleLabelOf(role: string, t: (k: string) => string): string {
-  const opt = ROLE_OPTIONS.find(r => r.value === role)
-  return opt ? t(opt.labelKey) : role
+  const labelKey = ROLE_OPTIONS.find(r => r.value === role)?.labelKey ?? RETIRED_ROLE_LABEL_KEYS[role]
+  return labelKey ? t(labelKey) : role
 }
 
 export const usersApi = {

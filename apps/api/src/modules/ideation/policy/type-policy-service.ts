@@ -4,6 +4,8 @@
 // Mirror of MedContentTypePolicyService.
 
 import type { PrismaClient, Prisma } from '@prisma/client'
+import type { PolicyRequirements } from '../../platform/policy-requirements.js'
+import { DEFAULT_POLICY_REQUIREMENTS } from '../../platform/policy-requirements.js'
 
 export interface IdeationTypePolicyEditableFields {
   smePrompt?:           string
@@ -13,6 +15,7 @@ export interface IdeationTypePolicyEditableFields {
   checklistTemplateId?: string | null
   channelHint?:     string | null
   reviewTierFormula?:   string | null
+  requirements?:        PolicyRequirements
 }
 
 export interface IdeationTypePolicyCreateBody extends IdeationTypePolicyEditableFields {
@@ -61,6 +64,7 @@ export class IdeationTypePolicyService {
         checklistTemplateId: input.checklistTemplateId ?? null,
         channelHint:     input.channelHint     ?? null,
         reviewTierFormula:   input.reviewTierFormula   ?? null,
+        requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as Prisma.InputJsonValue,
         createdBy: actorId,
         updatedBy: actorId,
       },
@@ -81,6 +85,7 @@ export class IdeationTypePolicyService {
         ...(input.checklistTemplateId !== undefined && { checklistTemplateId: input.checklistTemplateId }),
         ...(input.channelHint     !== undefined && { channelHint:     input.channelHint }),
         ...(input.reviewTierFormula   !== undefined && { reviewTierFormula:   input.reviewTierFormula }),
+        ...(input.requirements        !== undefined && { requirements:        input.requirements as unknown as Prisma.InputJsonValue }),
         updatedBy: actorId,
       },
     })

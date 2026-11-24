@@ -135,7 +135,26 @@ model DocumentTypePolicy {
 
   templateId          String?                                           // → document_templates.id
   checklistTemplateId String?                                           // → checklist_templates.id
-  ichFramework        String?                                           // 'ICH E3' | 'ICH M11' | …
+  // Legacy single ICH framework name — kept for a transition release
+  // and dropped in a follow-up migration. All reads/writes use
+  // `ichFrameworkNames` below.
+  ichFramework        String?                                           // DEPRECATED — see ichFrameworkNames
+  // Multi-value ICH framework pins (migration 102). Each entry matches
+  // RegulatoryFramework.name (e.g. 'ICH M11'); a Protocol policy
+  // commonly pins M11 + E6 + E8 so the AI prompt + Final-PDF appendix
+  // can cite every applicable guideline. Empty → resolver falls back
+  // to the DOC_TYPE_TO_ICH convention map.
+  ichFrameworkNames   String[]  @default([]) @map("ich_framework_names")
+
+  // ---- Author-input requirements (migration 100, 2026-11-24) ----
+  // Which inputs the document MUST have before the AI drafter can run.
+  // Default: all three required — matches the hard-coded preflight
+  // behaviour before this migration + treats the author's purpose
+  // (= ai_instructions in the Create wizard) as mandatory by default.
+  // PMs can switch any flag off per doc type on the Policy admin
+  // screen; the preflight reads this JSONB.
+  //   { requireSources: bool, requireTemplate: bool, requirePurpose: bool }
+  requirements        Json      @default("{\"requireSources\": true, \"requireTemplate\": true, \"requirePurpose\": true}")
 
   effectiveDate       DateTime  @default(now())
   supersededBy        String?                                           // → next version's id

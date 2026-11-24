@@ -7,6 +7,22 @@
 // scope regex on principles keep the structured shape queryable.
 
 import { z } from 'zod'
+import {
+  policyRequirementsSchema,
+  DEFAULT_POLICY_REQUIREMENTS,
+  requirementsOf,
+} from '../policy-requirements.js'
+import type { PolicyRequirements } from '../policy-requirements.js'
+
+// Re-export the shared policy-requirements helpers from here so clinical
+// callers keep their existing `./schema` imports. The real source lives
+// in /platform/policy-requirements.ts so modules B-E share the same type.
+export {
+  policyRequirementsSchema,
+  DEFAULT_POLICY_REQUIREMENTS,
+  requirementsOf,
+}
+export type { PolicyRequirements }
 
 // --- best-practice digest -----------------------------------------------
 
@@ -35,6 +51,8 @@ export const bestPracticeDigestSchema = z.object({
 export type Principle          = z.infer<typeof principleSchema>
 export type BestPracticeDigest = z.infer<typeof bestPracticeDigestSchema>
 
+// (policy-requirements re-exported at the top of the file, next to the import)
+
 // --- section rules (admin-authored, outside the BP digest) ---------------
 
 export const sectionRuleSchema = z.object({
@@ -49,16 +67,32 @@ export type SectionRules = z.infer<typeof sectionRulesSchema>
 
 // --- policy create / update ---------------------------------------------
 
-/** Create the first version of a policy for a doc type. */
+/** Create the first version of a policy for a doc type.
+ *
+ *  `smePrompt` is optional: the real SME prompt lives on the AiPromptRecord
+ *  entity (its own tab) and is auto-resolved per docType, so the legacy
+ *  policy.smePrompt field is just a placeholder on fresh policies. When
+ *  omitted, the service defaults to a "configure in AI Prompts" marker so
+ *  the column satisfies NOT NULL and the policy list renders a clear
+ *  "legacy" fallback until the admin publishes an AiPromptRecord. */
 export const createPolicySchema = z.object({
   docType:             z.string().min(1).max(80),
-  smePrompt:           z.string().min(1).max(100_000),     // SME prompts can be long
+  smePrompt:           z.string().max(100_000).optional(),
   bestPracticeDigest:  bestPracticeDigestSchema.optional(),
   sectionRules:        sectionRulesSchema.optional(),
   templateId:          z.string().optional().nullable(),
   checklistTemplateId: z.string().optional().nullable(),
-  ichFramework:        z.string().max(80).optional().nullable(),
+  ichFramework:        z.string().max(80).optional().nullable(),   // DEPRECATED — see ichFrameworkNames
+  ichFrameworkNames:   z.array(z.string().min(1).max(80)).max(20).optional(),
+  requirements:        policyRequirementsSchema.optional(),
 })
+
+/** Default SME-prompt placeholder used on `create` when the admin opts
+ *  not to provide one. Matches the legacy marker the UI used to send so
+ *  existing fallback logic (ChipAiPrompt 'legacy' state) keeps working. */
+export function defaultPlaceholderSmePrompt(docType: string): string {
+  return `SME prompt for ${docType} — configure in AI Prompts.`
+}
 
 /** Edit the current version IN PLACE — only legal when no document has
  *  been created under this version yet (service enforces). Any edit
@@ -68,8 +102,13 @@ export const updatePolicySchema = createPolicySchema.partial().omit({ docType: t
 /** Bump a new version. Required fields are repeated here so the admin
  *  can't accidentally wipe the SME prompt by creating a "new version"
  *  with an empty body — the whole policy document re-posts.
- *  `changeReason` is persisted in the audit chain, not the row. */
+ *  `changeReason` is persisted in the audit chain, not the row.
+ *
+ *  Note: `smePrompt` is deliberately re-required here (overrides the
+ *  optional-on-create behaviour) — a version bump is a conscious edit
+ *  of the policy's contents, not a fresh anchor like `create`. */
 export const bumpVersionSchema = createPolicySchema.omit({ docType: true }).extend({
+  smePrompt:    z.string().min(1).max(100_000),
   changeReason: z.string().min(1).max(500),
 })
 

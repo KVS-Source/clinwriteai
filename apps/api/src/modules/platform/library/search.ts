@@ -6,6 +6,10 @@
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\]/g
 const escapeRegex = (term: string) => term.replace(REGEX_SPECIALS, '\\$&')
 
+/** A term for a SQL LIKE / Prisma `contains`: "%" and "_" are wildcards there, so a search for "%" matched every
+ *  title. Backslash is LIKE's escape character in Postgres, so each of the three gets one in front. */
+export const likeLiteral = (term: string) => term.replace(/[\\%_]/g, '\\$&')
+
 /** Postgres (ARE) pattern for `body ~* pattern`: \m is "start of a word". */
 export const wordStartPattern = (term: string) => `\\m${escapeRegex(term)}`
 

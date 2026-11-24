@@ -13,8 +13,8 @@ const BASE = `/projects/p-e2e/clinical-writing/documents/${DOC}`
 const PM2 = { id: 'u-pm2', email: 'pm2@example.com', name: 'Abhi PM', role: 'pm', modules: ['A'], status: 'active', lastActiveAt: null, tenantId: null }
 const APPROVER = { ...PM2, id: 'u-appr', name: 'Alex Approver', role: 'contributor' }
 
-async function open(page: Page, me: typeof PM2, path = '/diff') {
-  await page.addInitScript(({ me, doc }) => {
+async function open(page: Page, me: typeof PM2, path = '/diff', letter = 'A') {
+  await page.addInitScript(({ me, doc, letter }) => {
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -22,15 +22,15 @@ async function open(page: Page, me: typeof PM2, path = '/diff') {
       const p = new URL(url, location.origin).pathname
       if (p.endsWith('/auth/me')) return json(me)
       if (p.endsWith(`/documents/${doc}/raci`)) {
-        return json([{ id: 'r-a', documentId: doc, userId: me.id, letter: 'A', sectionId: null, approvalOrder: 1, signatureRequired: true, signatureMeaning: null, submittedAt: null, reviewedAt: null, removedAt: null }])
+        return json([{ id: 'r-a', documentId: doc, userId: me.id, letter, sectionId: null, approvalOrder: 1, signatureRequired: true, signatureMeaning: null, submittedAt: null, reviewedAt: null, removedAt: null }])
       }
       // No CRM meetings: an Approver-only person isn't invited to one, so has no CRM tab.
       if (p.endsWith(`/documents/${doc}/crm`)) return json([])
-      if (p.endsWith(`/documents/${doc}`)) return json({ id: doc, projectId: 'p-e2e', title: 'CSR Full', documentType: 'csr_full', status: 'in-review', version: '0.1', sections: [] })
+      if (p.endsWith(`/documents/${doc}`) || p.endsWith(`/documents/${doc}/final`)) return json({ id: doc, projectId: 'p-e2e', title: 'CSR Full', documentType: 'csr_full', status: 'in-review', version: '0.1', sections: [] })
       const res = await real(input, init)
       return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
     }
-  }, { me, doc: DOC })
+  }, { me, doc: DOC, letter })
   await page.goto(`${BASE}${path}`)
 }
 
@@ -82,3 +82,28 @@ test('an Approver who is not a PM still has no Editor or CRM tab', async ({ page
   await expect(tab(page, 'Editor')).toHaveCount(0)
   await expect(tab(page, 'CRM')).toHaveCount(0)
 })
+
+// The header chip with the user's RACI role is Contributor-only, whatever the letter and screen. (It was once
+// hidden for A alone, so a PM who was also a Reviewer still saw "Consulted (Reviewer)" on the Final Document.)
+const CHIP: Record<string, string> = { R: 'Responsible', A: 'Accountable', C: 'Consulted (Reviewer)', I: 'Informed' }
+const dual = (role: string) => ({ ...PM2, id: 'u-dual', name: 'Dual Role', role, roles: [role], allRoles: ['contributor', 'pm'] })
+const workAs = (page: Page, role: string) =>
+  page.addInitScript(r => { localStorage.setItem('clinwrite.activeRole', JSON.stringify({ 'u-dual': r })) }, role)
+
+// The Final Document's title row: waiting for it proves the header, where the chip would be, has rendered.
+const header = (page: Page) => page.locator('[data-action="download-final-pdf"]')
+
+for (const letter of ['R', 'A', 'C', 'I']) {
+  test(`Final Document: no ${letter} chip while working as PM`, async ({ page }) => {
+    await workAs(page, 'pm')
+    await open(page, dual('pm'), '/final', letter)
+    await expect(header(page)).toBeVisible({ timeout: 60_000 })
+    await page.waitForTimeout(1500)
+    await expect(page.locator('[data-my-raci-role]')).toHaveCount(0)
+  })
+  test(`Final Document: the ${letter} chip shows while working as Contributor`, async ({ page }) => {
+    await workAs(page, 'contributor')
+    await open(page, dual('contributor'), '/final', letter)
+    await expect(page.locator('[data-my-raci-role]')).toContainText(CHIP[letter]!, { timeout: 60_000 })
+  })
+}

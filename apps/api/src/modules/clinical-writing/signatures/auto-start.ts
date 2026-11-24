@@ -1,8 +1,8 @@
 // Automatic start of the signature chain: when every Reviewer has finished reviewing, the document reaches
 // pending_signature (a CRM meeting is not required) and its chain starts by itself, in the approvers_first order:
 //   1. every Approver (A), in parallel — each approves and signs in one step ("Approve & E-sign");
-//   2. once the last Approver has signed: every Author (R), Reviewer (C) and Informed (I), in parallel,
-//      each told it is their turn.
+//   2. once the last Approver has signed: every Author (R) and Reviewer (C), in parallel,
+//      each told it is their turn. Informed (I) don't sign; they are told once the document is signed.
 // The chain never starts earlier: not while a Reviewer is still reviewing.
 //
 // If a gate blocks the chain (an unfinished mandatory checklist item, an empty section), nothing is

@@ -45,10 +45,10 @@ describe('notifyRaciAssigned', () => {
     expect(sent[0]!.payload).toMatchObject({ documentId: 'DOC-1', letter, assignedBy: 'lead', newDocument: false })
   })
 
-  it('gives an Approver no link until the document awaits signature (they cannot open it before)', async () => {
+  it('links an Approver to their Approver View from the day they are assigned', async () => {
     const early = makeApp()
     await notifyRaciAssigned(early.app, { recipientId: 'u-a', actorId: 'lead', documentId: 'DOC-1', letter: 'A' })
-    expect(early.sent[0]!.linkPath).toBeUndefined()
+    expect(early.sent[0]!.linkPath).toBe('/projects/P-1/clinical-writing/documents/DOC-1/review')
     expect(early.sent[0]!.body).toContain('awaiting signature')
 
     const late = makeApp({ doc: { id: 'DOC-1', title: 'CSR Full', projectId: 'P-1', status: 'pending_signature' } })

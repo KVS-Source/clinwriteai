@@ -20,7 +20,7 @@ import { approvalRoundState,bounceToAuthoring, reviewRoundState } from './return
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
+import { actorCanEditRaciAssignments, actorIsDocumentAuthor, commentsUnresolved, countUnresolvedComments, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
 import { listPendingCohort, nudgePendingCohort } from './nudge.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
@@ -600,6 +600,17 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // No Reviewer marks their review done while any comment is open (SME decision, 2026-11-25). Nothing is
+    // marked, so they finish once the comments are resolved. Once a Reviewer has returned the document it is
+    // going back to the author, who resolves the comments there, so the others aren't held up.
+    if (row.letter === 'C') {
+      const round = await reviewRoundState(app.prisma, documentId)
+      if (round.rejected.length === 0) {
+        const unresolved = await countUnresolvedComments(app.prisma, documentId)
+        if (unresolved > 0) return reply.code(409).send(commentsUnresolved(unresolved, 'you mark your review done'))
+      }
+    }
+
     const now = new Date()
     const data: Record<string, unknown> = { signatureId: parsed.data.signatureId ?? row.signatureId }
     if (row.letter === 'R') data.submittedAt = now
@@ -753,6 +764,14 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         error:   'not_returnable',
         status:  from,
         message: 'Only a document in review, in a CRM or awaiting signature can be returned to authoring.',
+      })
+    }
+
+    // An Approver can read the document from the day they are assigned, but decides only once it awaits signature.
+    if (row.letter === 'A' && from !== 'pending_signature') {
+      return reply.code(409).send({
+        error:   'approver_not_yet',
+        message: 'An Approver can return the document only while it awaits signature. Add a comment during review.',
       })
     }
 

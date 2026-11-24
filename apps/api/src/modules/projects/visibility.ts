@@ -34,30 +34,12 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import { hasAnyRole, onlyRolesIn, type AuthenticatedUser } from '../../auth/rbac.js'
 
 /**
- * An active RACI row on the document, as a "works on it" test. An Approver (A) only gets the
- * document once review and the CRM meeting are done, i.e. when it is awaiting signature or signed:
- * until then they neither see it in their lists nor can open it. Any other letter counts at once.
+ * An active RACI row on the document, as a "works on it" test. Every letter counts from the day it is
+ * assigned, Approver (A) included (SME decision, 2026-11-24): an Approver reads the document throughout,
+ * and approves or returns it only once it awaits signature.
  */
-function raciWorksOn(userId: string, invitedDocIds: readonly string[] = []): Prisma.DocumentWhereInput {
-  return {
-    OR: [
-      { raciRows: { some: { userId, removedAt: null, letter: { not: 'A' } } } },
-      { status: { in: ['pending_signature', 'signed'] }, raciRows: { some: { userId, removedAt: null, letter: 'A' } } },
-      // An Approver invited to a scheduled or running CRM meeting on the document sees it while it is open.
-      ...(invitedDocIds.length > 0
-        ? [{ id: { in: [...invitedDocIds] }, raciRows: { some: { userId, removedAt: null, letter: 'A' } } }]
-        : []),
-    ],
-  }
-}
-
-/** Documents with a scheduled or running CRM meeting the user is invited to (as chair or attendee). */
-async function crmInvitedDocumentIds(prisma: PrismaClient, userId: string): Promise<string[]> {
-  const rows = await prisma.crmAttendee.findMany({
-    where:  { userId, meeting: { status: { in: ['scheduled', 'in_progress'] } } },
-    select: { meeting: { select: { documentId: true } } },
-  })
-  return [...new Set(rows.map(r => r.meeting.documentId))]
+function raciWorksOn(userId: string): Prisma.DocumentWhereInput {
+  return { raciRows: { some: { userId, removedAt: null } } }
 }
 
 /** ProjectMember.projectRole written for the creating PM and for PMs added to a project. */
@@ -99,7 +81,6 @@ export async function visibleProjectIdsForUser(
     return new Set(managed.map(r => r.projectId))
   }
 
-  const invitedDocIds = await crmInvitedDocumentIds(prisma, user.id)
   const [members, legacyTeam, raciDocs, projectRaci] = await Promise.all([
     prisma.projectMember.findMany({
       where: {
@@ -121,7 +102,7 @@ export async function visibleProjectIdsForUser(
         OR: [
           { assigneeId: user.id },
           ...(asPm ? [{ createdBy: user.id }] : []),
-          raciWorksOn(user.id, invitedDocIds),
+          raciWorksOn(user.id),
         ],
       },
       select: { projectId: true },
@@ -161,13 +142,13 @@ export async function visibleProjectIdsForUser(
 const SEE_ALL_DOCUMENT_ROLES: ReadonlySet<string> = new Set([...SEE_ALL_ROLES, 'pm'])
 
 /** Prisma filter limiting documents to the ones `user` works on, or null when they see all. */
-export async function documentVisibilityWhere(prisma: PrismaClient, user: AuthenticatedUser): Promise<Prisma.DocumentWhereInput | null> {
+export async function documentVisibilityWhere(_prisma: PrismaClient, user: AuthenticatedUser): Promise<Prisma.DocumentWhereInput | null> {
   if (hasAnyRole(user, ...SEE_ALL_DOCUMENT_ROLES)) return null
   return {
     OR: [
       { assigneeId: user.id },
       { createdBy: user.id },
-      raciWorksOn(user.id, await crmInvitedDocumentIds(prisma, user.id)),
+      raciWorksOn(user.id),
     ],
   }
 }

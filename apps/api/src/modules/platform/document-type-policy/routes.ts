@@ -16,6 +16,7 @@ import {
   bumpVersionSchema,
   createPolicySchema,
   retireSchema,
+  requirementsOf,
   updatePolicySchema,
 } from './schema.js'
 import {
@@ -56,6 +57,8 @@ interface PolicyRow {
   templateId:          string | null
   checklistTemplateId: string | null
   ichFramework:        string | null
+  ichFrameworkNames:   string[]
+  requirements:        unknown
   effectiveDate:       Date
   supersededBy:        string | null
   retiredAt:           Date | null
@@ -78,7 +81,11 @@ function shape(row: PolicyRow) {
     sectionRules:        sectionRulesOf(row),
     templateId:          row.templateId,
     checklistTemplateId: row.checklistTemplateId,
+    // Legacy single-value field kept for one transition release; UI now
+    // consumes ichFrameworkNames (array). Dropped in a follow-up.
     ichFramework:        row.ichFramework,
+    ichFrameworkNames:   row.ichFrameworkNames,
+    requirements:        requirementsOf(row),
     effectiveDate:       row.effectiveDate.toISOString(),
     supersededBy:        row.supersededBy,
     retiredAt:           row.retiredAt?.toISOString() ?? null,

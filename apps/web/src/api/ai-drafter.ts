@@ -14,7 +14,9 @@ export type AiDraftState =
   | 'complete'     // loop ended cleanly (may have residual flags; see confidence)
   | 'failed'       // worker threw; writer should regenerate from the editor
   | 'cancelled'    // writer hit Stop on the toast; worker exits at next section boundary
-  | 'not_configured' // no AI provider set up; nothing was drafted, sections left empty
+  | 'paused'       // writer hit Pause on the toast; loop exits cleanly, Resume picks up where it left off
+  | 'not_configured' // legacy: no AI provider set up; replaced by 'blocked' with preflight issue
+  | 'blocked'      // preflight found missing inputs (policy / checklist / sources / AI); AI Debug panel shows Blockers + Continue
 
 export interface AiDraftSectionStatus {
   sectionId:     string
@@ -66,4 +68,53 @@ export const aiDrafterApi = {
     api.post<{ state: AiDraftState; cancelled: boolean }>(
       `/documents/${encodeURIComponent(documentId)}/ai-draft/stop`, {},
     ),
+  // Pause an in-flight draft. Worker exits the loop cleanly at the
+  // next section boundary; already-drafted sections stay intact.
+  // Resume re-enqueues from where it left off.
+  pauseDraft: (documentId: string) =>
+    api.post<{ state: AiDraftState; paused: boolean }>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/pause`, {},
+    ),
+  // Resume a paused draft. Re-runs preflight (422 draft_blocked if
+  // inputs changed) then re-enqueues the worker. Only legal when
+  // state === 'paused'.
+  resumeDraft: (documentId: string) =>
+    api.post<{ state: AiDraftState; resumed: boolean }>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/resume`, {},
+    ),
+  // Preflight: reports structured blockers (missing policy / checklist /
+  // sources / AI key). Drives the Blockers section + Continue button in
+  // the AI Debug panel. Pure read, safe to call any time.
+  preflight: (documentId: string) =>
+    api.get<AiDraftPreflightResponse>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/preflight`,
+    ),
+  // Manual "Continue drafting" from the AI Debug panel. Runs preflight
+  // server-side; 422 { issues } when still blocked, 200 { state: 'pending' }
+  // once the job is enqueued, 409 when a draft is already in flight.
+  startDraft: (documentId: string) =>
+    api.post<{ state: AiDraftState; enqueued: boolean }>(
+      `/documents/${encodeURIComponent(documentId)}/ai-draft/start`, {},
+    ),
+}
+
+export type PreflightIssueCode =
+  | 'ai_not_configured'
+  | 'no_policy_for_doctype'
+  | 'no_template'
+  | 'no_checklist'
+  | 'no_sources'
+  | 'all_sources_dropped'
+  | 'no_purpose'
+
+export interface PreflightIssue {
+  code:     PreflightIssueCode
+  severity: 'block'
+  message:  string
+  fixPath?: string
+}
+
+export interface AiDraftPreflightResponse {
+  ok:     boolean
+  issues: PreflightIssue[]
 }

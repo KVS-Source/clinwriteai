@@ -15,6 +15,7 @@
 //     from production and reintroduced).
 
 import type { PrismaClient } from '@prisma/client'
+import { defaultPlaceholderSmePrompt, DEFAULT_POLICY_REQUIREMENTS } from './schema.js'
 import type {
   BestPracticeDigest, CreatePolicyInput, SectionRules, UpdatePolicyInput, BumpVersionInput,
 } from './schema.js'
@@ -59,23 +60,30 @@ export class DocumentTypePolicyService {
   // --------------------------------------------------------------- writes
 
   /** First-version create. Fails 409 if a current policy already exists
-   *  for this docType (caller should use bumpVersion instead). */
+   *  for this docType (caller should use bumpVersion instead).
+   *
+   *  `smePrompt` defaults to the "configure in AI Prompts" placeholder
+   *  when the admin didn't supply one — the real SME text lives on an
+   *  AiPromptRecord that the policy auto-resolves per docType. */
   async create(input: CreatePolicyInput, actorId: string) {
     const existing = await this.getCurrent(input.docType)
     if (existing) {
       throw new PolicyServiceError('already_exists', `A current policy already exists for docType '${input.docType}' (version ${existing.version}). Use bumpVersion.`)
     }
+    const smePrompt = input.smePrompt?.trim() || defaultPlaceholderSmePrompt(input.docType)
     return this.prisma.documentTypePolicy.create({
       data: {
         docType:             input.docType,
         version:             1,
         isCurrent:           true,
-        smePrompt:           input.smePrompt,
+        smePrompt,
         bestPracticeDigest:  (input.bestPracticeDigest ?? { principles: [] }) as unknown as object,
         sectionRules:        (input.sectionRules ?? {})                        as unknown as object,
         templateId:          input.templateId          ?? null,
         checklistTemplateId: input.checklistTemplateId ?? null,
         ichFramework:        input.ichFramework        ?? null,
+        ichFrameworkNames:   input.ichFrameworkNames   ?? [],
+        requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as object,
         createdBy:           actorId,
         updatedBy:           actorId,
       },
@@ -101,6 +109,8 @@ export class DocumentTypePolicyService {
           templateId:          input.templateId          ?? null,
           checklistTemplateId: input.checklistTemplateId ?? null,
           ichFramework:        input.ichFramework        ?? null,
+          ichFrameworkNames:   input.ichFrameworkNames   ?? current.ichFrameworkNames ?? [],
+          requirements:        (input.requirements ?? (current.requirements ?? DEFAULT_POLICY_REQUIREMENTS)) as unknown as object,
           createdBy:           actorId,
           updatedBy:           actorId,
         },
@@ -136,6 +146,8 @@ export class DocumentTypePolicyService {
         ...(input.templateId          !== undefined && { templateId:          input.templateId }),
         ...(input.checklistTemplateId !== undefined && { checklistTemplateId: input.checklistTemplateId }),
         ...(input.ichFramework        !== undefined && { ichFramework:        input.ichFramework }),
+        ...(input.ichFrameworkNames   !== undefined && { ichFrameworkNames:   input.ichFrameworkNames }),
+        ...(input.requirements        !== undefined && { requirements:        input.requirements        as unknown as object }),
         updatedBy: actorId,
       },
     })

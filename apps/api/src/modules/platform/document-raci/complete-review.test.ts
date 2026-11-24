@@ -110,15 +110,44 @@ describe('the last person finishing', () => {
     await t.app.close()
   })
 
-  it.each([
-    ['a meeting is still open', { openMeetings: 1 }],
-    ['a comment is unresolved', { openComments: 2 }],
-  ])('does not wait for the CRM: moves on even while %s', async (_label, open) => {
-    const t = await build({ status: 'crm_in_progress', rows: lastOne(), ...open })
+  it('does not wait for the CRM: moves on even while a meeting is still open', async () => {
+    const t = await build({ status: 'crm_in_progress', rows: lastOne(), openMeetings: 1 })
     const res = await t.complete('r1')
     expect(res.statusCode).toBe(200)
     expect(res.json().transitioned).toBe(true)
     expect(t.document.status).toBe('pending_signature')
+    await t.app.close()
+  })
+
+  it('is refused while a comment is unresolved; nothing is marked, and it works once they are resolved', async () => {
+    startChain.mockClear()
+    const opts = { status: 'in_review', rows: lastOne(), openComments: 2 }
+    const t = await build(opts)
+    const res = await t.complete('r1')
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'comments_unresolved', unresolvedCount: 2 })
+    expect(t.rows[0]!.reviewedAt).toBeNull()
+    expect(t.document.status).toBe('in_review')
+    expect(startChain).not.toHaveBeenCalled()
+    opts.openComments = 0
+    expect((await t.complete('r1')).statusCode).toBe(200)
+    expect(t.document.status).toBe('pending_signature')
+    await t.app.close()
+  })
+
+  it('every Reviewer is refused while a comment is open, not only the last', async () => {
+    const t = await build({ status: 'in_review', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-d', 'C')], openComments: 1 })
+    const res = await t.complete('r1')
+    expect(res.statusCode).toBe(409)
+    expect(res.json().message).toContain('before you mark your review done')
+    expect(t.rows[0]!.reviewedAt).toBeNull()
+    await t.app.close()
+  })
+
+  it('does not hold the others up once a Reviewer has returned the document', async () => {
+    const t = await build({ status: 'in_review', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-d', 'C', { rejectedAt: new Date() }), row('r3', 'u-e', 'C')], openComments: 1 })
+    expect((await t.complete('r1')).statusCode).toBe(200)
+    expect(t.rows[0]!.reviewedAt).not.toBeNull()
     await t.app.close()
   })
 

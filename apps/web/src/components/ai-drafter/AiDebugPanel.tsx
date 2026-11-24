@@ -15,8 +15,13 @@
 //   6. Advanced: raw JSON — collapsed, Copy-to-clipboard
 
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { aiDrafterApi } from '../../api/ai-drafter'
+import { Link } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  aiDrafterApi,
+  type AiDraftPreflightResponse,
+  type PreflightIssue,
+} from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
 
 interface Props {
@@ -63,6 +68,8 @@ interface DebugAudit {
 interface DebugData {
   snapshotTakenAt?: string
   aiStubMode?:      boolean
+  /** Live preflight check at snapshot time — same shape as GET /ai-draft/preflight. */
+  preflight?:       AiDraftPreflightResponse
   document?: {
     id?: string; type?: string; title?: string; status?: string
     aiDraftState?: string | null
@@ -122,11 +129,16 @@ interface DebugSectionTrace {
 const ACTION_LABELS: Record<string, string> = {
   ai_initial_draft_enqueued:    'Initial draft enqueued',
   ai_initial_draft_skipped:     'Initial draft skipped',
+  ai_initial_draft_blocked:     'Initial draft blocked — inputs missing',
   ai_initial_draft_completed:   'Initial draft completed',
+  ai_initial_draft_cancelled:   'Initial draft stopped by writer',
+  ai_initial_draft_paused:      'Initial draft paused by writer',
+  ai_initial_draft_resumed:     'Initial draft resumed',
   ai_validation_pass_completed: 'Validation pass completed',
   ai_validation_pass_skipped:   'Validation pass skipped',
   ai_suggestion_requested:      'Section AI rewrite requested',
   ai_prompt_undone:             'Section AI rewrite reverted',
+  ai_tbd_autofill_run:          'TBD auto-fill run from sources',
   section_marked_complete:      'Section marked complete',
   section_reverted:             'Section reverted',
   section_lock_acquired:        'Section opened for editing',
@@ -152,10 +164,21 @@ const DROP_REASON_LABELS: Record<string, string> = {
 
 const STATE_META: Record<string, { label: string; chip: string; dot: string }> = {
   not_started: { label: 'No draft started yet',  chip: 'bg-slate-50 text-slate-700', dot: 'bg-slate-400' },
+  blocked:     { label: 'Drafting blocked',       chip: 'bg-rose-50 text-rose-900',   dot: 'bg-rose-500'  },
   drafting:    { label: 'Drafting in progress',   chip: 'bg-sky-50 text-sky-900',     dot: 'bg-sky-500'  },
   validating:  { label: 'Validating in progress', chip: 'bg-amber-50 text-amber-900', dot: 'bg-amber-500' },
   complete:    { label: 'Draft complete',         chip: 'bg-emerald-50 text-emerald-900', dot: 'bg-emerald-500' },
   failed:      { label: 'Draft failed',           chip: 'bg-rose-50 text-rose-900',   dot: 'bg-rose-500' },
+}
+
+const ISSUE_LABELS: Record<string, string> = {
+  ai_not_configured:     'No AI engine is configured',
+  no_policy_for_doctype: 'No policy anchored for this doc type',
+  no_template:           'No template locked for this doc type',
+  no_checklist:          'No checklist locked for this doc type',
+  no_sources:            'No source documents attached',
+  all_sources_dropped:   'Every attached source would be dropped by the drafter',
+  no_purpose:            'Document purpose is missing',
 }
 
 // ---- Time helpers -------------------------------------------------------
@@ -206,6 +229,38 @@ function narrateAudit(e: DebugAudit): { line: string; detail?: string } {
       const reason = typeof details.reason === 'string' ? details.reason : 'unknown reason'
       return { line: `Initial draft skipped — ${reason}.` }
     }
+    case 'ai_initial_draft_blocked': {
+      const codes = Array.isArray(details.issueCodes) ? details.issueCodes as string[] : []
+      const src   = typeof details.source === 'string' ? details.source : 'create'
+      const where = src === 'continue' ? 'on Continue' : 'at document create'
+      return {
+        line:   `Initial draft blocked ${where} — ${codes.length} missing input${codes.length === 1 ? '' : 's'}.`,
+        detail: codes.length > 0 ? codes.join(', ') : undefined,
+      }
+    }
+    case 'ai_initial_draft_cancelled': {
+      const prev = typeof details.previousState === 'string' ? details.previousState : null
+      return { line: `Initial draft stopped by writer${prev ? ` (was ${prev})` : ''}.` }
+    }
+    case 'ai_initial_draft_paused': {
+      const prev = typeof details.previousState === 'string' ? details.previousState : null
+      return { line: `Initial draft paused by writer${prev ? ` (was ${prev})` : ''}. Resume re-enqueues from here.` }
+    }
+    case 'ai_initial_draft_resumed': {
+      const n = typeof details.sourcesTarget === 'number' ? details.sourcesTarget : null
+      return { line: `Initial draft resumed${n !== null ? ` with ${n} source${n === 1 ? '' : 's'}` : ''}.` }
+    }
+    case 'ai_tbd_autofill_run': {
+      const scanned      = typeof details.scanned          === 'number' ? details.scanned          : 0
+      const filled       = typeof details.filledCount      === 'number' ? details.filledCount      : 0
+      const unresolvable = typeof details.unresolvableCount === 'number' ? details.unresolvableCount : 0
+      const missed       = typeof details.missedCount      === 'number' ? details.missedCount      : 0
+      const model        = typeof details.model            === 'string' ? details.model            : null
+      return {
+        line:   `TBD auto-fill scanned ${scanned} — filled ${filled}, unresolvable ${unresolvable}, missed ${missed}.`,
+        detail: model ? `Model: ${model}` : undefined,
+      }
+    }
     case 'ai_validation_pass_completed': {
       const n           = typeof details.iteration === 'number' ? details.iteration : null
       const confidence  = typeof details.overallConfidence === 'number' ? details.overallConfidence : null
@@ -253,10 +308,35 @@ function flagLabel(flag: string): string {
 // ---- Component ----------------------------------------------------------
 
 export function AiDebugPanel({ documentId, open, onClose }: Props) {
+  const qc = useQueryClient()
   const { data, isLoading, error, refetch, isFetching } = useQuery<DebugData>({
     queryKey: ['ai-debug', documentId],
     queryFn:  () => aiDrafterApi.debug(documentId) as Promise<DebugData>,
     enabled:  open,
+  })
+  // Preflight blockers — drives the top "Blockers" section + Continue
+  // button. Refetched by the panel so it stays in sync as the writer
+  // fixes issues in other tabs/panels.
+  const preflightQ = useQuery<AiDraftPreflightResponse>({
+    queryKey: ['ai-draft-preflight', documentId],
+    queryFn:  () => aiDrafterApi.preflight(documentId),
+    enabled:  open,
+  })
+  const startMutation = useMutation({
+    mutationFn: () => aiDrafterApi.startDraft(documentId),
+    onSuccess:  () => {
+      // Draft is now in flight — refresh debug + status consumers so
+      // the chip + toast pick up 'pending' without waiting for poll.
+      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-preflight', documentId] })
+    },
+    onError: () => {
+      // On 422 draft_blocked, refetch preflight so the panel shows the
+      // fresh issue list (the write attempt also flipped state to blocked).
+      qc.invalidateQueries({ queryKey: ['ai-draft-preflight', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+    },
   })
   const [copied, setCopied]   = useState(false)
   const [showRaw, setShowRaw] = useState(false)
@@ -362,6 +442,28 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
           {data && (
             <div className="flex flex-col gap-4 p-5">
+
+              {/* BLOCKERS — missing policy / checklist / sources / AI key.
+                  Prefer the snapshot's inline preflight (always in sync with
+                  the rest of the Setup card) and fall back to the dedicated
+                  endpoint for older API builds that didn't inline it. */}
+              {(() => {
+                const p = data.preflight ?? preflightQ.data
+                if (!p || p.ok) return null
+                return (
+                  <BlockersCard
+                    issues={p.issues}
+                    state={data.document?.aiDraftState ?? null}
+                    starting={startMutation.isPending}
+                    startError={startMutation.error}
+                    onContinue={() => startMutation.mutate()}
+                    onRefresh={() => {
+                      preflightQ.refetch()
+                      refetch()
+                    }}
+                  />
+                )
+              })()}
 
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />
@@ -476,6 +578,91 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <section className="rounded-lg border border-slate-200 bg-white p-4">
       <h3 className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</h3>
       {children}
+    </section>
+  )
+}
+
+function BlockersCard({
+  issues, state, starting, startError, onContinue, onRefresh,
+}: {
+  issues:      PreflightIssue[]
+  state:       string | null
+  starting:    boolean
+  startError:  unknown
+  onContinue:  () => void
+  onRefresh:   () => void
+}) {
+  const blockedMessage = startError instanceof ApiError && startError.status === 422
+    ? 'Still blocked — fix the items below and press Continue again.'
+    : startError
+      ? errMessage(startError, 'Could not start drafting')
+      : null
+  return (
+    <section
+      className="rounded-lg border border-rose-200 bg-rose-50 p-4"
+      data-ai-debug-blockers
+      aria-label="Drafting blockers"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-rose-800">
+          Drafting is blocked ({issues.length})
+        </h3>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="rounded-md border border-rose-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-50"
+          data-action="refresh-blockers"
+        >
+          Re-check
+        </button>
+      </div>
+      <p className="mb-2 text-[12px] text-rose-900">
+        The drafter needs every input below before it can run. Fix each
+        item in the linked tab, then press <strong>Continue drafting</strong>.
+      </p>
+      <ul className="mb-3 flex flex-col gap-1.5">
+        {issues.map(it => (
+          <li
+            key={it.code}
+            className="flex items-start gap-2 rounded border border-rose-200 bg-white px-3 py-1.5 text-[12px]"
+            data-blocker={it.code}
+          >
+            <span aria-hidden="true" className="mt-0.5 flex-none text-rose-600">●</span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-rose-900">{ISSUE_LABELS[it.code] ?? it.code}</p>
+              <p className="mt-0.5 text-rose-800">{it.message}</p>
+            </div>
+            {it.fixPath && (
+              <Link
+                to={it.fixPath}
+                className="flex-none rounded border border-rose-300 bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-800 hover:bg-rose-200"
+                data-action="fix-blocker"
+              >
+                Fix →
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+      {blockedMessage && (
+        <p className="mb-2 rounded border border-rose-300 bg-white px-3 py-1.5 text-[12px] text-rose-800">
+          {blockedMessage}
+        </p>
+      )}
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-[11px] text-rose-700">
+          {state === 'blocked' ? 'Document is marked "blocked".' : state ? `Current state: ${state}.` : ''}
+        </span>
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={starting}
+          className="rounded-md border border-rose-700 bg-rose-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
+          data-action="continue-drafting"
+        >
+          {starting ? 'Starting…' : 'Continue drafting'}
+        </button>
+      </div>
     </section>
   )
 }

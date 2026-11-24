@@ -101,6 +101,10 @@ function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
   )
 }
 
+// Closed projects are hidden from the Projects list for now (temporary, for the demo). Set to false to show
+// them again — the list, the counts, the TA options and the Closed chip all come back.
+export const HIDE_CLOSED_PROJECTS = true
+
 const STATUS_FILTERS: { labelKey: string; value: ProjectStatus | 'all' }[] = [
   { labelKey: 'page.all_projects.filter_all',       value: 'all' },
   { labelKey: 'component.project_status.status_ongoing',   value: 'ongoing' },
@@ -108,7 +112,7 @@ const STATUS_FILTERS: { labelKey: string; value: ProjectStatus | 'all' }[] = [
   { labelKey: 'component.project_status.status_on_hold',   value: 'on-hold' },
   { labelKey: 'component.project_status.status_re_open',   value: 're-open' },
   { labelKey: 'component.project_status.status_closed',    value: 'closed' },
-]
+].filter(f => !(HIDE_CLOSED_PROJECTS && f.value === 'closed')) as { labelKey: string; value: ProjectStatus | 'all' }[]
 
 /** Human label for a project status — translated per status. */
 function statusLabel(status: ProjectStatus, t: TFunction): string {
@@ -148,10 +152,15 @@ export function AllProjects() {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [sort, setSort] = useState<SortState>(null)
 
-  const { data: projects = [], isLoading } = useQuery({
+  const { data: allProjects = [], isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn:  () => projectsApi.list(),
   })
+  // Closed projects are hidden for now (HIDE_CLOSED_PROJECTS): left out of the list, the counts and the filters.
+  const projects = useMemo(
+    () => (HIDE_CLOSED_PROJECTS ? allProjects.filter((p: Project) => p.status !== 'closed') : allProjects),
+    [allProjects],
+  )
 
   // Deep-link support — `/projects?open=<id>` auto-opens the overview
   // panel for that project once its row has loaded. ProjectDashboardRedirect

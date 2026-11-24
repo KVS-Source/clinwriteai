@@ -1426,9 +1426,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
-    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
-                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
-    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    // Draft control (start / pause / resume / stop) is deliberately
+    // looser than content edits — pause/resume preserve everything;
+    // the worst-case Stop just cancels the chain which is fully
+    // recoverable. Anyone who can SEE the document can control the
+    // draft they're watching: author, PM, admin, QC, reviewer awaiting
+    // their turn. The write-heavy edit guard caused a real 403 for
+    // PMs who kicked off drafts on behalf of their writers.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({ error: 'draft_control_forbidden', message: 'Only someone with access to this document can control its AI draft.' })
+    }
 
     const inFlight = doc.aiDraftState === 'pending'
                   || doc.aiDraftState === 'drafting'
@@ -1520,9 +1527,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // anyone who can edit + the project PM. The PM commonly kicks the
     // draft off for a contributor; blocking them from pausing their
     // own kickoff was a real-world 403.
-    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
-                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
-    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    // Draft control (start / pause / resume / stop) is deliberately
+    // looser than content edits — pause/resume preserve everything;
+    // the worst-case Stop just cancels the chain which is fully
+    // recoverable. Anyone who can SEE the document can control the
+    // draft they're watching: author, PM, admin, QC, reviewer awaiting
+    // their turn. The write-heavy edit guard caused a real 403 for
+    // PMs who kicked off drafts on behalf of their writers.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({ error: 'draft_control_forbidden', message: 'Only someone with access to this document can control its AI draft.' })
+    }
 
     const inFlight = doc.aiDraftState === 'pending'
                   || doc.aiDraftState === 'drafting'
@@ -1564,9 +1578,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true, aiDraftState: true, projectId: true, deletedAt: true },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
-    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
-                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
-    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    // Draft control (start / pause / resume / stop) is deliberately
+    // looser than content edits — pause/resume preserve everything;
+    // the worst-case Stop just cancels the chain which is fully
+    // recoverable. Anyone who can SEE the document can control the
+    // draft they're watching: author, PM, admin, QC, reviewer awaiting
+    // their turn. The write-heavy edit guard caused a real 403 for
+    // PMs who kicked off drafts on behalf of their writers.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({ error: 'draft_control_forbidden', message: 'Only someone with access to this document can control its AI draft.' })
+    }
 
     const inFlight = doc.aiDraftState === 'pending'
                   || doc.aiDraftState === 'drafting'
@@ -1607,9 +1628,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
-    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
-                 || await actorManagesProject(app.prisma, request.user!, doc.projectId)
-    if (!allowed) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    // Draft control (start / pause / resume / stop) is deliberately
+    // looser than content edits — pause/resume preserve everything;
+    // the worst-case Stop just cancels the chain which is fully
+    // recoverable. Anyone who can SEE the document can control the
+    // draft they're watching: author, PM, admin, QC, reviewer awaiting
+    // their turn. The write-heavy edit guard caused a real 403 for
+    // PMs who kicked off drafts on behalf of their writers.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({ error: 'draft_control_forbidden', message: 'Only someone with access to this document can control its AI draft.' })
+    }
     if (doc.aiDraftState !== 'paused') {
       return reply.code(409).send({ error: 'not_paused', state: doc.aiDraftState })
     }

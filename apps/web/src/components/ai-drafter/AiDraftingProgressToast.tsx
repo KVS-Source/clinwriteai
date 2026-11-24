@@ -35,6 +35,17 @@ const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
   blocked:    'headline_blocked',
 }
 
+/** Prefer the server's human message over the raw status code — pause
+ *  / stop / resume all return structured { error, message } bodies for
+ *  403 / 409 cases, and showing "Pause: 403" is useless. */
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { message?: string; error?: string } | null
+    return body?.message ?? body?.error ?? `${err.status}`
+  }
+  return err instanceof Error ? err.message : fallback
+}
+
 export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -49,20 +60,13 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
       // 'cancelled' state and the toast hides on its own.
       qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
     },
-    onError: (err: unknown) => {
-      if (err instanceof ApiError) {
-        const body = err.body as { message?: string; error?: string } | null
-        setStopError(body?.message ?? body?.error ?? `${err.status}`)
-      } else {
-        setStopError(err instanceof Error ? err.message : 'Stop failed')
-      }
-    },
+    onError: (err: unknown) => setStopError(extractErrorMessage(err, 'Stop failed')),
   })
 
   const pauseMut = useMutation({
     mutationFn: () => aiDrafterApi.pauseDraft(documentId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] }),
-    onError:   (err: unknown) => setStopError(err instanceof ApiError ? `Pause: ${err.status}` : 'Pause failed'),
+    onError:   (err: unknown) => setStopError(extractErrorMessage(err, 'Pause failed')),
   })
   const resumeMut = useMutation({
     mutationFn: () => aiDrafterApi.resumeDraft(documentId),
@@ -70,7 +74,7 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
       qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
       qc.invalidateQueries({ queryKey: ['ai-draft-preflight', documentId] })
     },
-    onError:   (err: unknown) => setStopError(err instanceof ApiError ? `Resume: ${err.status}` : 'Resume failed'),
+    onError:   (err: unknown) => setStopError(extractErrorMessage(err, 'Resume failed')),
   })
 
   // Reset the dismiss flag the moment the chain re-enters an in-flight

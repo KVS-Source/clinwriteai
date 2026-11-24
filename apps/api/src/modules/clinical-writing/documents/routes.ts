@@ -1850,6 +1850,25 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       take:    200,
     })
 
+    // Fine-grained worker steps (migration 103) — oldest first so the
+    // AI Debug panel reads as a story ("source loaded → prompt
+    // assembled → §1 drafted → …"). Capped at the last 500 so a
+    // runaway validation loop can't blow the response size.
+    const draftStepRows = await app.prisma.aiDraftStep.findMany({
+      where:   { documentId },
+      orderBy: { id: 'desc' },
+      take:    500,
+    })
+    const draftSteps = draftStepRows.reverse().map(s => ({
+      id:        String(s.id),
+      kind:      s.kind,
+      message:   s.message,
+      sectionId: s.sectionId,
+      details:   s.details,
+      elapsedMs: s.elapsedMs,
+      timestamp: s.timestamp.toISOString(),
+    }))
+
     // Last 50 AI + section audit events for this document. audit_events
     // lives in raw SQL (not Prisma) per ADR 0002, so we read directly.
     // Includes:
@@ -2050,6 +2069,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         outputCharCount:  t.outputCharCount,
         draftedAt:        t.draftedAt.toISOString(),
       })),
+
+      // Fine-grained worker activity (migration 103). Oldest first.
+      // Rendered as the "Worker activity" play-by-play in AI Debug.
+      draftSteps,
 
       auditTail: auditRows.map((a: { id: bigint; action: string; actor_id: string; timestamp: Date; details: unknown }) => ({
         auditId:   String(a.id),

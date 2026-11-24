@@ -34,6 +34,7 @@ import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
+import { createStepLogger } from './ai-draft-step.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -292,6 +293,17 @@ interface Report {
 export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, type, sourceUploadIds, targetSectionIds } = job.data
 
+  // Fine-grained step log for the AI Debug panel's "Worker activity"
+  // play-by-play. Every meaningful milestone the worker reaches writes
+  // a row so a writer can see exactly where a draft stopped or did
+  // something unexpected. Best-effort — never blocks or throws.
+  const steps = createStepLogger(prisma, log, { documentId, versionId: versionId ?? null })
+  await steps.emit('job_started', targetSectionIds?.length
+    ? `Initial draft worker picked up job — targeted retry of ${targetSectionIds.length} section${targetSectionIds.length === 1 ? '' : 's'}.`
+    : 'Initial draft worker picked up job.', {
+    details: { sourceUploadCount: sourceUploadIds.length, targetSectionCount: targetSectionIds?.length ?? 0, type },
+  })
+
   // --- Resolve the Anthropic key up front -------------------------------
   // DB-first (ExternalApiCredential — admin paste via Settings), env
   // fallback. One lookup for the whole job so every section uses the same
@@ -304,6 +316,9 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // draft status says "AI not configured" so the writer sees why.
   if (!apiKey && !stubAllowed()) {
     log.warn({ documentId }, 'ai_initial_draft: AI not configured — sections left empty')
+    await steps.emit('warning', 'AI engine not configured — nothing drafted. Admin must paste an Anthropic key in Settings → AI engine.', {
+      details: { stubAllowed: stubAllowed() },
+    })
     if (!targetSectionIds || targetSectionIds.length === 0) {
       await prisma.document.update({
         where: { id: documentId },
@@ -385,6 +400,20 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   })
   if (policy) {
     log.info({ documentId, policyId: policy.id, policyVersion: policy.version }, 'ai_initial_draft: policy resolved')
+    await steps.emit('policy_loaded',
+      `Policy v${policy.version} resolved (doc type '${type}').`, {
+        details: {
+          policyId:          policy.id,
+          policyVersion:     policy.version,
+          promptRecordId:    docRow?.aiPromptRecordId,
+          bestPracticeId:    docRow?.bestPracticeRecordId,
+          hasAiInstructions: aiInstructions !== null,
+          smePromptChars:    policy.smePrompt?.length ?? 0,
+        },
+      })
+  } else {
+    await steps.emit('warning',
+      `No DocumentTypePolicy resolved for '${type}' — drafter falls back to template-only guidance.`, {})
   }
 
   // --- Load the template -------------------------------------------------
@@ -394,10 +423,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   })
   if (!template || !Array.isArray(template.sections)) {
     log.warn({ documentId, type }, 'ai_initial_draft: no DocumentTemplate found — nothing to draft')
+    await steps.emit('warning',
+      `No DocumentTemplate found for '${type}' — nothing to draft.`, {})
     return { skipped: 'no_template' }
   }
   const allSections: SectionTemplate[] = (template.sections as unknown as SectionTemplate[])
     .filter(s => s && typeof s.id === 'string' && typeof s.number === 'string' && typeof s.title === 'string')
+  await steps.emit('prompt_assembled',
+    `Template loaded — ${allSections.length} section${allSections.length === 1 ? '' : 's'}.`, {
+      details: { totalSections: allSections.length, docType: type },
+    })
 
   // When this job was enqueued by the validation loop, only the failing
   // sections should be re-drafted — not the whole document. Falls through
@@ -431,17 +466,36 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   if (apiKey && sources.length > 0) {
     const reader = createBlobReaderFromEnv()
     for (const src of sources) {
-      if (src.contentType !== 'application/pdf') continue
+      const title = src.title || src.fileName
+      if (src.contentType !== 'application/pdf') {
+        await steps.emit('source_skipped',
+          `Skipped "${title}" — not a PDF (${src.contentType ?? 'unknown type'}).`, {
+            details: { sourceId: src.id, contentType: src.contentType },
+          })
+        continue
+      }
       try {
         const { bytes } = await reader.read('documents', src.blobKey)
         if (bytes.length > MAX_SOURCE_BYTES) {
           log.warn({ documentId, sourceId: src.id, size: bytes.length }, 'ai_initial_draft: source exceeds per-document cap — dropped')
+          await steps.emit('source_skipped',
+            `Skipped "${title}" — ${(bytes.length / (1024 * 1024)).toFixed(1)}MB exceeds the ${MAX_SOURCE_BYTES / (1024 * 1024)}MB per-source cap.`, {
+              details: { sourceId: src.id, bytes: bytes.length, capBytes: MAX_SOURCE_BYTES },
+            })
           continue
         }
-        sourcePdfs.push({ title: src.title || src.fileName, category: src.category, bytes })
+        sourcePdfs.push({ title, category: src.category, bytes })
+        await steps.emit('source_loaded',
+          `Loaded "${title}" (${(bytes.length / 1024).toFixed(0)}KB) — attached to every section call.`, {
+            details: { sourceId: src.id, bytes: bytes.length, category: src.category },
+          })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         log.warn({ documentId, sourceId: src.id, err: message }, 'ai_initial_draft: could not read source blob — dropped')
+        await steps.emit('source_skipped',
+          `Skipped "${title}" — blob read failed: ${message.slice(0, 200)}`, {
+            details: { sourceId: src.id, err: message },
+          })
       }
     }
   }
@@ -473,16 +527,29 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     }).catch(() => null)
     if (stateCheck?.aiDraftState === 'cancelled') {
       log.info({ documentId, draftedBeforeStop: report.drafted }, 'ai_initial_draft: cancelled by writer — exiting loop')
+      await steps.emit('job_cancelled',
+        `Writer cancelled the draft — exited after ${report.drafted} section${report.drafted === 1 ? '' : 's'}.`, {
+          details: { drafted: report.drafted, skipped: report.skipped },
+        })
       return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
     }
     if (stateCheck?.aiDraftState === 'paused') {
       log.info({ documentId, draftedBeforePause: report.drafted }, 'ai_initial_draft: paused by writer — exiting loop; Resume re-enqueues from here')
+      await steps.emit('job_paused',
+        `Writer paused the draft — exited cleanly after ${report.drafted} section${report.drafted === 1 ? '' : 's'}. Resume picks up where it left off.`, {
+          details: { drafted: report.drafted, skipped: report.skipped },
+        })
       return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
     }
 
     const row = existingBySection.get(sec.id)
     if (!row) {
       log.warn({ documentId, versionId, sectionId: sec.id }, 'ai_initial_draft: section row missing — skipping')
+      await steps.emit('section_skipped',
+        `Skipped §${sec.number} ${sec.title} — SectionContent row missing in this version.`, {
+          sectionId: sec.id,
+          details:   { reason: 'row_missing' },
+        })
       report.skipped++
       continue
     }
@@ -490,17 +557,40 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     // the validation loop targeted this section explicitly (meaning the
     // existing content failed a check and should be rewritten).
     if (!targetSet && row.contentHtml && row.contentHtml.trim().length > 0) {
+      await steps.emit('section_skipped',
+        `Skipped §${sec.number} ${sec.title} — writer already filled it in.`, {
+          sectionId: sec.id,
+          details:   { reason: 'writer_edit', existingChars: row.contentHtml.length },
+        })
       report.skipped++
       continue
     }
     try {
+      await steps.emit('section_start',
+        `§${sec.number} ${sec.title} — starting AI call with ${sourcePdfs.length} source${sourcePdfs.length === 1 ? '' : 's'}.`, {
+          sectionId: sec.id,
+          details:   { sectionNumber: sec.number, sectionTitle: sec.title, sourceCount: sourcePdfs.length },
+        })
       const sectionTemplateFormatRules = row.templateFormatRules ?? null
+      const sectionStartMs = Date.now()
       const { contentHtml, engine } = await draftSection({
         section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
         sectionTemplateFormatRules,
         apiKey,
         abortSignal: abortController.signal,
       })
+      const sectionElapsedMs = Date.now() - sectionStartMs
+      const tbdItems = extractMissingItems(contentHtml)
+      await steps.emit('section_response',
+        `§${sec.number} drafted in ${(sectionElapsedMs / 1000).toFixed(1)}s — ${contentHtml.length.toLocaleString()} chars${tbdItems.length ? `, ${tbdItems.length} TBD${tbdItems.length === 1 ? '' : 's'} left` : ', no TBDs'}.`, {
+          sectionId: sec.id,
+          details:   {
+            engine, elapsedMs: sectionElapsedMs,
+            outputChars: contentHtml.length,
+            tbdCount: tbdItems.length,
+            tbdSamples: tbdItems.slice(0, 5),
+          },
+        })
 
       // Derive the status from the drafter's own output so the Sections
       // list reflects reality the moment the worker commits: 'complete'
@@ -584,6 +674,11 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       report.drafted++
       const missing = extractMissingItems(contentHtml)
       log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')
+      await steps.emit('section_committed',
+        `§${sec.number} committed as ${nextStatus} (${placeholderCount === 0 ? 'no TBDs' : `${placeholderCount} TBD${placeholderCount === 1 ? '' : 's'} to fill`}).`, {
+          sectionId: sec.id,
+          details:   { ichStatus: nextStatus, outputChars: contentHtml.length, tbdCount: placeholderCount, model: engine === 'stub' ? 'stub' : resolvedModel },
+        })
     } catch (err) {
       // Writer hit Stop while the SDK was mid-call. Don't log this as a
       // section failure — the next loop iteration's cancellation check
@@ -591,10 +686,17 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       // errored" entry in the report for what was really a user action).
       if (abortController.signal.aborted) {
         log.info({ documentId, sectionId: sec.id }, 'ai_initial_draft: section aborted mid-call by writer Stop')
+        await steps.emit('job_cancelled',
+          `§${sec.number} AI call was aborted mid-flight by writer Stop.`, { sectionId: sec.id })
         break
       }
       const message = err instanceof Error ? err.message : String(err)
       log.error({ documentId, sectionId: sec.id, err: message }, 'ai_initial_draft: section failed')
+      await steps.emit('section_errored',
+        `§${sec.number} failed: ${message.slice(0, 200)}`, {
+          sectionId: sec.id,
+          details:   { err: message },
+        })
       report.errored.push({ sectionId: sec.id, error: message })
     }
   }
@@ -606,6 +708,15 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     skipped: report.skipped,
     errored: report.errored.length,
   }, 'ai_initial_draft: complete')
+  await steps.emit('job_complete',
+    `Draft worker complete — ${report.drafted} drafted, ${report.skipped} skipped, ${report.errored.length} errored.`, {
+      details: {
+        sectionsTotal: sections.length,
+        drafted:       report.drafted,
+        skipped:       report.skipped,
+        errored:       report.errored.length,
+      },
+    })
 
   // M4 chain: enqueue the validation pass once this draft commits.
   // Short delay so the DB writes above are visible on read in the next

@@ -108,6 +108,7 @@ interface DebugData {
   // writers can expand a section and see every source that was in
   // Claude's context when that section was produced.
   sectionDraftTraces?: DebugSectionTrace[]
+  draftSteps?:        DebugDraftStep[]
   auditTail?:         DebugAudit[]
 }
 
@@ -122,6 +123,19 @@ interface DebugSectionTrace {
   promptCharCount: number
   outputCharCount: number
   draftedAt:       string
+}
+
+// Fine-grained worker step (migration 103). The AI Debug panel renders
+// these oldest-first as a play-by-play so a writer can see exactly
+// what the drafter did and spot the broken step.
+interface DebugDraftStep {
+  id:         string
+  kind:       string
+  message:    string
+  sectionId:  string | null
+  details?:   Record<string, unknown>
+  elapsedMs:  number | null
+  timestamp:  string
 }
 
 // ---- Human-readable label tables ---------------------------------------
@@ -513,6 +527,16 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                 <SetupList data={data} droppedSources={droppedSources} />
               </Section>
 
+              {/* WORKER ACTIVITY — fine-grained play-by-play (migration 103) */}
+              {(data.draftSteps?.length ?? 0) > 0 && (
+                <Section title={`Worker activity (${data.draftSteps!.length} step${data.draftSteps!.length === 1 ? '' : 's'})`}>
+                  <p className="mb-2 text-[11px] text-slate-500">
+                    Every step the drafter took, oldest first — use this to see where a hung draft got stuck or why a section came out wrong.
+                  </p>
+                  <WorkerActivityList steps={data.draftSteps!} />
+                </Section>
+              )}
+
               {/* TIMELINE */}
               <Section title="Timeline (newest first)">
                 {audits.length === 0 && (
@@ -832,6 +856,82 @@ function IssuesPanel(props: {
 // Per-section trace list — groups raw commit rows by sectionId so writers
 // can expand a section and see every commit the drafter made for it, along
 // with the source documents that were attached each time.
+// Fine-grained worker activity — one row per emitted step. Tone comes
+// from the step kind (sky = in-progress, emerald = success, amber =
+// warning, rose = error) so skimming the list highlights trouble.
+// Rows with a details object expand to a monospace JSON pane for
+// bug-report capture.
+function WorkerActivityList({ steps }: { steps: DebugDraftStep[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const toneForKind = (kind: string): { bg: string; dot: string; fg: string } => {
+    switch (kind) {
+      case 'job_started':           return { bg: 'bg-slate-50',   dot: 'bg-slate-500',   fg: 'text-slate-800' }
+      case 'policy_loaded':
+      case 'prompt_assembled':
+      case 'source_loaded':         return { bg: 'bg-sky-50',     dot: 'bg-sky-500',     fg: 'text-sky-900' }
+      case 'section_start':
+      case 'section_ai_call':
+      case 'section_response':
+      case 'section_tbds':
+      case 'validation_pass_start': return { bg: 'bg-indigo-50',  dot: 'bg-indigo-500',  fg: 'text-indigo-900' }
+      case 'section_committed':
+      case 'job_complete':
+      case 'validation_pass_end':   return { bg: 'bg-emerald-50', dot: 'bg-emerald-500', fg: 'text-emerald-900' }
+      case 'section_skipped':
+      case 'source_skipped':
+      case 'warning':
+      case 'job_paused':            return { bg: 'bg-amber-50',   dot: 'bg-amber-600',   fg: 'text-amber-900' }
+      case 'section_errored':
+      case 'job_cancelled':         return { bg: 'bg-rose-50',    dot: 'bg-rose-600',    fg: 'text-rose-900' }
+      case 'tbd_autofill_run':      return { bg: 'bg-teal-50',    dot: 'bg-teal-500',    fg: 'text-teal-900' }
+      default:                      return { bg: 'bg-white',      dot: 'bg-slate-400',   fg: 'text-slate-700' }
+    }
+  }
+  return (
+    <ol className="flex flex-col divide-y divide-slate-100 rounded border border-slate-200 bg-white" data-worker-activity>
+      {steps.map(s => {
+        const tone = toneForKind(s.kind)
+        const hasDetails = s.details && Object.keys(s.details).length > 0
+        const isOpen = expandedId === s.id
+        const elapsed = s.elapsedMs !== null && s.elapsedMs !== undefined
+          ? (s.elapsedMs < 1000 ? `${s.elapsedMs}ms` : `${(s.elapsedMs / 1000).toFixed(1)}s`)
+          : '—'
+        return (
+          <li key={s.id} className={`flex flex-col ${tone.bg}`} data-step-kind={s.kind}>
+            <button
+              type="button"
+              onClick={() => hasDetails && setExpandedId(isOpen ? null : s.id)}
+              className={`flex w-full items-start gap-2 px-3 py-1.5 text-left text-[12px] ${hasDetails ? 'hover:bg-slate-100 cursor-pointer' : 'cursor-default'}`}
+              disabled={!hasDetails}
+            >
+              <span className={`mt-0.5 h-2 w-2 flex-none rounded-full ${tone.dot}`} aria-hidden="true" />
+              <span className="flex-none font-mono text-[10px] text-slate-500 w-[64px] text-right">
+                {elapsed}
+              </span>
+              <span className="flex-none font-mono text-[10px] uppercase tracking-wider text-slate-500 w-[140px] truncate" title={s.kind}>
+                {s.kind.replace(/_/g, ' ')}
+              </span>
+              <span className={`min-w-0 flex-1 ${tone.fg}`}>{s.message}</span>
+              {hasDetails && (
+                <span
+                  aria-hidden="true"
+                  className="flex-none text-slate-400 transition-transform"
+                  style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                >▸</span>
+              )}
+            </button>
+            {isOpen && hasDetails && (
+              <pre className="whitespace-pre-wrap break-words border-t border-slate-200 bg-slate-900 px-3 py-2 font-mono text-[10px] leading-relaxed text-slate-100">
+                {JSON.stringify(s.details, null, 2)}
+              </pre>
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 function SectionDraftTraceList({ traces }: { traces: DebugSectionTrace[] }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const grouped = useMemo(() => {

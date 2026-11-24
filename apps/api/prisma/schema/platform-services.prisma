@@ -569,6 +569,33 @@ model AiSectionDraftTrace {
 }
 
 // --------------------------------------------------------------------------
+// Fine-grained worker-step log for the AI drafter (migration 103).
+// Powers the "Worker activity" play-by-play in the AI Debug panel so
+// writers can see exactly where a draft got stuck or did something
+// unexpected. See apps/worker/src/jobs/ai-draft-step.ts for the writer.
+// --------------------------------------------------------------------------
+
+model AiDraftStep {
+  id         BigInt   @id @default(autoincrement())
+  documentId String
+  versionId  String?
+  // Discrete event type: job_started | policy_loaded | source_loaded |
+  // section_start | section_ai_call | section_response | section_tbds |
+  // section_committed | section_skipped | section_errored |
+  // validation_pass_start | validation_pass_end | job_complete |
+  // job_cancelled | job_paused | warning.
+  kind       String
+  message    String
+  sectionId  String?
+  details    Json     @default("{}")
+  elapsedMs  Int?
+  timestamp  DateTime @default(now())
+
+  @@map("ai_draft_steps")
+  @@index([documentId, timestamp])
+}
+
+// --------------------------------------------------------------------------
 // Per-user, per-section AI chat conversation thread (sPM-ai-chat).
 //
 // One row per turn (user prompt + assistant response alternating). Powers

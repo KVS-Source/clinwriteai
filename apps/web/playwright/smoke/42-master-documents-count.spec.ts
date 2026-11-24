@@ -30,7 +30,8 @@ const DEFAULT_LISTS: Lists = {
   templates: many(4, i => ({ id: `tpl-${i}`, type: `type-${i}`, label: `Template ${i}`, framework: 'ICH E3', version: 1, sections: [], updatedAt: '2026-10-29T00:00:00Z' })),
   policies: many(1, i => ({ id: `pol-${i}`, docType: 'CSR', smePrompt: '' })),
   checklists: many(5, i => ({ id: `chk-${i}`, deliverableType: `type_${i}`, projectId: null, version: 1, templateStatus: 'locked', itemCount: 3, instanceCount: 0 })),
-  frameworks: many(6, i => ({ id: `fw-${i}`, name: `ICH E${i}`, description: '', jurisdiction: 'ICH', version: '1', effectiveDate: '2020-01-01', retiredAt: null, updatedAt: '2026-01-01' })),
+  // fw-5 is added by hand (FDA): only those go through the supersede approval; ICH guidelines follow ich.org.
+  frameworks: many(6, i => ({ id: `fw-${i}`, name: i === 5 ? 'FDA 21 CFR 11' : `ICH E${i}`, description: '', jurisdiction: i === 5 ? 'FDA' : 'ICH', version: '1', effectiveDate: '2020-01-01', retiredAt: null, updatedAt: '2026-01-01' })),
 }
 
 async function open(page: Page, overrides: Lists = {}, path = '/master-library/documents', me: Record<string, unknown> = ME) {
@@ -198,13 +199,16 @@ test.describe('a click outside closes the panel', () => {
 test.describe('ICH Frameworks — who can mark a framework superseded', () => {
   const openFramework = async (page: Page, me: Record<string, unknown>) => {
     await open(page, {}, '/master-library/ich-frameworks', me)
-    await page.locator('[data-frameworks-table] tbody tr').first().click({ timeout: 60_000 })
+    await page.locator('[data-frameworks-table] tbody tr', { hasText: 'FDA 21 CFR 11' }).click({ timeout: 60_000 })
     await expect(page.locator('[data-edit-drawer]')).toBeVisible()
   }
 
   test('a Project Manager gets the status controls', async ({ page }) => {
     await openFramework(page, ME)
     await expect(page.locator('[data-status-select]')).toBeVisible()
+    // QA: no "Send for approval" while the status stays Current; it appears once Superseded is picked.
+    await expect(page.locator('[data-save-framework]')).toHaveCount(0)
+    await page.locator('[data-status-select]').selectOption('Deprecated')
     await expect(page.locator('[data-save-framework]')).toBeVisible()
     await expect(page.locator('[data-status-pm-only]')).toHaveCount(0)
     await expect(page.getByText('Only Super Admin can change a framework status.')).toHaveCount(0)

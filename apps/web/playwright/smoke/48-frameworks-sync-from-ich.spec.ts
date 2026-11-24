@@ -130,6 +130,10 @@ test('Cancel in a framework panel closes it, even when nothing was changed', asy
   const cancel = page.locator('[data-cancel-framework]')
   await expect(cancel).toBeVisible()
   await expect(page.locator('[data-scope-checkboxes]')).toBeVisible()
+  // QA: an ICH guideline has no approval step; its status follows ich.org.
+  await expect(page.locator('[data-ich-status-note]')).toContainText('follows ich.org')
+  await expect(page.locator('[data-status-select]')).toHaveCount(0)
+  await expect(page.locator('[data-save-framework]')).toHaveCount(0)
   await cancel.click()
   await expect(page.locator('[data-scope-checkboxes]')).toBeHidden()
 })

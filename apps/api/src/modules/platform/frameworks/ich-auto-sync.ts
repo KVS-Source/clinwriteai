@@ -8,7 +8,9 @@
 // clock. If ich.org cannot be reached, nothing is changed and the next daily check tries again.
 //
 // After an automatic sync every active Project Manager gets an in-app notification ('ich_frameworks_synced') saying
-// what changed and when the next sync is due. A failed sync notifies no one (it retries the next day).
+// what changed and when the next sync is due. A failed sync notifies no one (it retries the next day). A manual sync
+// ("Sync from ICH", ./routes.ts) that adds, updates or withdraws guidelines tells the other Project Managers the same
+// way; one that changes nothing notifies no one.
 //
 // On in production (ICH_AUTO_SYNC=off to stop it); on a dev machine only with ICH_AUTO_SYNC=on; never under tests.
 
@@ -75,8 +77,11 @@ export interface IchAutoSyncOptions {
 export const ICH_SYNC_NOTIFICATION_KIND = 'ich_frameworks_synced'
 export interface IchSyncNotice { title: string; body: string }
 
-// What the Project Managers are told after an automatic sync.
-export function ichSyncNotice(result: IchSyncResult, now: Date): IchSyncNotice {
+// Whether a sync added, changed or withdrew any guideline.
+export const ichSyncChangedAnything = (r: IchSyncResult) => r.created.length + r.updated.length + r.withdrawn.length > 0
+
+// What the Project Managers are told after a sync (automatic, or a PM pressing "Sync from ICH").
+export function ichSyncNotice(result: IchSyncResult, now: Date, trigger: IchSyncTrigger = 'automatic'): IchSyncNotice {
   const names = (list: string[]) => list.length > 5 ? `${list.slice(0, 5).join(', ')} and ${list.length - 5} more` : list.join(', ')
   const parts = [
     result.created.length ? `${result.created.length} new (${names(result.created)})` : null,
@@ -86,7 +91,7 @@ export function ichSyncNotice(result: IchSyncResult, now: Date): IchSyncNotice {
   const next = new Date(now.getTime() + ICH_AUTO_SYNC_MAX_AGE_MS).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
   return {
     title: parts.length ? 'ICH frameworks updated' : 'ICH frameworks checked: no changes',
-    body: `The automatic ${ICH_AUTO_SYNC_EVERY_DAYS}-day sync from ICH ran. `
+    body: (trigger === 'automatic' ? `The automatic ${ICH_AUTO_SYNC_EVERY_DAYS}-day sync from ICH ran. ` : 'A Project Manager synced the frameworks from ICH. ')
       + (parts.length ? `Guidelines: ${parts.join('; ')}. Review their scope in the framework registry.` : 'No guidelines were added, changed or withdrawn.')
       + ` Next automatic sync around ${next}.`,
   }
@@ -99,6 +104,29 @@ export async function activeProjectManagerIds(prisma: { user: { findMany(a: unkn
     select: { id: true },
   })
   return rows.map(r => r.id)
+}
+
+export const ICH_SYNC_NOTIFICATION_LINK = '/master-library/ich-frameworks'
+
+// Sends a sync notice to every active Project Manager (except `exceptId`, the PM who ran it by hand). One failing
+// recipient doesn't stop the rest.
+export async function notifyProjectManagersOfIchSync(
+  deps: {
+    prisma:        Parameters<typeof activeProjectManagerIds>[0]
+    notifications: { send: (n: Record<string, unknown>) => Promise<unknown> }
+    logger:        { warn: (...a: unknown[]) => void }
+  },
+  n: IchSyncNotice,
+  exceptId?: string,
+): Promise<void> {
+  for (const recipientId of await activeProjectManagerIds(deps.prisma)) {
+    if (recipientId === exceptId) continue
+    try {
+      await deps.notifications.send({ recipientId, kind: ICH_SYNC_NOTIFICATION_KIND, title: n.title, body: n.body, linkPath: ICH_SYNC_NOTIFICATION_LINK, payload: {} })
+    } catch (err) {
+      deps.logger.warn({ err, recipientId }, 'ICH sync notification failed')
+    }
+  }
 }
 
 export class IchAutoSync {

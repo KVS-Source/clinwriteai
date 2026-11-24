@@ -7,7 +7,16 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Role } from '../../../auth/rbac.js'
 import { syncIchGuidelines } from './ich-sync.js'
-import { ICH_AUTO_SYNC_EVERY_DAYS, ICH_SYNC_ACTION, ichAutoSyncEnabled, ichSyncAuditDetails, lastIchSync } from './ich-auto-sync.js'
+import {
+  ICH_AUTO_SYNC_EVERY_DAYS, ICH_SYNC_ACTION, ichAutoSyncEnabled, ichSyncAuditDetails, ichSyncChangedAnything, ichSyncNotice,
+  lastIchSync, notifyProjectManagersOfIchSync,
+} from './ich-auto-sync.js'
+
+export const ICH_JURISDICTION = 'ICH'
+export const ICH_STATUS_FROM_ICH = {
+  error:   'ich_status_from_ich',
+  message: 'ICH guidelines are not sent for approval. Their status follows ich.org: a guideline ICH withdraws is marked superseded at the next sync.',
+} as const
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -80,6 +89,19 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
       details: ichSyncAuditDetails(result, 'manual'),
       ipAddress: request.ip ?? null,
     })
+    // New, updated or withdrawn ICH codes: the other Project Managers are told, as after an automatic sync. The sync
+    // is done and recorded; a notification problem must not fail the request.
+    if (ichSyncChangedAnything(result) && app.hasDecorator('notifications')) {
+      try {
+        await notifyProjectManagersOfIchSync(
+          { prisma: app.prisma as never, notifications: app.notifications as never, logger: request.log },
+          ichSyncNotice(result, new Date(), 'manual'),
+          request.user!.id,
+        )
+      } catch (err) {
+        request.log.warn({ err }, 'ICH sync: could not notify the Project Managers')
+      }
+    }
     return result
   })
 
@@ -207,6 +229,9 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     const fw = await app.prisma.regulatoryFramework.findUnique({ where: { id } })
     if (!fw) return reply.code(404).send({ error: 'not_found' })
     if (fw.retiredAt) return reply.code(409).send({ error: 'already_retired', message: `${fw.name} is already superseded.` })
+    // ICH guidelines have no approval step: their status follows ich.org, and the ICH sync marks a guideline
+    // superseded when ICH withdraws it. The approval is only for frameworks added by hand (FDA, EMA, …).
+    if (fw.jurisdiction === ICH_JURISDICTION) return reply.code(409).send(ICH_STATUS_FROM_ICH)
     const pending = await app.prisma.frameworkStatusRequest.findFirst({ where: { frameworkId: id, status: 'pending' } })
     if (pending) return reply.code(409).send({ error: 'request_pending', message: `${fw.name} is already waiting for approval.` })
 

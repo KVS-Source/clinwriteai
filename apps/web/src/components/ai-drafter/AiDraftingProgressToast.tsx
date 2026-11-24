@@ -31,6 +31,7 @@ const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
   failed:     'headline_failed',
   cancelled:  'headline_cancelled',
   not_configured: 'headline_not_configured',
+  blocked:    'headline_blocked',
 }
 
 export function AiDraftingProgressToast({ state, summary, documentId }: Props) {

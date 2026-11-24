@@ -113,6 +113,23 @@ export function DocumentEditor() {
   const aiDraft = useAiDraftStatus(documentId)
   const [aiDebugOpen, setAiDebugOpen] = useState(false)
   const aiState = aiDraft.data?.state ?? null
+
+  // Auto-open the AI Debug panel the first time we see a 'blocked' state
+  // for this document. The panel renders the Blockers card with a
+  // Continue button, replacing the old modal-error flow for missing
+  // policy / checklist / sources / AI config. We only trigger on the
+  // first blocked observation (tracked by a ref-like flag in state) so
+  // the writer can close the panel mid-fix without us re-opening it.
+  const [autoOpenedForBlocked, setAutoOpenedForBlocked] = useState(false)
+  useEffect(() => {
+    if (aiState === 'blocked' && !autoOpenedForBlocked) {
+      setAiDebugOpen(true)
+      setAutoOpenedForBlocked(true)
+    }
+    if (aiState && aiState !== 'blocked' && autoOpenedForBlocked) {
+      setAutoOpenedForBlocked(false)
+    }
+  }, [aiState, autoOpenedForBlocked])
   const aiSectionsByKey = useMemo(() => {
     const map = new Map<string, { confidence: number | null; flags: string[] }>()
     for (const s of aiDraft.data?.sections ?? []) {

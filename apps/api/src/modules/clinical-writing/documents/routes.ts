@@ -35,6 +35,7 @@ import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
+import { computeDraftPreflight } from './ai-draft-preflight.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
 import { assignReviewOrder, reviewersWhoseTurnItIs } from '../../platform/document-raci/review-order.js'
@@ -568,47 +569,44 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // M3 of the New Document rework — fire-and-forget: if the caller
-    // opted into AI drafting AND attached sources, enqueue the worker
-    // job that drafts every section from those sources. Document is
-    // created immediately regardless; the draft fills sections in
-    // asynchronously. On enqueue failure (Redis down) the document still
-    // exists — the user can retry via the editor's AI Chat panel.
-    // No real AI set up: don't queue a draft that could only produce placeholder text. The document is
-    // created with empty sections and the draft status says "AI not configured".
-    const wantsAiDraft = !!parsed.data.aiDraft && sourceUploadIds.length > 0
-    const aiReady = wantsAiDraft ? app.aiGateway.isConfigured(await chooseModel(app.prisma)) : true
-    if (wantsAiDraft && !aiReady) {
-      await app.prisma.document.update({
-        where: { id: document.id },
-        data:  { aiDraftState: 'not_configured' },
-      }).catch(() => undefined)
-    } else if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
-      // Mark the document as 'pending' BEFORE the enqueue so the SPA's
-      // first poll of /ai-draft-status returns something meaningful even
-      // if BullMQ hasn't picked the job up yet.
-      await app.prisma.document.update({
-        where: { id: document.id },
-        data:  { aiDraftState: 'pending' },
-      }).catch(() => undefined)
-      try {
-        await app.queue.enqueue('clinical.ai_initial_draft', {
-          documentId:      document.id,
-          versionId:       version.id,
-          projectId,
-          type:            parsed.data.type,
-          sourceUploadIds,
-          assigneeId:      parsed.data.assigneeId,
-          actorId:         request.user!.id,
-        }, { jobId: `ai-initial-draft-${document.id}` })
-      } catch (err) {
-        app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
-        // Enqueue failed — flip state → 'failed' so the SPA stops polling
-        // and shows an actionable error (writer can regenerate from the
-        // editor's AI Chat panel).
+    // opted into AI drafting, run the preflight gate before enqueueing.
+    // Preflight checks every input the worker needs (AI key, policy,
+    // checklist, usable sources). When any blocker is present we flip
+    // aiDraftState → 'blocked' so the editor opens the AI Debug panel
+    // on arrival and the writer can fix + hit Continue. The document
+    // itself is always created — preflight only gates the drafting job.
+    if (parsed.data.aiDraft) {
+      const preflight = await computeDraftPreflight(app.prisma, document.id)
+      if (!preflight.ok) {
         await app.prisma.document.update({
           where: { id: document.id },
-          data:  { aiDraftState: 'failed' },
+          data:  { aiDraftState: 'blocked' },
         }).catch(() => undefined)
+      } else {
+        // Mark the document as 'pending' BEFORE the enqueue so the SPA's
+        // first poll of /ai-draft-status returns something meaningful even
+        // if BullMQ hasn't picked the job up yet.
+        await app.prisma.document.update({
+          where: { id: document.id },
+          data:  { aiDraftState: 'pending' },
+        }).catch(() => undefined)
+        try {
+          await app.queue.enqueue('clinical.ai_initial_draft', {
+            documentId:      document.id,
+            versionId:       version.id,
+            projectId,
+            type:            parsed.data.type,
+            sourceUploadIds,
+            assigneeId:      parsed.data.assigneeId,
+            actorId:         request.user!.id,
+          }, { jobId: `ai-initial-draft-${document.id}` })
+        } catch (err) {
+          app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
+          await app.prisma.document.update({
+            where: { id: document.id },
+            data:  { aiDraftState: 'failed' },
+          }).catch(() => undefined)
+        }
       }
     }
 
@@ -1217,6 +1215,99 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         flagsJson:       p.flagsJson,
       })),
     }
+  })
+
+  // --- GET /:documentId/ai-draft/preflight -------------------------------
+  //
+  // Reports whether the document is ready to be drafted. Returns a
+  // structured issue list (missing policy / checklist / sources / AI key)
+  // so the AI Debug panel can render actionable blockers instead of the
+  // old modal-error flow. Pure read.
+  app.get('/:documentId/ai-draft/preflight', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+    const result = await computeDraftPreflight(app.prisma, documentId)
+    return result
+  })
+
+  // --- POST /:documentId/ai-draft/start ----------------------------------
+  //
+  // User-triggered "Continue drafting" from the AI Debug panel. Runs the
+  // same preflight the create flow uses; on fail returns 422 with the
+  // issue list so the panel re-renders the blockers. On pass, enqueues
+  // the initial-draft job and flips aiDraftState → 'pending'.
+  //
+  // Only legal when the document is NOT already in flight. If it is, we
+  // return 409 so the caller can show "a draft is already running".
+  app.post('/:documentId/ai-draft/start', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    }
+    const doc = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: {
+        id: true, type: true, projectId: true, assigneeId: true,
+        aiDraftState: true, currentVersionId: true, deletedAt: true,
+      },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const inFlight = doc.aiDraftState === 'pending'
+                  || doc.aiDraftState === 'drafting'
+                  || doc.aiDraftState === 'validating'
+    if (inFlight) {
+      return reply.code(409).send({ error: 'draft_in_flight', state: doc.aiDraftState })
+    }
+
+    const preflight = await computeDraftPreflight(app.prisma, documentId)
+    if (!preflight.ok) {
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'blocked' },
+      }).catch(() => undefined)
+      return reply.code(422).send({ error: 'draft_blocked', issues: preflight.issues })
+    }
+
+    const sourceLinks = await app.prisma.documentSource.findMany({
+      where:  { documentId },
+      select: { uploadId: true },
+    })
+    const sourceUploadIds = sourceLinks.map(l => l.uploadId)
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'pending' },
+    })
+    try {
+      await app.queue.enqueue('clinical.ai_initial_draft', {
+        documentId,
+        versionId:       doc.currentVersionId ?? '',
+        projectId:       doc.projectId,
+        type:            doc.type,
+        sourceUploadIds,
+        assigneeId:      doc.assigneeId,
+        actorId:         request.user!.id,
+      }, { jobId: `ai-initial-draft-${documentId}-${Date.now()}` })
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'ai_initial_draft enqueue failed on manual start')
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'failed' },
+      }).catch(() => undefined)
+      return reply.code(502).send({ error: 'enqueue_failed' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'ai_initial_draft_enqueued',
+      entityType: 'document',
+      entityId:   documentId,
+      details:    { trigger: 'manual_continue', sourcesTarget: sourceUploadIds.length },
+      ipAddress:  request.ip ?? null,
+    })
+    return { state: 'pending', enqueued: true }
   })
 
   // --- POST /:documentId/ai-draft/stop -----------------------------------

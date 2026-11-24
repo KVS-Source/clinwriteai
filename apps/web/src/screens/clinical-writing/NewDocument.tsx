@@ -356,7 +356,7 @@ export function NewDocumentForm({
         <div className="flex-none border-b border-amber-200 bg-amber-50 px-5 py-2.5">
           <AiReadinessBanner
             readiness={aiReadiness}
-            context="This document will be created blank — AI drafting is skipped. The author can fill sections in by hand; once AI is set up, /ai-suggest rewrites will work."
+            context="This document will be created, but drafting will be blocked until AI is set up. The editor will open AI Debug with a Continue button once the key is pasted."
           />
         </div>
       )}

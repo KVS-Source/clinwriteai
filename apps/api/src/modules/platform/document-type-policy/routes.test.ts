@@ -226,10 +226,12 @@ describe('POST /document-type-policies — create first version', () => {
     expect(res.json()).toMatchObject({ error: 'ai_not_configured', setupPath: '/admin' })
   })
 
-  it('400s on missing smePrompt', async () => {
+  it('defaults smePrompt to the "configure in AI Prompts" placeholder when omitted', async () => {
     const { app } = await build()
     const res = await app.inject({ method: 'POST', url: '/document-type-policies', payload: { docType: 'protocol' } })
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(201)
+    const body = res.json()
+    expect(body.smePrompt).toBe('SME prompt for protocol — configure in AI Prompts.')
   })
 
   it('400s when bestPracticeDigest has a bad scope', async () => {

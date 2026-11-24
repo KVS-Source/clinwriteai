@@ -38,7 +38,7 @@ async function build(opts: Opts = {}) {
     },
     documentRaci: {
       findFirst: async ({ where }: Row) => (letters.includes(where.letter) ? { id: 'r' } : null),
-      findMany: async () => letters.map(letter => ({ letter, userId: 'u-1', id: 'r' })),
+      findMany: async () => letters.map(letter => ({ letter, userId: 'u-1', id: 'r', submittedAt: null, rejectedAt: null })),
     },
     project: { findUnique: async () => ({ status: opts.projectStatus ?? 'ongoing', submissionCountries: opts.countries ?? [] }) },
     projectMember: { findMany: async () => (opts.memberOf ?? []).map(projectId => ({ projectId })) },

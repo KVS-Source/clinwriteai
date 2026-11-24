@@ -16,6 +16,10 @@ describe('notificationRole', () => {
     ['comment.mention', 'contributor'],
     ['document.returned_to_authoring', 'contributor'],
     ['document_nudge', 'contributor'],
+    // QA: a PM + Contributor opened "review requested" while working as PM and landed on "Document not found"
+    // (a PM alone can't open /review); it must offer the switch to Contributor like the other document work.
+    ['review_requested', 'contributor'],
+    ['crm.meeting_invited', 'contributor'],
     ['user.invitation', null],
     ['ai_quota_approaching', null],
   ])('%s is for %s', (kind, role) => {

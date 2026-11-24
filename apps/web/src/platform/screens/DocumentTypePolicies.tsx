@@ -31,6 +31,7 @@ import {
   type AiPromptRecord,
   type BestPracticeRecord,
 } from '../api/platformApi'
+import { documentsApi, type DocumentTemplate } from '../../api/documents'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 
@@ -660,17 +661,26 @@ function CreatePolicyForm({
   onCreated: (docType: string) => void
   onCancel?: () => void
 }) {
-  const [docType, setDocType]     = useState('')
-  const [smePrompt, setSmePrompt] = useState('')
-  const [error, setError]         = useState<string | null>(null)
-  const normalizedDocType = docType.trim().replace(/-/g, '_')
-  const duplicate = taken.includes(normalizedDocType)
+  const [docType, setDocType] = useState('')
+  const [error,   setError]   = useState<string | null>(null)
+
+  // Doc-type catalogue — the same source the New Document wizard uses so
+  // the two surfaces can never drift. Filter out doc types that already
+  // have a policy.
+  const templatesQ = useQuery<DocumentTemplate[]>({
+    queryKey: ['document-templates'],
+    queryFn:  () => documentsApi.listTemplates(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const takenSet = useMemo(() => new Set(taken), [taken])
+  const options  = useMemo(
+    () => (templatesQ.data ?? []).filter(t => !takenSet.has(t.type)),
+    [templatesQ.data, takenSet],
+  )
 
   const create = useMutation({
-    mutationFn: () => platformApi.createDocumentTypePolicy({
-      docType:   normalizedDocType,
-      smePrompt: smePrompt.trim() || `SME prompt for ${normalizedDocType} — configure in AI Prompts.`,
-    }),
+    mutationFn: () => platformApi.createDocumentTypePolicy({ docType }),
     onSuccess: (row) => { setError(null); onCreated(row.docType) },
     onError:   (err: unknown) => setError(errMessage(err, 'Create failed')),
   })
@@ -678,35 +688,28 @@ function CreatePolicyForm({
   return (
     <div className="flex h-full flex-col gap-3 p-4" data-new-policy>
       <p className="text-[12px] text-slate-500">
-        Anchor a doc type in the system so authors can create documents of that kind. After the
-        policy is created, wire up the AI prompt, BP digest, template, checklist, and ICH framework
-        from their own tabs.
+        Anchor a doc type in the system so authors can create documents of that kind. The policy
+        auto-links to the latest approved AI prompt, template, and checklist for this doc type —
+        no manual wiring needed. Manage those assets from their own tabs.
       </p>
       {error && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
       <label className="flex flex-col gap-1">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Doc type (underscored canonical form)</span>
-        <input
-          type="text"
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Doc type</span>
+        <select
           value={docType}
           onChange={e => setDocType(e.currentTarget.value)}
-          placeholder="e.g. protocol_amendment"
           className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px]"
           data-field="create-doc-type"
-        />
-        {duplicate && (
-          <p className="text-[11px] font-semibold text-rose-700" role="alert">A policy for this doc type already exists.</p>
+          disabled={templatesQ.isLoading}
+        >
+          <option value="">{templatesQ.isLoading ? 'Loading doc types…' : 'Select a doc type…'}</option>
+          {options.map(t => (
+            <option key={t.type} value={t.type}>{t.label}</option>
+          ))}
+        </select>
+        {!templatesQ.isLoading && options.length === 0 && (
+          <p className="text-[11px] text-slate-500">Every doc type already has a policy. Retire one first to re-anchor it.</p>
         )}
-      </label>
-      <label className="flex flex-col gap-1">
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Starter SME prompt (optional)</span>
-        <textarea
-          value={smePrompt}
-          onChange={e => setSmePrompt(e.currentTarget.value)}
-          rows={8}
-          placeholder="Leave blank to ship a placeholder — you'll author the real prompt in the AI Prompts tab."
-          className="resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px] leading-relaxed"
-          data-field="create-sme-prompt"
-        />
       </label>
       <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
         {onCancel && (
@@ -723,7 +726,7 @@ function CreatePolicyForm({
         <button
           type="button"
           onClick={() => create.mutate()}
-          disabled={create.isPending || !normalizedDocType || duplicate || !aiReady}
+          disabled={create.isPending || !docType || !aiReady}
           title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
           className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           data-action="create-policy"

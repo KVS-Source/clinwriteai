@@ -81,16 +81,33 @@ export async function actorCanEditRaciAssignments(
 }
 
 // Who may change a document's content (sections, section locks, versions,
-// references, AI edits, submit for review): its authors — an active R row on
-// the document, or its assignee. Admins, PMs and every other letter are
-// view-only (403). The realtime sidecar gets no exemption: it saves on behalf
-// of the author who typed (x-acting-user), so this check runs as that user.
+// references, AI edits): its authors — an active R row on the document, or its
+// assignee — until they have submitted their part for review. With several
+// authors the document stays In Authoring until the last one submits, but an
+// author who has submitted is done: their content is frozen until a reviewer
+// returns the document (resetRaciRound clears the submissions). Admins, PMs and
+// every other letter are view-only (403). The realtime sidecar gets no
+// exemption: it saves on behalf of the author who typed (x-acting-user), so
+// this check runs as that user.
 export async function actorCanEditDocumentContent(
   prisma: PrismaClient,
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  return actorCanEditRaciAssignments(prisma, actor, documentId)
+  if (!(await actorCanEditRaciAssignments(prisma, actor, documentId))) return false
+  return !(await actorSubmittedOwnPart(prisma, actor.id, documentId))
+}
+
+// Whether this author has submitted their part: they hold active R rows on the
+// document and every one not returned (rejectedAt) is submitted. The editor's
+// "You submitted for review" state uses the same rule.
+export async function actorSubmittedOwnPart(prisma: PrismaClient, userId: string, documentId: string): Promise<boolean> {
+  const rows = await prisma.documentRaci.findMany({
+    where:  { documentId, userId, letter: 'R', removedAt: null },
+    select: { submittedAt: true, rejectedAt: true },
+  })
+  const open = rows.filter(r => !r.rejectedAt)
+  return open.length > 0 && open.every(r => r.submittedAt !== null)
 }
 
 // Who may add a comment (action table row 15): the document's Author (R),
@@ -243,7 +260,7 @@ export const COMMENT_ADD_FORBIDDEN = {
 
 export const DOCUMENT_EDIT_FORBIDDEN = {
   error: 'document_edit_forbidden',
-  message: 'Only an author (R) on this document can edit it.',
+  message: 'Only an author (R) on this document can edit it, and only until they submit their part for review.',
 } as const
 
 // Source documents belong to the project, not to one document, so "author" there

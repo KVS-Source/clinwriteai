@@ -51,6 +51,7 @@ describe('permission checks use the union', () => {
     document: { findUnique: vi.fn(async () => ({ assigneeId: 'someone-else', projectId: 'p' })) },
     documentRaci: {
       findFirst: vi.fn(async ({ where }: { where: { letter: unknown } }) => (where.letter === 'R' || where.letter === 'A' || typeof where.letter === 'object' ? { id: 'r' } : null)),
+      findMany: vi.fn(async () => [{ submittedAt: null, rejectedAt: null }]),     // their part is not submitted yet
     },
     signatureChain: { findFirst: vi.fn(async () => null) },
   } as never

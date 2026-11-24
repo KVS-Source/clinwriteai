@@ -588,6 +588,21 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
           where: { id: document.id },
           data:  { aiDraftState: 'blocked' },
         }).catch(() => undefined)
+        // Audit breadcrumb so the AI Debug timeline shows WHY the doc
+        // started blocked instead of silently entering the state.
+        await app.audit.append({
+          timestamp:  new Date().toISOString(),
+          actorId:    request.user!.id,
+          action:     'ai_initial_draft_blocked',
+          entityType: 'document',
+          entityId:   document.id,
+          details:    {
+            source: 'create',
+            issueCodes: preflight.issues.map(i => i.code),
+            issues:     preflight.issues,
+          },
+          ipAddress:  request.ip ?? null,
+        }).catch(() => undefined)
       } else {
         // Mark the document as 'pending' BEFORE the enqueue so the SPA's
         // first poll of /ai-draft-status returns something meaningful even
@@ -1428,6 +1443,19 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         where: { id: documentId },
         data:  { aiDraftState: 'blocked' },
       }).catch(() => undefined)
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'ai_initial_draft_blocked',
+        entityType: 'document',
+        entityId:   documentId,
+        details:    {
+          source: 'continue',
+          issueCodes: preflight.issues.map(i => i.code),
+          issues:     preflight.issues,
+        },
+        ipAddress:  request.ip ?? null,
+      }).catch(() => undefined)
       return reply.code(422).send({ error: 'draft_blocked', issues: preflight.issues })
     }
 
@@ -1809,11 +1837,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           AND action      IN (
             'ai_initial_draft_enqueued',
             'ai_initial_draft_skipped',
+            'ai_initial_draft_blocked',
             'ai_initial_draft_completed',
+            'ai_initial_draft_cancelled',
+            'ai_initial_draft_paused',
+            'ai_initial_draft_resumed',
             'ai_validation_pass_completed',
             'ai_validation_pass_skipped',
             'ai_suggestion_requested',
             'ai_prompt_undone',
+            'ai_tbd_autofill_run',
             'section_marked_complete',
             'section_reverted',
             'section_lock_acquired',
@@ -1835,9 +1868,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       : 0
 
     const anthropicKey = await resolveAnthropicKey(app.prisma)
+    // Live preflight snapshot — same checks the drafter runs. Surfaces
+    // "what's missing right now" even when the state column isn't
+    // 'blocked' (e.g. sources attached before the drafter runs) and
+    // keeps the panel honest after an input is fixed in another tab.
+    const preflight = await computeDraftPreflight(app.prisma, documentId)
     return {
       snapshotTakenAt: new Date().toISOString(),
       aiStubMode:      stubAllowed() && !anthropicKey,
+      preflight,
 
       document: {
         id:                   doc.id,

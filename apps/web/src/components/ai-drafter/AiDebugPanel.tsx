@@ -68,6 +68,8 @@ interface DebugAudit {
 interface DebugData {
   snapshotTakenAt?: string
   aiStubMode?:      boolean
+  /** Live preflight check at snapshot time — same shape as GET /ai-draft/preflight. */
+  preflight?:       AiDraftPreflightResponse
   document?: {
     id?: string; type?: string; title?: string; status?: string
     aiDraftState?: string | null
@@ -127,11 +129,16 @@ interface DebugSectionTrace {
 const ACTION_LABELS: Record<string, string> = {
   ai_initial_draft_enqueued:    'Initial draft enqueued',
   ai_initial_draft_skipped:     'Initial draft skipped',
+  ai_initial_draft_blocked:     'Initial draft blocked — inputs missing',
   ai_initial_draft_completed:   'Initial draft completed',
+  ai_initial_draft_cancelled:   'Initial draft stopped by writer',
+  ai_initial_draft_paused:      'Initial draft paused by writer',
+  ai_initial_draft_resumed:     'Initial draft resumed',
   ai_validation_pass_completed: 'Validation pass completed',
   ai_validation_pass_skipped:   'Validation pass skipped',
   ai_suggestion_requested:      'Section AI rewrite requested',
   ai_prompt_undone:             'Section AI rewrite reverted',
+  ai_tbd_autofill_run:          'TBD auto-fill run from sources',
   section_marked_complete:      'Section marked complete',
   section_reverted:             'Section reverted',
   section_lock_acquired:        'Section opened for editing',
@@ -221,6 +228,38 @@ function narrateAudit(e: DebugAudit): { line: string; detail?: string } {
     case 'ai_initial_draft_skipped': {
       const reason = typeof details.reason === 'string' ? details.reason : 'unknown reason'
       return { line: `Initial draft skipped — ${reason}.` }
+    }
+    case 'ai_initial_draft_blocked': {
+      const codes = Array.isArray(details.issueCodes) ? details.issueCodes as string[] : []
+      const src   = typeof details.source === 'string' ? details.source : 'create'
+      const where = src === 'continue' ? 'on Continue' : 'at document create'
+      return {
+        line:   `Initial draft blocked ${where} — ${codes.length} missing input${codes.length === 1 ? '' : 's'}.`,
+        detail: codes.length > 0 ? codes.join(', ') : undefined,
+      }
+    }
+    case 'ai_initial_draft_cancelled': {
+      const prev = typeof details.previousState === 'string' ? details.previousState : null
+      return { line: `Initial draft stopped by writer${prev ? ` (was ${prev})` : ''}.` }
+    }
+    case 'ai_initial_draft_paused': {
+      const prev = typeof details.previousState === 'string' ? details.previousState : null
+      return { line: `Initial draft paused by writer${prev ? ` (was ${prev})` : ''}. Resume re-enqueues from here.` }
+    }
+    case 'ai_initial_draft_resumed': {
+      const n = typeof details.sourcesTarget === 'number' ? details.sourcesTarget : null
+      return { line: `Initial draft resumed${n !== null ? ` with ${n} source${n === 1 ? '' : 's'}` : ''}.` }
+    }
+    case 'ai_tbd_autofill_run': {
+      const scanned      = typeof details.scanned          === 'number' ? details.scanned          : 0
+      const filled       = typeof details.filledCount      === 'number' ? details.filledCount      : 0
+      const unresolvable = typeof details.unresolvableCount === 'number' ? details.unresolvableCount : 0
+      const missed       = typeof details.missedCount      === 'number' ? details.missedCount      : 0
+      const model        = typeof details.model            === 'string' ? details.model            : null
+      return {
+        line:   `TBD auto-fill scanned ${scanned} — filled ${filled}, unresolvable ${unresolvable}, missed ${missed}.`,
+        detail: model ? `Model: ${model}` : undefined,
+      }
     }
     case 'ai_validation_pass_completed': {
       const n           = typeof details.iteration === 'number' ? details.iteration : null
@@ -404,17 +443,27 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
           {data && (
             <div className="flex flex-col gap-4 p-5">
 
-              {/* BLOCKERS — missing policy / checklist / sources / AI key */}
-              {preflightQ.data && !preflightQ.data.ok && (
-                <BlockersCard
-                  issues={preflightQ.data.issues}
-                  state={data.document?.aiDraftState ?? null}
-                  starting={startMutation.isPending}
-                  startError={startMutation.error}
-                  onContinue={() => startMutation.mutate()}
-                  onRefresh={() => preflightQ.refetch()}
-                />
-              )}
+              {/* BLOCKERS — missing policy / checklist / sources / AI key.
+                  Prefer the snapshot's inline preflight (always in sync with
+                  the rest of the Setup card) and fall back to the dedicated
+                  endpoint for older API builds that didn't inline it. */}
+              {(() => {
+                const p = data.preflight ?? preflightQ.data
+                if (!p || p.ok) return null
+                return (
+                  <BlockersCard
+                    issues={p.issues}
+                    state={data.document?.aiDraftState ?? null}
+                    starting={startMutation.isPending}
+                    startError={startMutation.error}
+                    onContinue={() => startMutation.mutate()}
+                    onRefresh={() => {
+                      preflightQ.refetch()
+                      refetch()
+                    }}
+                  />
+                )
+              })()}
 
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />

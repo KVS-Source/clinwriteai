@@ -962,6 +962,7 @@
       "toast_inserted": "Inserted {{pt}} into {{section}}"
     },
     "review_assignment_panel": {
+      "err_open_comments": "Resolve every comment before submitting for review. Still open: {{total}}. Open the Comments panel to resolve them.",
       "err_need_reviewer_approver": "Add at least one Reviewer (C) and one Approver (A) in the document's RACI before submitting it for review.",
       "err_need_reviewer": "Add at least one Reviewer (C) in the document's RACI before submitting it for review.",
       "err_need_approver": "Add at least one Approver (A) in the document's RACI before submitting it for review.",

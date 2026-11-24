@@ -27,6 +27,10 @@ function submitErrorMessage(err: unknown, currentStatus: string, t: TFunction): 
         : missing[0] === 'A' ? 'page.review_assignment_panel.err_need_approver'
         : 'page.review_assignment_panel.err_need_reviewer')
     }
+    // Comments still open: the author resolves every one before submitting.
+    if (body?.error === 'comments_unresolved') {
+      return t('page.review_assignment_panel.err_open_comments', { total: (body as { unresolvedCount?: number }).unresolvedCount ?? '' })
+    }
     if (body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
       const bullets = body.blocking.slice(0, 4).map(b => `• ${b.text} (${b.framework})`).join('\n')
       const totalCount = body.blockingCount ?? body.blocking.length

@@ -19,7 +19,7 @@ const NAMES: Record<string, string> = { 'u-a': 'Ann Author', 'u-b': 'Ben Author'
 const rRow = (id: string, userId: string, extra: Row = {}): Row =>
   ({ id, documentId: DOC, userId, letter: 'R', sectionId: null, submittedAt: null, rejectedAt: null, removedAt: null, signatureRequired: false, ...extra })
 
-async function build(opts: { raci?: Row[]; status?: string; stage?: string; assignee?: string; blocking?: Row[]; team?: string[] } = {}) {
+async function build(opts: { raci?: Row[]; status?: string; stage?: string; assignee?: string; blocking?: Row[]; team?: string[]; openComments?: number } = {}) {
   const doc: Row = { id: DOC, projectId: 'p-1', status: opts.status ?? 'in_authoring', stage: opts.stage ?? 'legacy',
     assigneeId: opts.assignee ?? 'u-a', currentVersionId: 'v1', deletedAt: null }
   // Every document here also has a Reviewer and an Approver (required to submit) unless a test says otherwise.
@@ -50,6 +50,7 @@ async function build(opts: { raci?: Row[]; status?: string; stage?: string; assi
       updateMany: vi.fn(async ({ where, data }: Row) => { const hit = raci.filter(r => raciWhere(r, where)); hit.forEach(r => Object.assign(r, data)); return { count: hit.length } }),
     },
     checklistInstanceItem: { findMany: vi.fn(async () => opts.blocking ?? []) },
+    comment: { count: vi.fn(async () => opts.openComments ?? 0) },
     project: { findUnique: vi.fn(async () => ({ id: 'p-1', status: 'initiated' })), updateMany: projectUpdateMany },
     user:    { findMany: vi.fn(async ({ where }: Row) => (where.id.in as string[]).map(id => ({ id, name: NAMES[id] ?? id }))) },
   } as never)
@@ -148,6 +149,20 @@ describe('submit for review — authors (R) only', () => {
     expect(res.json().message).toContain(text)
     expect(t.doc.status).toBe('in_authoring')
     expect(t.raci[0].submittedAt).toBeNull()
+  })
+
+  it('cannot be submitted while comments are open; once they are resolved it goes to review', async () => {
+    const opts = { raci: [rRow('r-a', 'u-a')], openComments: 2 }
+    const t = await build(opts)
+    const res = await t.submit()
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'comments_unresolved', unresolvedCount: 2 })
+    expect(res.json().message).toContain('before you submit the document for review')
+    expect(t.doc.status).toBe('in_authoring')
+    expect(t.raci[0].submittedAt).toBeNull()
+    opts.openComments = 0
+    expect((await t.submit()).statusCode).toBe(200)
+    expect(t.doc.status).toBe('in_review')
   })
 
   it('keeps the mandatory-checklist gate: blocked → 409, and the author\'s part is not marked submitted', async () => {

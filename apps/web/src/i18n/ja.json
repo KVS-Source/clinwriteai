@@ -1060,6 +1060,7 @@
     },
 
     "review_assignment_panel": {
+      "err_open_comments": "レビューに提出する前に、すべてのコメントを解決してください。未解決: {{total}} 件。コメントパネルで解決できます。",
       "err_need_reviewer_approver": "レビューに提出する前に、ドキュメントの RACI にレビュアー (C) と承認者 (A) を少なくとも 1 名ずつ追加してください。",
       "err_need_reviewer": "レビューに提出する前に、ドキュメントの RACI にレビュアー (C) を少なくとも 1 名追加してください。",
       "err_need_approver": "レビューに提出する前に、ドキュメントの RACI に承認者 (A) を少なくとも 1 名追加してください。",

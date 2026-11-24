@@ -21,6 +21,7 @@ async function build() {
       update: vi.fn(async (args: { data: Record<string, unknown> }) => ({ id: 'DOC-1', ...args.data })),
     },
     checklistInstanceItem: { findMany: vi.fn(async () => []) },
+    comment: { count: vi.fn(async () => 0) },
     documentRaci: {
       // u1 is the only author; the reviewers were added in this order: rev-a, rev-b, rev-c.
       findMany: vi.fn(async ({ where }: { where: { letter: unknown } }) => typeof where.letter === 'object'

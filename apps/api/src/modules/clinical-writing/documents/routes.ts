@@ -2170,6 +2170,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // No open comments go into review: the author resolves every one first, so a new round never starts
+    // with the last round's backlog (SME decision, 2026-11-25). Applies to each author's submission.
+    const openComments = await countUnresolvedComments(app.prisma, documentId)
+    if (openComments > 0) return reply.code(409).send(commentsUnresolved(openComments, 'you submit the document for review'))
+
     // Gate C — all mandatory items for the current stage must be complete
     // or waived before submission. See checklist/gates.ts. Returns a 409
     // with the structured blocking list so the UI can show "N mandatory

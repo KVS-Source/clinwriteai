@@ -30,6 +30,7 @@ async function build(opts: { columnMissing?: boolean } = {}) {
       }),
     },
     checklistInstanceItem: { findMany: vi.fn(async () => []) },
+    comment: { count: vi.fn(async () => 0) },
     // u1 is the document's only author (R), so their submission sends it to review.
     documentRaci: {
       findMany:   vi.fn(async ({ where }: { where: { letter?: unknown } }) => typeof where.letter === 'object'

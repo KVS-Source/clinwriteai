@@ -20,6 +20,13 @@ function submitErrorMessage(err: unknown, currentStatus: string, t: TFunction): 
   }
   if (err.status === 409) {
     const body = err.body as { error?: string; blocking?: Array<{ text: string; framework: string }>; blockingCount?: number } | null
+    // No Reviewer or no Approver on the document's RACI yet.
+    const missing = (body as { missing?: string[] } | null)?.missing
+    if (body?.error === 'reviewer_approver_required' && Array.isArray(missing)) {
+      return t(missing.length > 1 ? 'page.review_assignment_panel.err_need_reviewer_approver'
+        : missing[0] === 'A' ? 'page.review_assignment_panel.err_need_approver'
+        : 'page.review_assignment_panel.err_need_reviewer')
+    }
     if (body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
       const bullets = body.blocking.slice(0, 4).map(b => `• ${b.text} (${b.framework})`).join('\n')
       const totalCount = body.blockingCount ?? body.blocking.length

@@ -408,6 +408,20 @@ export const CHECKLIST_VIEW_FORBIDDEN = {
   message: "You don't have access to this document's checklist.",
 } as const
 
+// Comments that still need an answer: open ones, except an approval verdict (a sign-off, not an issue).
+// The document can't go to approval while there are any (SME decision, 2026-11-24).
+export function countUnresolvedComments(prisma: PrismaClient, documentId: string): Promise<number> {
+  return prisma.comment.count({
+    where: { documentId, status: 'open', OR: [{ verdict: null }, { verdict: { not: 'approve' } }] },
+  })
+}
+
+export const commentsUnresolved = (count: number) => ({
+  error: 'comments_unresolved',
+  message: `${count} comment${count === 1 ? ' is' : 's are'} unresolved. Resolve every comment before the document goes to approval.`,
+  unresolvedCount: count,
+})
+
 export const VERSION_VIEW_FORBIDDEN = {
   error: 'version_view_forbidden',
   message: "You don't have access to this document's version history.",

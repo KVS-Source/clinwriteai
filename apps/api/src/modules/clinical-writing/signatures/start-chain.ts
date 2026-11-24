@@ -68,6 +68,41 @@ export function makeNotifySigners(app: FastifyInstance) {
   }
 }
 
+/** Tells the document's Informed (I) people it is signed. They don't sign; never fails the signing. */
+export async function notifyInformedSigned(
+  app: FastifyInstance,
+  doc: { id: string; projectId: string; title: string },
+  chainId: string,
+): Promise<void> {
+  if (!app.hasDecorator('notifications')) return
+  try {
+    const rows = await app.prisma.documentRaci.findMany({
+      where:  { documentId: doc.id, letter: { in: ['I'] }, removedAt: null },
+      select: { userId: true },
+    })
+    const signed = await app.prisma.signatureRecord.findMany({ where: { chainId }, select: { signerId: true } })
+    const signerIds = new Set(signed.map(s => s.signerId))
+    // Someone who also signed (a second letter, or an older chain) already knows.
+    for (const recipientId of new Set(rows.map(r => r.userId).filter(id => !signerIds.has(id)))) {
+      try {
+        await app.notifications.send({
+          recipientId,
+          kind:     'document.signed',
+          severity: 'info',
+          title:    `"${doc.title}" has been signed`,
+          body:     'Every signature is complete. Open the final document to read it.',
+          linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${doc.id}/final`,
+          payload:  { documentId: doc.id, projectId: doc.projectId },
+        })
+      } catch (err) {
+        app.log.warn({ err, documentId: doc.id, recipientId }, 'document.signed notification failed')
+      }
+    }
+  } catch (err) {
+    app.log.warn({ err, documentId: doc.id }, 'document.signed notifications failed')
+  }
+}
+
 export type StartChainResult =
   | { ok: true; chain: unknown }
   | { ok: false; status: number; body: Record<string, unknown> }
@@ -151,13 +186,20 @@ export async function startSignatureChain(app: FastifyInstance, args: {
   }
 
   // The chain needs at least one Approver: without an approval the document can't become signed.
-  // Everyone named on the document (Author, Reviewer, Approver, Informed) is pre-filled on the screen,
+  // Everyone named on the document (Author, Reviewer, Approver) is pre-filled on the screen,
   // but the starter may remove people, so naming is not enforced here. Anyone named who is left off is
   // recorded in the audit entry below, so the omission is traceable.
   if (!args.signers.some(s => s.meaning === 'approved')) {
     return { ok: false, status: 422, body: {
       error: 'approver_required',
       message: 'The signature chain needs at least one Approver. Add an Approver to the chain.',
+    } }
+  }
+  // Informed (I) are only told; they never sign a new chain.
+  if (args.signers.some(s => s.meaning === 'acknowledged')) {
+    return { ok: false, status: 422, body: {
+      error: 'informed_cannot_sign',
+      message: 'Informed people are notified when the document is signed; they do not sign it.',
     } }
   }
   const named = await requiredSigners(app.prisma as PrismaClient, doc)
@@ -243,7 +285,7 @@ async function reserveSignatureIds(prisma: Pick<PrismaClient, '$queryRawUnsafe'>
 
 /**
  * The signers for an automatic chain: everyone named on the document, as the screen pre-fills it —
- * each Author (authored), Reviewer (reviewed), Approver (approved) and Informed (acknowledged).
+ * each Author (authored), Reviewer (reviewed) and Approver (approved).
  */
 const MEANING_ROLE: Record<SignerInput['meaning'], string> = {
   authored: 'Author', reviewed: 'Reviewer', approved: 'Approver', acknowledged: 'Informed',

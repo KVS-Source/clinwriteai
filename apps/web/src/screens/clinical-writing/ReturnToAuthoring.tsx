@@ -19,10 +19,11 @@ import type { Document, DocumentStatus } from '@platform/types'
 const RETURNABLE_STATUSES = new Set(['in-review', 'crm-in-progress', 'pending-signature'])
 
 // The caller's row to return the document with: an Approver's row while awaiting
-// signature, otherwise a Reviewer's, then QC's.
+// signature, otherwise a Reviewer's, then QC's. An Approver reads the document earlier
+// but decides only at signature (the API refuses before that).
 function pickRow(rows: DocumentRaciRow[], userId: string | undefined, status: string): DocumentRaciRow | undefined {
   const mine = rows.filter(r => r.userId === userId && !r.removedAt && !r.rejectedAt)
-  const order = status === 'pending-signature' ? ['A', 'C', 'Q'] : ['C', 'Q', 'A']
+  const order = status === 'pending-signature' ? ['A', 'C', 'Q'] : ['C', 'Q']
   for (const letter of order) {
     const row = mine.find(r => r.letter === letter)
     if (row) return row

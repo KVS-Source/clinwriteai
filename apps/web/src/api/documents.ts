@@ -142,6 +142,12 @@ export interface SaveSourceBody {
   overrides?: string[]
 }
 
+export interface ReturnBaseline {
+  versionNumber: string
+  returnedAt: string
+  sections: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string; contentHtml: string }>
+}
+
 export const documentsApi = {
   // Sources a document is based on
   listDocumentSources: (documentId: string) =>
@@ -227,6 +233,9 @@ export const documentsApi = {
     api.patch<{ reviewDueAt: string | null }>(`/documents/${documentId}/review-due-date`, { date }),
   getVersionAccess: (documentId: string) =>
     api.get<{ canView: boolean }>(`/documents/${documentId}/versions/access`),
+  // The text as it was when the document was last sent back to authoring; null on a first round.
+  getChangesSinceReturn: (documentId: string) =>
+    api.get<{ baseline: ReturnBaseline | null }>(`/documents/${documentId}/changes-since-return`),
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),
   // One version's sections as stored (Version Diff compares two of these).

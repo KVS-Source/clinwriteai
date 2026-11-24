@@ -961,6 +961,9 @@
       "toast_inserted": "Inserted {{pt}} into {{section}}"
     },
     "review_assignment_panel": {
+      "err_need_reviewer_approver": "Add at least one Reviewer (C) and one Approver (A) in the document's RACI before submitting it for review.",
+      "err_need_reviewer": "Add at least one Reviewer (C) in the document's RACI before submitting it for review.",
+      "err_need_approver": "Add at least one Approver (A) in the document's RACI before submitting it for review.",
       "err_network": "Could not reach the server. Check your connection and try again.",
       "err_checklist_blocked": "{{count}} mandatory checklist item(s) must be completed or waived before submitting:\n{{bullets}}",
       "err_checklist_more": "…and {{count}} more",
@@ -1525,6 +1528,10 @@
       "reviewing_as": "Reviewing as: {{role}}"
     },
     "reviewer_view": {
+      "changes_heading": "Since {{version}} was sent back: {{count}} section(s) changed",
+      "changes_go_to": "Go to a changed section",
+      "changes_toggle": "Highlight changes",
+      "changes_removed": "Removed: {{titles}}",
       "review_due_days_remaining_one": "{{count}} day remaining",
       "review_due_days_remaining_other": "{{count}} days remaining",
       "review_due_today": "due today",
@@ -1580,7 +1587,7 @@
       "approve_sign_explainer": "All reviewers have finished. Approving signs the document with your e-signature; you confirm your password next. You can add a comment if you want to; it is optional.",
       "approve_sign_continue": "Approve",
       "approve_sign_failed": "Could not record your approval and signature. Please try again.",
-      "approve_sign_done_toast": "You approved and signed the document. Once every approver has signed, the authors, reviewers and informed are asked to sign.",
+      "approve_sign_done_toast": "You approved and signed the document. Once every approver has signed, the authors and reviewers are asked to sign.",
       "identity_title": "Confirm your identity",
       "identity_subtitle": "Re-enter your credentials to authorize this action.",
       "identity_show_password": "Show password",
@@ -3620,6 +3627,7 @@
       "kind_returned_to_authoring": "Returned to authoring",
       "kind_raci_assigned": "Assigned to a document",
       "kind_crm_meeting_invited": "CRM meeting invite",
+      "kind_document_signed": "Document signed",
       "kind_other": "Notification",
       "severity_warning": "Warning",
       "severity_critical": "Important",
@@ -3859,7 +3867,7 @@
     },
     "e_signature": {
       "not_started_title": "Signing hasn't started",
-      "not_started_body": "Signing starts automatically once every Reviewer has marked their review done. Approvers sign first with Approve & E-sign in the Approver View; then the Authors, Reviewers and Informed sign.",
+      "not_started_body": "Signing starts automatically once every Reviewer has marked their review done. Approvers sign first with Approve & E-sign in the Approver View; then the Authors and Reviewers sign. Informed people are notified when it is signed.",
       "not_started_blocked": "Every Reviewer has finished, but signing could not start automatically:",
       "not_started_blocked_next": "An Approver can reject the document to send it back to authoring, where this can be fixed. Signing starts again once this is fixed and the Reviewers have finished again.",
       "meaning_authored": "I have authored this document",

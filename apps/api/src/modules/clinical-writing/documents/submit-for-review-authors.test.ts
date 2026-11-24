@@ -19,9 +19,11 @@ const NAMES: Record<string, string> = { 'u-a': 'Ann Author', 'u-b': 'Ben Author'
 const rRow = (id: string, userId: string, extra: Row = {}): Row =>
   ({ id, documentId: DOC, userId, letter: 'R', sectionId: null, submittedAt: null, rejectedAt: null, removedAt: null, signatureRequired: false, ...extra })
 
-async function build(opts: { raci?: Row[]; status?: string; stage?: string; assignee?: string; blocking?: Row[] } = {}) {
+async function build(opts: { raci?: Row[]; status?: string; stage?: string; assignee?: string; blocking?: Row[]; team?: string[] } = {}) {
   const doc: Row = { id: DOC, projectId: 'p-1', status: opts.status ?? 'in_authoring', stage: opts.stage ?? 'legacy',
     assigneeId: opts.assignee ?? 'u-a', currentVersionId: 'v1', deletedAt: null }
+  // Every document here also has a Reviewer and an Approver (required to submit) unless a test says otherwise.
+  const team: Row[] = (opts.team ?? ['C', 'A']).map(letter => ({ id: `team-${letter}`, documentId: DOC, userId: `u-team-${letter}`, letter, removedAt: null }))
   const raci: Row[] = opts.raci ?? []
   const audit: Row[] = []
   const projectUpdateMany = vi.fn(async () => ({ count: 1 }))
@@ -41,7 +43,9 @@ async function build(opts: { raci?: Row[]; status?: string; stage?: string; assi
       update:     vi.fn(async ({ data }: Row) => Object.assign(doc, data)),
     },
     documentRaci: {
-      findMany:   vi.fn(async ({ where }: Row) => raci.filter(r => raciWhere(r, where))),
+      findMany:   vi.fn(async ({ where }: Row) => where.letter?.in
+        ? [...raci, ...team].filter(r => where.letter.in.includes(r.letter) && !r.removedAt)
+        : raci.filter(r => raciWhere(r, where))),
       findUnique: vi.fn(async ({ where }: Row) => raci.find(r => r.id === where.id) ?? null),
       updateMany: vi.fn(async ({ where, data }: Row) => { const hit = raci.filter(r => raciWhere(r, where)); hit.forEach(r => Object.assign(r, data)); return { count: hit.length } }),
     },
@@ -130,6 +134,20 @@ describe('submit for review — authors (R) only', () => {
     const res = await withAuthors.submit()                           // u-a is the assignee but holds no R
     expect(res.statusCode).toBe(403)
     expect(res.json().error).toBe('submit_forbidden')
+  })
+
+  it.each([
+    ['neither', [], ['C', 'A'], 'one Reviewer (C) and one Approver (A)'],
+    ['no Reviewer', ['A'], ['C'], 'one Reviewer (C) in'],
+    ['no Approver', ['C'], ['A'], 'one Approver (A) in'],
+  ])('a document with %s cannot be submitted, and nothing changes', async (_l, team, missing, text) => {
+    const t = await build({ raci: [rRow('r-a', 'u-a')], team })
+    const res = await t.submit()
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'reviewer_approver_required', missing })
+    expect(res.json().message).toContain(text)
+    expect(t.doc.status).toBe('in_authoring')
+    expect(t.raci[0].submittedAt).toBeNull()
   })
 
   it('keeps the mandatory-checklist gate: blocked → 409, and the author\'s part is not marked submitted', async () => {

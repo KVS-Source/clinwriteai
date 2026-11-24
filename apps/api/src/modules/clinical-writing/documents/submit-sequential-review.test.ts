@@ -23,7 +23,9 @@ async function build() {
     checklistInstanceItem: { findMany: vi.fn(async () => []) },
     documentRaci: {
       // u1 is the only author; the reviewers were added in this order: rev-a, rev-b, rev-c.
-      findMany: vi.fn(async ({ where }: { where: { letter: string } }) => where.letter === 'R'
+      findMany: vi.fn(async ({ where }: { where: { letter: unknown } }) => typeof where.letter === 'object'
+        ? [{ letter: 'C' }, { letter: 'A' }]   // the Reviewer and Approver a submission needs
+        : where.letter === 'R'
         ? [{ id: 'raci-r', userId: 'u1', sectionId: null, submittedAt: null, rejectedAt: null }]
         : [{ userId: 'rev-a' }, { userId: 'rev-b' }, { userId: 'rev-c' }]),
       updateMany: vi.fn(async ({ where, data }: { where: { letter?: string; userId?: string }; data: { approvalOrder?: number | null } }) => {

@@ -32,7 +32,9 @@ async function build(opts: { columnMissing?: boolean } = {}) {
     checklistInstanceItem: { findMany: vi.fn(async () => []) },
     // u1 is the document's only author (R), so their submission sends it to review.
     documentRaci: {
-      findMany:   vi.fn(async () => [{ id: 'raci-r', userId: 'u1', sectionId: null, submittedAt: null, rejectedAt: null }]),
+      findMany:   vi.fn(async ({ where }: { where: { letter?: unknown } }) => typeof where.letter === 'object'
+        ? [{ letter: 'C' }, { letter: 'A' }]   // the Reviewer and Approver a submission needs
+        : [{ id: 'raci-r', userId: 'u1', sectionId: null, submittedAt: null, rejectedAt: null }]),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1', status: 'initiated' })) },

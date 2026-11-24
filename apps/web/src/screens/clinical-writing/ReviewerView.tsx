@@ -9,6 +9,8 @@ import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
 import { ApproveAndSign } from './ApproveAndSign'
 import { CrmSummary } from './CrmSummary'
+import { HtmlDiff } from './HtmlDiff'
+import { useChangesSinceReturn } from './changesSinceReturn'
 import { signaturesApi } from '../../api/signatures'
 import { raciApi } from '../../api/raci'
 import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
@@ -153,6 +155,8 @@ export function ReviewerView() {
   useEffect(() => { if (activePanel !== 'comments') setComposeRequest(0) }, [activePanel])
   const [flagged,         setFlagged]         = useState(false)
   const [approveNote,     setApproveNote]     = useState<string | null>(null)
+  // After a return, the whole document is shown with what changed since highlighted; can be switched off.
+  const [highlightChanges, setHighlightChanges] = useState(true)
 
   const { data: document } = useQuery({
     queryKey: ['document', documentId],
@@ -272,6 +276,8 @@ export function ReviewerView() {
   const verdictBlockedReason = !hasSections ? t('page.reviewer_view.verdict_no_sections')
                              : !activeSectionData ? t('page.reviewer_view.verdict_select_section')
                              : null
+  const changes = useChangesSinceReturn(document)
+  const activeChanged = !!changes && !!activeSectionData && changes.changedIds.includes(activeSectionData.id)
   // Returned for revision (by any reviewer) and not saved by the writer since:
   // it can't be approved until it comes back revised. The API enforces the same rule.
   const lastReturn = activeRef
@@ -487,6 +493,35 @@ export function ReviewerView() {
         <CrmSummary documentId={documentId} comments={commentList} />
       )}
 
+      {/* A later round: what changed since the document was sent back, with links to each changed section. */}
+      {changes && (
+        <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-green-200 bg-green-50 px-6 py-2 text-[13px] text-green-900" data-changes-since-return>
+          <span className="font-semibold">
+            {t('page.reviewer_view.changes_heading', { version: changes.baseline.versionNumber, count: changes.changedIds.length })}
+          </span>
+          <select
+            value=""
+            onChange={e => { if (e.currentTarget.value) setActiveSection(e.currentTarget.value) }}
+            disabled={changes.changedIds.length === 0}
+            aria-label={t('page.reviewer_view.changes_go_to')}
+            className="h-7 max-w-[260px] rounded-md border border-green-300 bg-white px-2 text-[12px] disabled:opacity-50"
+            data-changes-go-to
+          >
+            <option value="">{t('page.reviewer_view.changes_go_to')}</option>
+            {document.sections.filter(s => changes.changedIds.includes(s.id)).map(s => (
+              <option key={s.id} value={s.id}>{s.number} {s.title}</option>
+            ))}
+          </select>
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" checked={highlightChanges} onChange={e => setHighlightChanges(e.currentTarget.checked)} data-changes-toggle />
+            {t('page.reviewer_view.changes_toggle')}
+          </label>
+          {changes.removedTitles.length > 0 && (
+            <span data-changes-removed>{t('page.reviewer_view.changes_removed', { titles: changes.removedTitles.join('; ') })}</span>
+          )}
+        </div>
+      )}
+
       {/* Not submitted yet: say so, instead of looking like a live review. */}
       {(document.status === 'in-authoring' || document.status === 'not-started') && (
         <div
@@ -567,7 +602,9 @@ export function ReviewerView() {
                   <h2 className="text-[20px] font-bold tracking-tight">
                     {withSectionMark(activeSectionData.number)} {activeSectionData.title}
                   </h2>
-                  {sectionIsBlank ? (
+                  {activeChanged && highlightChanges ? (
+                    <HtmlDiff fromHtml={changes.before.get(activeSectionData.id) ?? ''} toHtml={activeSectionData.contentHtml ?? ''} />
+                  ) : sectionIsBlank ? (
                     <p className="mt-3 rounded-md border border-dashed border-slate-300 p-4 text-center text-[13px] text-slate-500" data-state="empty-section">
                       {t('page.reviewer_view.section_empty')}
                     </p>

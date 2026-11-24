@@ -57,6 +57,7 @@ async function build(status: string, me = 'u-rev') {
       }),
     },
     project: { findUnique: vi.fn(async () => ({ status: 'ongoing' })) },
+    comment: { count: vi.fn(async () => 0) },
     user: {
       findUnique: vi.fn(async () => ({ name: 'Rita Reviewer' })),
       findMany:   vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, name: 'Rita Reviewer' }))),
@@ -239,6 +240,15 @@ describe('returning a document to authoring', () => {
     expect((await t.reject('q-1', { note: 'Listings incomplete.' })).statusCode).toBe(200)
     expect(t.doc.status).toBe('in_authoring')
     expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ reason: 'crm_bounce' }))
+  })
+
+  it.each(['in_review', 'crm_in_progress'])('an approver (A) can read it while %s but not return it yet', async (status) => {
+    const t = await build(status, 'u-app')
+    const res = await t.reject('a-1', { note: 'Too early.' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('approver_not_yet')
+    expect(t.doc.status).toBe(status)
+    expect(snapshot).not.toHaveBeenCalled()
   })
 
   it('an approver (A) returns it while awaiting signature → signature-bounce snapshot; the open chain is cancelled', async () => {

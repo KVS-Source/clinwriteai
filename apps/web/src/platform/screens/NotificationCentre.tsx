@@ -35,6 +35,7 @@ const KIND_KEYS: Record<string, string> = {
   'document.returned_to_authoring': 'page.notification_centre.kind_returned_to_authoring',
   'document.raci_assigned':        'page.notification_centre.kind_raci_assigned',
   'crm.meeting_invited':           'page.notification_centre.kind_crm_meeting_invited',
+  'document.signed':               'page.notification_centre.kind_document_signed',
   'user.invitation':               'page.notification_centre.kind_user_invitation',
   'signature_requested':           'page.notification_centre.kind_signature_requested',
   'document_nudge':                'page.notification_centre.kind_document_nudge',

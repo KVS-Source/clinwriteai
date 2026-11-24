@@ -3,7 +3,7 @@
 // caller's own RACI row; this table gives the generic route the same rule, from the action table:
 //   row 11  submit for review                   Author (R)         (never through this route)
 //   row 12  review done / QC complete           Reviewer (C), QC (Q)
-//   row 14  return / reject, back to authoring  Reviewer (C), QC (Q), Approver (A)
+//   row 14  return / reject, back to authoring  Reviewer (C), QC (Q); Approver (A) while awaiting signature
 //   row 18/27  CRM done, then signature         Author (R), Approver (A)
 //   row 28  signed                              Approver (A), once the chain is complete
 // Admins, PMs, auditors and Informed (I) never move a document between statuses.
@@ -13,7 +13,8 @@ import type { DocumentStatus } from '../document-status.js'
 const RETURNABLE: ReadonlySet<DocumentStatus> = new Set(['in_review', 'crm_in_progress', 'pending_signature'])
 
 export function lettersForTransition(from: DocumentStatus, to: DocumentStatus): readonly string[] {
-  if (to === 'in_authoring' && RETURNABLE.has(from)) return ['A', 'C', 'Q']
+  // An Approver decides only once the document awaits signature.
+  if (to === 'in_authoring' && RETURNABLE.has(from)) return from === 'pending_signature' ? ['A', 'C', 'Q'] : ['C', 'Q']
   if (from === 'not_started' && to === 'in_authoring') return ['R']
   if (from === 'in_review' && to === 'crm_in_progress') return ['C', 'Q']
   if (from === 'crm_in_progress' && to === 'pending_signature') return ['R', 'A']

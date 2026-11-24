@@ -18,12 +18,12 @@ import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 
 export type SignatureMeaning = 'authored' | 'reviewed' | 'approved' | 'acknowledged'
 
-/** The RACI letters whose holders must sign, and the meaning each one signs with. */
+/** The RACI letters whose holders must sign, and the meaning each one signs with. Informed (I) are told when the
+ *  document is signed but never sign (SME decision, 2026-11-24); 'acknowledged' stays for older chains. */
 export const SIGNER_LETTERS = {
   R: 'authored',
   C: 'reviewed',
   A: 'approved',
-  I: 'acknowledged',
 } as const satisfies Record<string, SignatureMeaning>
 
 const ADMIN_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin'])
@@ -101,7 +101,7 @@ export interface RequiredSigner {
 }
 
 /**
- * Everyone who must sign: each active Author (R), Reviewer (C), Approver (A) and Informed (I) on the
+ * Everyone who must sign: each active Author (R), Reviewer (C) and Approver (A) on the
  * document's own RACI — the people its author assigned. A person with two letters appears once.
  * Approvers on the project team are not added (2026-11-17): the signers are only who the author picked.
  */

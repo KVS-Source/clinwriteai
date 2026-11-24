@@ -27,7 +27,7 @@ import { resolveAnthropicKey } from '../../platform/ai-gateway/resolve-anthropic
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { notifyRaciAssigned } from '../../platform/document-raci/notify-assigned.js'
 import { lettersForTransition, transitionForbidden } from './transition-roles.js'
-import { actorCanEditDocumentContent, actorHoldsLetter, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanViewChecklist, actorHoldsLetter, actorCanUseAiChat, actorCanViewVersions, commentsUnresolved, countUnresolvedComments, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
 import { actorManagesProject } from '../../projects/project-managers.js'
@@ -1119,6 +1119,28 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // One version's sections as stored — the Version Diff compares two of these. Read-only.
+  // The text as it was when the document was last sent back to authoring, so the next round's Reviewers and
+  // Approvers read the whole document with the changes highlighted. Every return snapshots a new version and
+  // freezes the returned one (restoreSource.fromVersionId). baseline is null on a first round.
+  app.get('/:documentId/changes-since-return', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanViewChecklist(app.prisma, request.user!, documentId))) return reply.code(403).send(VERSION_VIEW_FORBIDDEN)
+    const versions = await app.prisma.documentVersion.findMany({
+      where: { documentId }, orderBy: { createdAt: 'desc' }, select: { createdAt: true, restoreSource: true },
+    })
+    const RETURN_REASONS = ['review_bounce', 'crm_bounce', 'signature_bounce']
+    for (const v of versions) {
+      const source = v.restoreSource as { reason?: string; fromVersionId?: string } | null
+      if (!source?.fromVersionId || !RETURN_REASONS.includes(source.reason ?? '')) continue
+      const from = await app.prisma.documentVersion.findFirst({
+        where:  { id: source.fromVersionId, documentId },
+        select: { versionNumber: true, sections: { select: { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true } } },
+      })
+      return { baseline: from ? { ...from, returnedAt: v.createdAt.toISOString() } : null }
+    }
+    return { baseline: null }
+  })
+
   app.get('/:documentId/versions/:versionId/sections', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, versionId } = request.params as { documentId: string; versionId: string }
     if (!(await actorCanViewVersions(app.prisma, request.user!, documentId))) return reply.code(403).send(VERSION_VIEW_FORBIDDEN)
@@ -1839,6 +1861,21 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
 
+    // The review needs at least one Reviewer (C), and the approval after it at least one Approver (A):
+    // without them the document would stop half-way (SME decision, 2026-11-24).
+    const needed = await app.prisma.documentRaci.findMany({
+      where:  { documentId, letter: { in: ['C', 'A'] }, removedAt: null },
+      select: { letter: true },
+    })
+    const missing = ([['C', 'Reviewer (C)'], ['A', 'Approver (A)']] as const).filter(([letter]) => !needed.some(r => r.letter === letter))
+    if (missing.length > 0) {
+      return reply.code(409).send({
+        error:   'reviewer_approver_required',
+        message: `Add at least one ${missing.map(([, name]) => name).join(' and one ')} in the document's RACI before submitting it for review.`,
+        missing: missing.map(([letter]) => letter),
+      })
+    }
+
     // Gate C — all mandatory items for the current stage must be complete
     // or waived before submission. See checklist/gates.ts. Returns a 409
     // with the structured blocking list so the UI can show "N mandatory
@@ -2133,6 +2170,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const allowedLetters = lettersForTransition(from, to)
     if (!(await actorHoldsLetter(app.prisma, request.user!, documentId, allowedLetters))) {
       return reply.code(403).send(transitionForbidden(allowedLetters))
+    }
+
+    // Approval starts only with every comment resolved, whichever route gets it there.
+    if (to === 'pending_signature') {
+      const unresolved = await countUnresolvedComments(app.prisma, documentId)
+      if (unresolved > 0) return reply.code(409).send(commentsUnresolved(unresolved))
     }
 
     // A document becomes Signed only through a completed e-signature chain

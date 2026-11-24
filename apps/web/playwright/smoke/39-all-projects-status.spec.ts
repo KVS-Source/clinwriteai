@@ -10,6 +10,8 @@ import { test, expect, type Page } from '@playwright/test'
 test.setTimeout(120_000)
 
 const STATUSES = ['initiated', 'ongoing', 'on-hold', 're-open', 'closed']
+// Closed projects are hidden from the list for now (HIDE_CLOSED_PROJECTS in AllProjects.tsx).
+const SHOWN = STATUSES.filter(s => s !== 'closed')
 
 async function open(page: Page, language = 'en') {
   await page.addInitScript(({ statuses, language }) => {
@@ -37,27 +39,35 @@ async function open(page: Page, language = 'en') {
 
 const rows = (page: Page) => page.locator('[data-project-row]')
 
-test('the filter has a chip for every status, including Closed', async ({ page }) => {
+test('the filter has a chip for every shown status, and none for Closed while closed projects are hidden', async ({ page }) => {
   await open(page)
-  for (const [value, label] of [['all', 'All'], ['ongoing', 'Ongoing'], ['initiated', 'Initiated'], ['on-hold', 'On hold'], ['re-open', 'Re-open'], ['closed', 'Closed']]) {
+  for (const [value, label] of [['all', 'All'], ['ongoing', 'Ongoing'], ['initiated', 'Initiated'], ['on-hold', 'On hold'], ['re-open', 'Re-open']]) {
     await expect(page.locator(`[data-status-filter="${value}"]`)).toHaveText(label!)
   }
+  await expect(page.locator('[data-status-filter="closed"]')).toHaveCount(0)
 })
 
-for (const status of STATUSES) {
+test('closed projects are hidden from the list and the counts', async ({ page }) => {
+  await open(page)
+  await expect(rows(page)).toHaveCount(SHOWN.length)
+  await expect(page.locator('[data-project-row="P-closed"]')).toHaveCount(0)
+  await expect(page.locator('[data-projects-count]')).toHaveText(`Showing ${SHOWN.length} of ${SHOWN.length} projects`)
+})
+
+for (const status of SHOWN) {
   test(`filtering by ${status} shows only that project`, async ({ page }) => {
     await open(page)
     await page.locator(`[data-status-filter="${status}"]`).click()
     await expect(rows(page)).toHaveCount(1)
     await expect(page.locator(`[data-project-row="P-${status}"]`)).toBeVisible()
     await page.locator('[data-status-filter="all"]').click()
-    await expect(rows(page)).toHaveCount(STATUSES.length)
+    await expect(rows(page)).toHaveCount(SHOWN.length)
   })
 }
 
 test('the Status column shows each project its own status', async ({ page }) => {
   await open(page)
-  const expected: Record<string, string> = { initiated: 'Initiated', ongoing: 'Ongoing', 'on-hold': 'On hold', 're-open': 'Re-open', closed: 'Closed' }
+  const expected: Record<string, string> = { initiated: 'Initiated', ongoing: 'Ongoing', 'on-hold': 'On hold', 're-open': 'Re-open' }
   for (const [status, label] of Object.entries(expected)) {
     await expect(page.locator(`[data-project-row="P-${status}"] [data-project-status="${status}"]`)).toHaveText(label)
   }
@@ -65,7 +75,6 @@ test('the Status column shows each project its own status', async ({ page }) => 
 
 test('the filter and the Status column are Japanese in Japanese', async ({ page }) => {
   await open(page, 'ja')
-  await expect(page.locator('[data-status-filter="closed"]')).toHaveText('完了')
-  await expect(page.locator('[data-project-row="P-closed"] [data-project-status="closed"]')).toHaveText('完了')
+  await expect(page.locator('[data-status-filter="ongoing"]')).toHaveText('進行中')
   await expect(page.locator('[data-project-row="P-ongoing"] [data-project-status="ongoing"]')).toHaveText('進行中')
 })

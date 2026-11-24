@@ -69,7 +69,7 @@ export function MasterLibrary() {
   const hasRole = usePlatformStore(s => s.hasRole)
   const canUpload = hasRole(['pm'])
   const canShare = hasRole(['pm'])
-  // An earlier (superseded) version opens only for a Project Manager or an Auditor (SME decision, 2026-11-24; the
+  // An earlier (superseded) version opens only for a Project Manager or an Auditor (demo feedback, 2026-11-23; the
   // API enforces the same and stamps every page "SUPERSEDED").
   const canReadSuperseded = hasRole(['pm', 'auditor'])
 
@@ -158,7 +158,7 @@ export function MasterLibrary() {
   const immutabilityNote = active?.isSuperseded
     ? t('page.master_library.immutability_superseded')
     : active?.isArchived
-    ?t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
+    ? t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
     : t(isSectionItem ? 'page.master_library.immutability_default' : active?.uploaded ? 'page.master_library.immutability_uploaded' : 'page.master_library.immutability_document')
 
   // A link from a "document shared with you" notification: /master-library/documents?item=<id> opens that
@@ -179,6 +179,7 @@ export function MasterLibrary() {
   // details. It also closes when another document is opened, or the details close.
   const [overlay, setOverlay] = useState<'view' | 'share' | null>(null)
   const viewing = overlay === 'view'
+  const [viewSeq, setViewSeq] = useState(0)
   useEffect(() => { setOverlay(null) }, [active?.id])
   // Esc closes only the panel on top, not the details panel under it: this listener runs first (capture) and
   // marks the key handled, which the details panel respects.
@@ -193,14 +194,19 @@ export function MasterLibrary() {
     return () => window.removeEventListener('keydown', onKey, { capture: true })
   }, [overlay])
   const pdfView = useQuery({
-    queryKey: ['library-pdf', active?.id],
+    // A new key each time View is opened: every opening is fetched, stamped with its own time and counted once. It is
+    // not fetched again on its own while open (a refocused window is not another opening) and not kept once closed.
+    queryKey: ['library-pdf', active?.id, viewSeq],
     queryFn: async () => {
       // Stamped by the API with the reader's email and the time; shown in our own viewer, never the browser's.
       const { blob } = await api.download(`/library/${encodeURIComponent(active!.id)}/pdf`)
       return blob
     },
     enabled: viewing && !!active,
-    staleTime: 5 * 60_000,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: false,
   })
   // Share history and Audit trail each have their own side panel, opened from the table's two "View" links (not
@@ -449,7 +455,7 @@ export function MasterLibrary() {
                 {versionHistory.length <= 1 ? (
                   <Field label={<span className="normal-case">{active.version}</span>}>{t('page.master_library.version_single_value')}</Field>
                 ) : versionHistory.map(v => {
-                  const tag = v.isCurrent ? t('page.master_library.tag_latest') : t('page.master_library.tag_earlier')
+                  const tag = t(v.isWithdrawn ? 'page.master_library.withdrawn_tag' : v.isCurrent ? 'page.master_library.tag_latest' : 'page.master_library.tag_earlier')
                   const title = t('page.master_library.version_row', { version: v.version, tag, date: formatDay(v.pushedAt), user: v.pushedByName })
                   const text = t('page.master_library.version_row_value', { tag, date: formatDay(v.pushedAt), user: v.pushedByName })
                   // Another version opens in this panel: the latest for anyone, an earlier one for a PM or Auditor only.
@@ -477,11 +483,11 @@ export function MasterLibrary() {
                   data-action="share-document"
                 >{t('page.master_library.share_document')}</button>
               )}
-              <button type="button" onClick={() => setOverlay('view')}
+              {(!active.isSuperseded || canReadSuperseded) && <button type="button" onClick={() => { setViewSeq(n => n + 1); setOverlay('view') }}
                 className="h-9 rounded-md border px-4 text-[13px] font-semibold"
                 style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
                 data-action="view-document"
-              >{t('page.master_library.view_document')}</button>
+              >{t('page.master_library.view_document')}</button>}
             </div>
 
             <p className="rounded-lg p-3 text-[12px] leading-[1.5]"
@@ -531,7 +537,7 @@ export function MasterLibrary() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         docTypes={docTypeOptions}
-        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); }}
+        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); void queryClient.invalidateQueries({ queryKey: ['library-versions'] }) }}
       />
 
       {toast && (
@@ -665,6 +671,8 @@ function SharePanel({ open, item, onClose, onDone }: {
 
 // Add a document from the computer (Project Manager only): PDF or Word, to the organisation's library (no project
 // is asked for). The API reads the text out of the file, keeps the original PDF, and files it like a pushed document.
+type UploadDuplicate = { name: string; docType: string; ta: string; version: string; becomesNewVersion: boolean }
+
 function UploadPanel({ open, onClose, docTypes, onDone }: {
   open: boolean
   onClose: () => void
@@ -680,8 +688,15 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
   const [ta,        setTa]        = useState('')
   const [busy,     setBusy]      = useState(false)
   const [failure,   setFailure]   = useState<string | null>(null)
+  // The PM's word that this isn't a draft (an upload has no signatures to check); asked again for another file.
+  const [isFinal, setIsFinal] = useState(false)
+  useEffect(() => { setIsFinal(false) }, [file])
+  // Documents already in the library under this title: shown as a warning, uploaded only after "Upload anyway".
+  const [duplicates, setDuplicates] = useState<UploadDuplicate[]>([])
+  // The warning is about the details as they were sent; changing any of them asks again.
+  useEffect(() => { setDuplicates([]) }, [file, title, docType, ta])
 
-  const reset = () => { setFile(null); setTitle(''); setDocType(''); setTa(''); setFailure(null); if (fileInput.current) fileInput.current.value = '' }
+  const reset = () => { setIsFinal(false); setDuplicates([]); setFile(null); setTitle(''); setDocType(''); setTa(''); setFailure(null); if (fileInput.current) fileInput.current.value = '' }
   useEffect(() => { if (!open) reset() }, [open])
 
   const accepted = (f: File) => /\.(pdf|docx)$/i.test(f.name)
@@ -692,20 +707,24 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
     setFile(f)
     if (!title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ''))
   }
-  const canSubmit = !!file && !!title.trim() && !!docType && !!ta
+  const canSubmit = !!file && !!title.trim() && !!docType && !!ta && isFinal
 
-  async function submit() {
+  async function submit(confirmDuplicate = false) {
     if (!canSubmit || !file) return
     setBusy(true); setFailure(null)
     try {
       // The fields go first, then the file: the API reads the fields from the file's part.
       const form = new FormData()
       form.append('title', title.trim()); form.append('docType', docType); form.append('taTag', ta)
+      form.append('confirmFinal', 'true')   // canSubmit: the box is ticked
+      if (confirmDuplicate) form.append('confirmDuplicate', 'true')
       form.append('file', file, file.name)
       await platformApi.uploadLibraryDocument(form)
       onDone(t('page.master_library.upload_success', { name: title.trim() }))
     } catch (err) {
-      setFailure(describeApiError(err).message)
+      const body = (err instanceof ApiError ? err.body : null) as { error?: string; matches?: UploadDuplicate[] } | null
+      if (body?.error === 'duplicate_title' && Array.isArray(body.matches)) setDuplicates(body.matches)
+      else setFailure(describeApiError(err).message)
     } finally {
       setBusy(false)
     }
@@ -740,12 +759,25 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
             {taLabels.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         </label>
+        <label className="flex items-start gap-2 text-[12px] text-slate-700">
+          <input type="checkbox" className="mt-0.5" checked={isFinal} onChange={e => setIsFinal(e.currentTarget.checked)} data-upload-final />
+          <span>{t('page.master_library.upload_confirm_final')}</span>
+        </label>
         {failure && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-upload-error>{failure}</p>}
+        {duplicates.length > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[12px] text-amber-900" role="alert" data-upload-duplicate>
+            <p className="font-semibold">{t('page.master_library.upload_duplicate_title')}</p>
+            <ul className="my-1 list-disc pl-4">
+              {duplicates.map((d, i) => <li key={i} className="[overflow-wrap:anywhere]">{d.name} · {d.docType} · {d.ta} · {d.version}</li>)}
+            </ul>
+            <p>{t(duplicates.some(d => d.becomesNewVersion) ? 'page.master_library.upload_duplicate_version' : 'page.master_library.upload_duplicate_separate')}</p>
+          </div>
+        )}
         <div className="mt-1 flex items-center gap-2">
-          <button type="button" onClick={submit} disabled={!canSubmit || busy} data-action="confirm-upload"
+          <button type="button" onClick={() => void submit(duplicates.length > 0)} disabled={!canSubmit || busy} data-action="confirm-upload"
             className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
-            {busy ? t('page.master_library.uploading') : t('page.master_library.upload_submit')}
+            {busy ? t('page.master_library.uploading') : t(duplicates.length > 0 ? 'page.master_library.upload_anyway' : 'page.master_library.upload_submit')}
           </button>
           <button type="button" onClick={onClose} className="h-9 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100">{t('button.cancel')}</button>
         </div>
@@ -800,7 +832,7 @@ function Field({ label, children, current = false, valueProps, ...data }: {
 // text. Newest first, every share (from the permanent audit trail).
 function ShareHistoryList({ itemId }: { itemId: string }) {
   const { t } = useTranslation()
-  const query = useQuery({ queryKey: ['library-shares', itemId], queryFn: () => platformApi.listLibraryItemShares(itemId) })
+  const query = useQuery({ queryKey: ['library-shares', itemId], queryFn: () => platformApi.listLibraryItemShares(itemId), refetchOnMount: 'always' })
   const rows = query.data ?? []
   if (query.isLoading) return <p className="text-[12px] text-slate-500" data-share-history-state="loading">{t('page.master_library.share_history_loading')}</p>
   if (query.error) return <p className="text-[12px] text-red-700" data-share-history-state="error">{t('page.master_library.share_history_failed')}</p>
@@ -815,7 +847,7 @@ function ShareHistoryList({ itemId }: { itemId: string }) {
             <div className="min-w-0 flex-1 basis-[11rem]">
               <p className="break-words text-[12px] text-slate-800 [overflow-wrap:anywhere]" title={`${t('page.master_library.shared_with')}: ${s.sharedWith}`} data-shared-with>{s.sharedWith}</p>
               <p className="break-words text-[11px] text-slate-500 [overflow-wrap:anywhere]" title={`${t('page.master_library.shared_by')}: ${by}`} data-shared-by>{t('page.master_library.shared_by_line', { name: by })}</p>
-              {/* How many times they opened it under this share, and when last (SME request, 2026-11-24). */}
+              {/* How many times they opened it under this share, and when last (demo feedback, 2026-11-23). */}
               <p className={`text-[11px] ${s.openCount ? 'font-semibold text-slate-700' : 'text-slate-400'}`} data-share-opens={s.openCount ?? 0}>
                 {s.openCount && s.lastOpenedAt
                   ? t('page.master_library.share_opened', { count: s.openCount, when: formatDateTimeIst(s.lastOpenedAt) })

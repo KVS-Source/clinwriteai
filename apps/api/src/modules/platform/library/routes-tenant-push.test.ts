@@ -447,7 +447,7 @@ describe('GET /library/:id — no source-document people', () => {
   })
 })
 
-// Earlier versions (SME decision, 2026-11-24): kept for audit, opened only by a PM or Auditor, stamped SUPERSEDED.
+// Earlier versions (demo feedback, 2026-11-23): kept for audit, opened only by a PM or Auditor, stamped SUPERSEDED.
 describe('GET /library/:id/pdf — an earlier (superseded) version', () => {
   const old = () => row('v1', { isCurrent: false, supersededBy: 'v2', tags: ['type:document', 'source:d1'] })
 
@@ -474,6 +474,23 @@ describe('GET /library/:id/pdf — an earlier (superseded) version', () => {
     }
   })
 
+  it('no other route gives its text to anyone else: the item comes without it, the section is refused', async () => {
+    const c = await setup({ role: 'contributor', found: old() })
+    const item = await c.app.inject({ method: 'GET', url: '/library/v1' })
+    expect(item.statusCode).toBe(200)
+    expect(item.json().body).toBe('')
+    const section = await c.app.inject({ method: 'GET', url: '/library/sections/v1' })
+    expect(section.statusCode).toBe(403)
+    expect(section.payload).not.toContain('"body"')
+    await current?.close(); current = null
+    const a = await setup({ role: 'auditor', found: old() })
+    expect((await a.app.inject({ method: 'GET', url: '/library/v1' })).json().body).toBe('text')
+    expect((await a.app.inject({ method: 'GET', url: '/library/sections/v1' })).statusCode).toBe(200)
+    await current?.close(); current = null
+    const latest = await setup({ role: 'contributor', found: row('v2', { tags: ['type:document'] }) })
+    expect((await latest.app.inject({ method: 'GET', url: '/library/v2' })).json().body).toBe('text')
+  })
+
   it('the item says it is superseded; the latest one does not', async () => {
     const { app } = await setup({ role: 'pm', found: old() })
     expect((await app.inject({ method: 'GET', url: '/library/v1' })).json().isSuperseded).toBe(true)
@@ -483,7 +500,7 @@ describe('GET /library/:id/pdf — an earlier (superseded) version', () => {
   })
 })
 
-// Version history (2026-11-24): versions are the entries of the same source document, never "same title".
+// Version history (2026-11-23): the entries of the same document, never "same title".
 describe('GET /library/:id/versions', () => {
   it('lists every entry of the same source document, newest first, marking the current one', async () => {
     const { app, prisma } = await setup({ found: row('v2', { version: 2, tags: ['type:document', 'source:d1', 'docversion:v2.0'] }) })
@@ -498,12 +515,30 @@ describe('GET /library/:id/versions', () => {
       { id: 'v1', version: 'v1.0', documentVersion: 'v1.0', pushedAt: '2026-10-01T00:00:00.000Z', pushedByName: 'Dr A', isCurrent: false, isWithdrawn: false },
     ])
     // The versions query (the first findMany; the context lookup after it is separate) matches on the source only.
-    const where = JSON.stringify((prisma.librarySection.findMany.mock.calls[0] as unknown[])[0])
+    const where = JSON.stringify((prisma.librarySection.findMany.mock.calls as unknown as Array<[{ where: unknown }]>)[0]![0].where)
     expect(where).toContain('"has":"source:d1"')
     expect(where).not.toContain('title')
   })
 
-  it('an upload (no source document) is its own only version, and a hidden item is 404', async () => {
+  it('the versions of an upload are found through "replaced by", both ways, and a circular link ends', async () => {
+    const at = (n: number) => new Date(Date.UTC(2026, 10, n))
+    const up = { tags: ['type:document', 'origin:upload'] }
+    const all = [
+      row('u1', { ...up, version: 1, isCurrent: false, supersededBy: 'u2', approvedAt: at(1) }),
+      row('u2', { ...up, version: 2, isCurrent: false, supersededBy: 'u3', approvedAt: at(2) }),
+      row('u3', { ...up, version: 3, supersededBy: 'u1', approvedAt: at(3) }),       // u1 again: a bad, circular link
+      row('other', { ...up, approvedAt: at(4) }),
+    ]
+    const { app, prisma } = await setup({ found: all[1]! })
+    prisma.librarySection.findMany.mockImplementation((async ({ where }: { where: { id?: { notIn: string[] }; OR?: Array<{ supersededBy?: { in: string[] }; id?: { in: string[] } }> } }) =>
+      where.OR && where.id?.notIn
+        ? all.filter(r => !where.id!.notIn.includes(r.id) && where.OR!.some(o => o.supersededBy?.in.includes(r.supersededBy as never) || o.id?.in.includes(r.id)))
+        : []) as never)
+    const res = await app.inject({ method: 'GET', url: '/library/u2/versions' })
+    expect(res.json().map((v: { id: string }) => v.id)).toEqual(['u3', 'u2', 'u1'])
+  })
+
+  it('an upload with no other version is its own only one, and a hidden item is 404', async () => {
     const { app, prisma } = await setup({ found: row('up', { tags: ['type:document', 'origin:upload'] }) })
     const res = await app.inject({ method: 'GET', url: '/library/up/versions' })
     expect(res.json()).toMatchObject([{ id: 'up', version: 'v1.0', isCurrent: true }])

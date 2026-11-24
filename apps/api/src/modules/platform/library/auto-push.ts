@@ -93,8 +93,10 @@ export async function pushDocumentToLibrary(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-push:${p.tenantId ?? 'platform'}:${sourceTag}`}))`
       const prior = await current(tx)
       if (prior?.tags.includes(`docversion:${documentVersion}`)) throw new AlreadyInLibrary(prior)
+      // Numbered after the highest version ever pushed, withdrawn ones included: a number is never used twice.
+      const highest = await tx.librarySection.findFirst({ where: { tenantId: p.tenantId, tags: { has: sourceTag } }, orderBy: { version: 'desc' }, select: { version: true } })
       const next = await tx.librarySection.create({
-        data: { tenantId: p.tenantId, taTag: p.taTag, tags, body, title: doc.title, framework: p.docType, category: 'claim', version: (prior?.version ?? 0) + 1, approvedBy: p.approvedBy },
+        data: { tenantId: p.tenantId, taTag: p.taTag, tags, body, title: doc.title, framework: p.docType, category: 'claim', version: Math.max(prior?.version ?? 0, highest?.version ?? 0) + 1, approvedBy: p.approvedBy },
       })
       if (prior) await tx.librarySection.update({ where: { id: prior.id }, data: { isCurrent: false, supersededBy: next.id } })
       return { created: next, earlier: prior }

@@ -32,7 +32,7 @@ async function setup(s: Setup = {}) {
   const librarySection = {
     findFirst: vi.fn(async () => s.prior ?? null),
     // The upload looks for an earlier upload of the same title (where.title); other look-ups get nothing.
-    findMany: vi.fn(async (args?: { where?: { title?: string } }) => (args?.where?.title && s.prior ? [{ tags: [], ...s.prior }] : [])),
+    findMany: vi.fn(async (args?: { where?: { title?: string } }) => (args?.where?.title && s.prior ? [row({ title: 'CSR Study 1', ...s.prior })] : [])),
     create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { created.push(data); return row(data) }),
     update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => { updated.push(args); return row({}) }),
     findUnique: vi.fn(async () => null),
@@ -69,7 +69,7 @@ afterEach(async () => { await current?.close(); current = null; state.visible = 
 // The fields go first, then the file (the route reads the fields from the file part).
 async function upload(app: FastifyInstance, over: { fields?: Record<string, string | undefined>; name?: string; type?: string; bytes?: Buffer } = {}) {
   const fd = new FormData()
-  const fields = { title: 'CSR Study 1', docType: 'CSR', taTag: 'Oncology', projectId: 'p1', ...over.fields }
+  const fields = { title: 'CSR Study 1', docType: 'CSR', taTag: 'Oncology', projectId: 'p1', confirmFinal: 'true', ...over.fields }
   for (const [k, v] of Object.entries(fields)) if (v !== undefined) fd.append(k, v)
   fd.append('file', new Blob([over.bytes ?? PDF], { type: over.type ?? 'application/pdf' }), over.name ?? 'report.pdf')
   const res = new Response(fd)
@@ -88,7 +88,7 @@ describe('POST /library/upload', () => {
     expect(tags.some(x => x.startsWith('file:library/t1/') && x.endsWith('.pdf'))).toBe(true)
     expect(res.json()).toMatchObject({ itemType: 'document', docType: 'CSR', uploaded: true, projectName: 'Alpha', pushedByName: 'Alex PM' })
     expect(res.json().tags).toEqual([])                       // the internal file tags never reach the screen
-    expect(t.append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_uploaded', details: expect.objectContaining({ projectId: 'p1', fileName: 'report.pdf' }) }))
+    expect(t.append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_uploaded', details: expect.objectContaining({ projectId: 'p1', fileName: 'report.pdf', confirmedFinal: true }) }))
   })
 
   it('accepts a Word file, and the title defaults to the file name', async () => {
@@ -100,7 +100,7 @@ describe('POST /library/upload', () => {
 
   it('a later upload with the same title in the same project is the next version and supersedes the earlier one', async () => {
     const t = await setup({ prior: { id: 'old-1', version: 2, tags: ['origin:upload', 'project:p1'] } })
-    const res = await upload(t.app)
+    const res = await upload(t.app, { fields: { confirmDuplicate: 'true' } })
     expect(res.statusCode).toBe(201)
     expect(t.created[0]).toMatchObject({ version: 3 })
     expect(t.updated).toEqual([{ where: { id: 'old-1' }, data: { isCurrent: false, supersededBy: 'new-1' } }])
@@ -117,13 +117,37 @@ describe('POST /library/upload', () => {
 
   it('without a project, the same title is the next version of an earlier upload that also has no project', async () => {
     const t = await setup({ prior: { id: 'old-1', version: 1, tags: ['origin:upload'] } })
-    expect((await upload(t.app, { fields: { projectId: undefined } })).statusCode).toBe(201)
+    expect((await upload(t.app, { fields: { projectId: undefined, confirmDuplicate: 'true' } })).statusCode).toBe(201)
     expect(t.created[0]).toMatchObject({ version: 2 })
     // …but not of an upload filed under a project.
     const u = await setup({ prior: { id: 'old-2', version: 4, tags: ['origin:upload', 'project:p1'] } })
-    expect((await upload(u.app, { fields: { projectId: undefined } })).statusCode).toBe(201)
+    expect((await upload(u.app, { fields: { projectId: undefined, confirmDuplicate: 'true' } })).statusCode).toBe(201)
     expect(u.created[0]).toMatchObject({ version: 1 })
     expect(u.updated).toEqual([])
+  })
+
+  it('after a withdrawal the numbering goes on: the next upload is not v1.0 again, and replaces nothing', async () => {
+    const t = await setup({ prior: { id: 'old-1', version: 2, isCurrent: false, retiredAt: new Date(), tags: ['origin:upload', 'project:p1'] } })
+    expect((await upload(t.app, { fields: { confirmDuplicate: 'true' } })).statusCode).toBe(201)
+    expect(t.created[0]).toMatchObject({ version: 3 })
+    expect(t.updated).toEqual([])
+  })
+
+  it('a title already in the library is reported first, with what uploading would do, and nothing is stored', async () => {
+    const next = await setup({ prior: { id: 'old-1', version: 2, tags: ['origin:upload', 'project:p1', 'doctype:CSR'] } })
+    const res = await upload(next.app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'duplicate_title', matches: [{ name: 'CSR Study 1', docType: 'CSR', ta: 'Oncology', version: 'v2.0', becomesNewVersion: true }] })
+    expect(next.blobPut).not.toHaveBeenCalled()
+    expect(next.created).toHaveLength(0)
+    expect(next.append).not.toHaveBeenCalled()
+    await current?.close()
+    // A signed document, or the title in another letter case, stays a separate document.
+    for (const prior of [{ id: 'p', tags: ['type:document', 'source:d1'] }, { id: 'p', title: 'csr study 1', tags: ['origin:upload', 'project:p1'] }]) {
+      const sep = await setup({ prior })
+      expect((await upload(sep.app)).json().matches).toMatchObject([{ becomesNewVersion: false }])
+      await current?.close()
+    }
   })
 
   it.each(['tenant-admin', 'contributor', 'auditor'] as Role[])('only a Project Manager can upload: %s gets 403 and nothing is stored', async (role) => {
@@ -142,6 +166,18 @@ describe('POST /library/upload', () => {
       expect(res.json().error).toBe('unsupported_file')
     }
     expect(t.blobPut).not.toHaveBeenCalled()
+  })
+
+  it('needs the PM to confirm the document is final and approved, and stores nothing otherwise', async () => {
+    const t = await setup()
+    for (const confirmFinal of [undefined, 'false']) {
+      const res = await upload(t.app, { fields: { confirmFinal } })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error).toBe('final_not_confirmed')
+    }
+    expect(t.blobPut).not.toHaveBeenCalled()
+    expect(t.created).toHaveLength(0)
+    expect(t.append).not.toHaveBeenCalled()
   })
 
   it('needs the document type and therapeutic area', async () => {

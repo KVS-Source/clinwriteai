@@ -71,6 +71,13 @@ describe('libraryDocType', () => {
 })
 
 describe('autoPushSignedDocument', () => {
+  it('after a withdrawal the numbering goes on: the next push is not v1.0 again', async () => {
+    const f = fake()
+    f.entries.push({ id: 'old', tenantId: 't1', version: 2, isCurrent: false, retiredAt: new Date(), tags: ['source:doc-1', 'docversion:v1.0'] })
+    await autoPushSignedDocument(f.app, 'doc-1', { trigger: 'signing', signedBy: 'u' })
+    expect(f.entries[1]).toMatchObject({ version: 3 })
+  })
+
   it('pushes the whole signed document with the tags from the document, audited on the document as System', async () => {
     const f = fake()
     const res = await autoPushSignedDocument(f.app, 'doc-1', { trigger: 'signing', signedBy: 'u-signer' })

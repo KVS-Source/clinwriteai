@@ -126,6 +126,10 @@ export function itemTypeOf(row: Pick<SectionRow, 'category' | 'tags'>): LibItemT
   return parseTags(row.tags).isDocument ? 'document' : 'section'
 }
 
+/** An earlier version of a whole document that a later one replaced (a withdrawn entry is not that). */
+export const isSupersededDocument = (row: { isCurrent: boolean; retiredAt: Date | null; tags: string[] }) =>
+  !row.isCurrent && !row.retiredAt && row.tags.includes('type:document')
+
 export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
   const t = parseTags(row.tags)
   const project = t.projectId ? ctx.projects.get(t.projectId) : undefined
@@ -157,7 +161,7 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
     tags: t.plain,
     isArchived: archived,
     isWithdrawn: !!row.retiredAt,
-    isSuperseded: !row.isCurrent && !row.retiredAt,
+    isSuperseded: isSupersededDocument(row),
     uploaded: t.uploaded,
     ...(archived && {
       archivedReason: row.retiredAt ? 'Withdrawn from the library' : 'Source project is closed',

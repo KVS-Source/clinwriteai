@@ -266,6 +266,13 @@ describe('GET /library/:id/shares — share history', () => {
     ])
   })
 
+  it('counts every open, also past one page of the audit trail', async () => {
+    const t = await setup()
+    await t.audit.append({ timestamp: '2026-11-20T09:00:00.000Z', actorId: 'u1', action: 'library_document_shared', entityType: 'document', entityId: 'doc-9', details: { libraryItemId: 'lib-1', recipients: [{ kind: 'user', id: 'u2', email: 'raj@x.io' }] }, ipAddress: null })
+    for (let i = 0; i < 1005; i++) await t.audit.append({ timestamp: '2026-11-20T10:00:00.000Z', actorId: 'u2', action: 'library_document_viewed', entityType: 'library_section', entityId: 'lib-1', details: {}, ipAddress: null })
+    expect((await history(t.app)).json()).toMatchObject([{ openCount: 1005 }])
+  })
+
   it('a correct code on a real invitation shows as an open', async () => {
     const t = await setup()
     await share(t.app, ['ceo@acme.com'])

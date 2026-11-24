@@ -12,7 +12,7 @@ export interface Watermark {
   main: string
   /** One small line at the foot of every page. */
   footer: string
-  /** A bold red line at the top of every page — an earlier, superseded version (SME decision, 2026-11-24). */
+  /** A bold red line at the top of every page — an earlier, superseded version (demo feedback, 2026-11-23). */
   banner?: string
 }
 

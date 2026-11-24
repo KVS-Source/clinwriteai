@@ -22,7 +22,7 @@ import { DATE_IN_PAST, isPastDay } from '../past-date.js'
 import { textExcerpt, wordStartPattern } from './search.js'
 import { enabledModules, hasRole, requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 
-// Who may open an earlier (superseded) version of a Master Document (SME decision, 2026-11-24).
+// Who may open an earlier (superseded) version of a Master Document (demo feedback, 2026-11-23).
 export const SUPERSEDED_READER_ROLES = ['pm', 'auditor'] as const
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
@@ -36,7 +36,7 @@ import { generateBlobKey } from '../blob/local-storage.js'
 import { libraryItemPdf, PDF_MAX_CHARS } from './pdf-file.js'
 import { supersededBanner, viewerWatermark } from './watermark.js'
 import {
-  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
+  BEST_PRACTICE_NAME, firstVersionKey, isSupersededDocument, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -83,6 +83,10 @@ const uploadFields = z.object({
   taTag:     z.string().trim().min(1),
   // No longer asked for on the upload screen; still accepted from older clients.
   projectId: z.string().trim().min(1).optional(),
+  // "Upload anyway": the PM has seen the warning that the library already holds a document with this title.
+  confirmDuplicate: z.enum(['true', 'false']).default('false'),
+  // "This document is final and approved": the library holds no drafts, and an upload has no signatures to check.
+  confirmFinal: z.enum(['true', 'false']).default('false'),
 })
 
 const retireSchema = z.object({ reason: z.string().trim().min(1).max(500).optional() }).default({})
@@ -191,15 +195,20 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
   const NOT_YOURS = { error: 'forbidden', message: 'Platform-wide library items can only be changed by a platform admin.' } as const
 
-  // One batched lookup for the names/projects a page of rows refers to.
-  /** The version label of the entry that replaced this one ("v2.0"), or null when it can't be found. */
+  // An earlier version of a whole document, readable by a PM or Auditor only — by every route that returns its text.
+  const SUPERSEDED_FORBIDDEN = { error: 'superseded', message: 'This is an earlier version of the document. Only a Project Manager or an Auditor can open it.' } as const
+  const supersededHiddenFrom = (user: AuthenticatedUser, row: { isCurrent: boolean; retiredAt: Date | null; tags: string[] }) =>
+    isSupersededDocument(row) && !hasRole(user, [...SUPERSEDED_READER_ROLES])
+
+  /** The version label of the entry that replaced this one ("v2.0"); null when unknown or itself withdrawn since. */
   async function replacedByLabel(row: { supersededBy: string | null }): Promise<string | null> {
     const next = row.supersededBy
-      ? await app.prisma.librarySection.findUnique({ where: { id: row.supersededBy }, select: { version: true } })
+      ? await app.prisma.librarySection.findUnique({ where: { id: row.supersededBy }, select: { version: true, retiredAt: true } })
       : null
-    return next ? versionLabel(next.version) : null
+    return next && !next.retiredAt ? versionLabel(next.version) : null
   }
 
+  // One batched lookup for the names/projects a page of rows refers to.
   async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
     const projectIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
     const documentIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('source:')).map(t => sourceDocumentId(t.slice(7)))))]
@@ -582,9 +591,13 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
     const parsed = uploadFields.safeParse({
       title: field('title') ?? file.filename.replace(/\.[^.]+$/, ''), docType: field('docType'), taTag: field('taTag'), projectId: field('projectId'),
+      confirmDuplicate: field('confirmDuplicate'), confirmFinal: field('confirmFinal'),
     })
     if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request', issues: parsed.error.issues })
     const b = parsed.data
+    if (b.confirmFinal !== 'true') {
+      return reply.code(400).send({ error: 'final_not_confirmed', message: 'Confirm that this document is final and approved. Drafts can’t be added to the Master Library.' })
+    }
 
     // The upload screen no longer asks for a project: the document belongs to the organisation's library. An older
     // client may still send one; it is then checked and tagged as before.
@@ -601,29 +614,58 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
     const buf = await file.toBuffer()
     if (file.file.truncated) return reply.code(413).send({ error: 'too_large', message: 'The file is larger than 50 MB.' })
+
+    const tenantId = project?.tenantId ?? user.tenantId
+    const projectTag = project ? `project:${project.id}` : null
+    // The earlier uploads this one continues: the same exact title, in the same project when one was given, otherwise
+    // among the uploads that have no project.
+    const sameUpload = (c: { title: string; tags: string[] }) => c.title === b.title && c.tags.includes('origin:upload')
+      && (projectTag ? c.tags.includes(projectTag) : !c.tags.some(t => t.startsWith('project:')))
+
+    // Already in the library under this title (any letter case, whatever its type: a new version ignores the type)?
+    // Say so once, and what uploading would do, before anything is stored.
+    if (b.confirmDuplicate !== 'true') {
+      const matches = await app.prisma.librarySection.findMany({
+        where: {
+          isCurrent: true, retiredAt: null, category: { not: 'best_practice' }, tags: { has: 'type:document' },
+          title: { equals: b.title, mode: 'insensitive' }, AND: [visibleTo(user)],
+        },
+        orderBy: { approvedAt: 'desc' }, select: LIST_COLUMNS,
+      })
+      if (matches.length) {
+        return reply.code(409).send({
+          error: 'duplicate_title',
+          message: 'The Master Library already has a document with this title.',
+          matches: matches.map(m => ({
+            name: m.title, docType: parseTags(m.tags).docTypes[0] ?? m.framework, ta: m.taTag, version: versionLabel(m.version),
+            // True: uploading replaces this one with its next version. False: it adds a separate document.
+            becomesNewVersion: m.tenantId === tenantId && sameUpload(m),
+          })),
+        })
+      }
+    }
     const extracted = await extractTextFromBlob(buf, UPLOAD_EXTENSIONS[ext] === UPLOAD_EXTENSIONS.pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', { maxChars: PDF_MAX_CHARS })
     const body = extracted.text.trim()
     if (!extracted.ok || !body) {
       return reply.code(422).send({ error: 'no_text', message: 'No readable text was found in this file (a scanned PDF, for example). Upload a version with selectable text.' })
     }
 
-    const tenantId = project?.tenantId ?? user.tenantId
     const blobKey = generateBlobKey(`library/${tenantId ?? 'platform'}`, ext)
     await app.blob.put({ bucket: 'documents', key: blobKey, body: buf, contentType: file.mimetype || 'application/octet-stream', metadata: { originalFilename: file.filename, uploadedBy: user.id, ...(project && { projectId: project.id }) } })
 
-    const projectTag = project ? `project:${project.id}` : null
     const tags = ['module:A', `doctype:${b.docType}`, ...(projectTag ? [projectTag] : []), 'type:document', 'origin:upload', `file:${blobKey}`, `filename:${file.filename}`]
     const { created, earlier } = await app.prisma.$transaction(async (tx) => {
       // One upload of a title at a time (a double click, two tabs): the second waits and sees the first.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-upload:${tenantId ?? 'platform'}:${project?.id ?? '-'}:${b.title}`}))`
-      // The same title uploaded again becomes its next version: in the same project when one was given, otherwise
-      // among the uploads that have no project.
-      const candidates = await tx.librarySection.findMany({
-        where: { tenantId, isCurrent: true, retiredAt: null, title: b.title, AND: [{ tags: { has: 'origin:upload' } }, ...(projectTag ? [{ tags: { has: projectTag } }] : [])] },
-      })
-      const prior = candidates.find(c => (projectTag ? true : !c.tags.some(t => t.startsWith('project:')))) ?? null
+      // The same title uploaded again becomes its next version (sameUpload above). Earlier and withdrawn ones count
+      // for the number, so a version number is never used twice.
+      const earlierUploads = (await tx.librarySection.findMany({
+        where: { tenantId, title: b.title, tags: { has: 'origin:upload' } },
+        select: { id: true, title: true, tags: true, version: true, isCurrent: true, retiredAt: true },
+      })).filter(sameUpload)
+      const prior = earlierUploads.find(c => c.isCurrent && !c.retiredAt) ?? null
       const next = await tx.librarySection.create({
-        data: { tenantId, taTag, tags, body, title: b.title, framework: b.docType, category: 'claim', version: (prior?.version ?? 0) + 1, approvedBy: user.id },
+        data: { tenantId, taTag, tags, body, title: b.title, framework: b.docType, category: 'claim', version: Math.max(0, ...earlierUploads.map(c => c.version)) + 1, approvedBy: user.id },
       })
       if (prior) await tx.librarySection.update({ where: { id: prior.id }, data: { isCurrent: false, supersededBy: next.id } })
       return { created: next, earlier: prior }
@@ -635,7 +677,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       action: 'library_uploaded',
       entityType: 'library_section',
       entityId: created.id,
-      details: { ...(project && { projectId: project.id }), title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, ...(earlier && { supersedes: earlier.id }) },
+      details: { ...(project && { projectId: project.id }), title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, confirmedFinal: true, ...(earlier && { supersedes: earlier.id }) },
       ipAddress: request.ip ?? null,
     })
     const ctx = await fetchContext([created])
@@ -667,15 +709,10 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    // An earlier version that a later one replaced (SME decision, 2026-11-24): kept for audit, readable only by a
+    // An earlier version that a later one replaced (demo feedback, 2026-11-23): kept for audit, readable only by a
     // Project Manager or an Auditor, and stamped "SUPERSEDED" on every page. A withdrawn entry isn't superseded.
-    let banner: string | undefined
-    if (!row.isCurrent && !row.retiredAt) {
-      if (!hasRole(request.user! as AuthenticatedUser, [...SUPERSEDED_READER_ROLES])) {
-        return reply.code(403).send({ error: 'superseded', message: 'This is an earlier version of the document. Only a Project Manager or an Auditor can open it.' })
-      }
-      banner = supersededBanner(await replacedByLabel(row))
-    }
+    if (supersededHiddenFrom(request.user!, row)) return reply.code(403).send(SUPERSEDED_FORBIDDEN)
+    const banner = isSupersededDocument(row) ? supersededBanner(await replacedByLabel(row)) : undefined
     // Every page carries the reader's email and the time (watermark.ts).
     const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email, new Date(), banner) })
     if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
@@ -703,24 +740,42 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    return sectionToItem(row, await fetchContext([row]))
+    const item = sectionToItem(row, await fetchContext([row]))
+    // The details of an earlier version may be seen by anyone (an old notification can link to it), its text may not.
+    return supersededHiddenFrom(request.user!, row) ? { ...item, body: '' } : item
   })
 
   // GET /library/:id/versions — every library entry of the same document, newest first, for the details panel's
-  // Version history. Matched on the source document (the `source:` tag), never on the title, so two different
-  // documents that happen to share a title are not mixed up. An entry with no source (an upload) is its own only
-  // version. Same visibility as reading the item.
+  // Version history. Never matched on the title, so two different documents that happen to share one are not mixed
+  // up. The same document means: the same source document (the `source:` tag), or linked by "replaced by"
+  // (supersededBy) in either direction, which is how the versions of an upload are known. Same visibility as
+  // reading the item.
   app.get('/:id/versions', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
+    type VersionRow = Prisma.LibrarySectionGetPayload<{ select: typeof LIST_COLUMNS }>
+    const found = new Map<string, VersionRow>([[row.id, row]])
+    const scope = { tenantId: row.tenantId, category: row.category, AND: [visibleTo(request.user!)] }
     const sourceTag = row.tags.find(tg => tg.startsWith('source:'))
-    const rows = sourceTag
-      ? await app.prisma.librarySection.findMany({
-          where: { tenantId: row.tenantId, category: row.category, tags: { has: sourceTag }, AND: [visibleTo(request.user!)] },
-          orderBy: [{ version: 'desc' }, { approvedAt: 'desc' }],
-        })
-      : [row]
+    if (sourceTag) {
+      const same = await app.prisma.librarySection.findMany({ where: { ...scope, tags: { has: sourceTag } }, select: LIST_COLUMNS })
+      for (const r of same) found.set(r.id, r)
+    }
+    // Follow the links until a round finds nothing new; the map makes a circular link harmless.
+    let frontier = [...found.values()]
+    while (frontier.length) {
+      const ids = frontier.map(r => r.id)
+      const nextIds = frontier.flatMap(r => (r.supersededBy && !found.has(r.supersededBy) ? [r.supersededBy] : []))
+      const linked = await app.prisma.librarySection.findMany({
+        where: { ...scope, id: { notIn: [...found.keys()] }, OR: [{ supersededBy: { in: ids } }, { id: { in: nextIds } }] },
+        select: LIST_COLUMNS,
+      })
+      frontier = linked.filter(r => !found.has(r.id))
+      for (const r of frontier) found.set(r.id, r)
+    }
+    // By date, not number: entries made before the numbering fix can repeat v1.0 after a withdrawal.
+    const rows = [...found.values()].sort((a, b) => b.approvedAt.getTime() - a.approvedAt.getTime() || b.version - a.version) as unknown as SectionRow[]
     const ctx = await fetchContext(rows)
     return rows.map(r => ({
       id: r.id,
@@ -760,6 +815,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
+    if (supersededHiddenFrom(request.user!, row)) return reply.code(403).send(SUPERSEDED_FORBIDDEN)
     return row
   })
 

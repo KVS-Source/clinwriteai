@@ -38,7 +38,7 @@ import { libraryItemPdf } from './pdf-file.js'
 import { sharedWatermark } from './watermark.js'
 import { versionLabel } from './shape.js'
 
-// People per share (SME decision, 2026-11-24: 20 was too wide an audience). The PM can share again for more.
+// People per share (demo feedback, 2026-11-23: 20 was too wide an audience). The PM can share again for more.
 // The web keeps the same number in MasterLibrary.tsx (SHARE_MAX_RECIPIENTS) — change both together.
 export const SHARE_MAX_RECIPIENTS = 10
 export const SHARE_LINK_DAYS = 14              // an invitation link works for this long
@@ -102,7 +102,7 @@ export const libraryShareRoutes: FastifyPluginAsync = async (app) => {
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [libraryVisibleTo(user)] } })
     if (!row || row.category === 'best_practice') return reply.code(404).send({ error: 'not_found' })
     if (row.retiredAt) return reply.code(409).send({ error: 'withdrawn', message: 'This document has been withdrawn from the library and can no longer be shared.' })
-    // Only the latest version goes out (SME decision, 2026-11-24): an earlier one is kept for audit, not shared.
+    // Only the latest version goes out (demo feedback, 2026-11-23): an earlier one is kept for audit, not shared.
     if (!row.isCurrent) return reply.code(409).send({ error: 'superseded', message: 'This is an earlier version of the document. Share the latest version instead.' })
 
     const emails = [...new Set(parsed.data.emails)].filter(e => e !== user.email.toLowerCase())
@@ -223,13 +223,24 @@ export const libraryShareRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
-export const SHARE_HISTORY_MAX = 1000
+const AUDIT_PAGE = 1000
+
+/** Every event of one action on an entity, newest first, however many there are. */
+async function allEvents(app: FastifyInstance, entityType: string, entityId: string, action: string) {
+  type Row = Awaited<ReturnType<FastifyInstance['audit']['pageForEntity']>>['rows'][number]
+  const byId = new Map<string, Row>()   // an event written while paging shifts the pages; its neighbour is seen twice
+  for (let offset = 0; ; offset += AUDIT_PAGE) {
+    const { rows } = await app.audit.pageForEntity(entityType, entityId, { action, limit: AUDIT_PAGE, offset })
+    for (const r of rows) byId.set(r.id, r)
+    if (rows.length < AUDIT_PAGE) return [...byId.values()]
+  }
+}
 
 export interface ShareHistoryEntry {
   sharedWith: string
   sharedBy: string | null
   sharedAt: string
-  /** Times this person opened the document under this share (SME request, 2026-11-24). */
+  /** Times this person opened the document under this share (demo feedback, 2026-11-23). */
   openCount: number
   lastOpenedAt: string | null
 }
@@ -246,11 +257,11 @@ export interface ShareHistoryEntry {
 export async function shareHistory(app: FastifyInstance, row: { id: string; tags: string[] }): Promise<ShareHistoryEntry[]> {
   const target = auditTarget(row)
   const [shared, invitesOpened, viewed] = await Promise.all([
-    app.audit.pageForEntity(target.entityType, target.entityId, { action: 'library_document_shared', limit: SHARE_HISTORY_MAX }),
-    app.audit.pageForEntity(target.entityType, target.entityId, { action: 'library_share_opened', limit: SHARE_HISTORY_MAX }),
-    app.audit.pageForEntity('library_section', row.id, { action: 'library_document_viewed', limit: SHARE_HISTORY_MAX }),
+    allEvents(app, target.entityType, target.entityId, 'library_document_shared'),
+    allEvents(app, target.entityType, target.entityId, 'library_share_opened'),
+    allEvents(app, 'library_section', row.id, 'library_document_viewed'),
   ])
-  const mine = shared.rows.filter(e => e.details?.libraryItemId === row.id)
+  const mine = shared.filter(e => e.details?.libraryItemId === row.id)
   const sharerIds = [...new Set(mine.map(e => e.actorId))]
   const sharers = sharerIds.length
     ? await app.prisma.user.findMany({ where: { id: { in: sharerIds } }, select: { id: true, name: true } })
@@ -259,10 +270,10 @@ export async function shareHistory(app: FastifyInstance, row: { id: string; tags
 
   // Each open as (who, when). Who: "user:<id>" for a colleague, "email:<address>" for an invitation.
   const opens: Array<{ who: string; at: number; iso: string }> = []
-  for (const e of invitesOpened.rows) {
+  for (const e of invitesOpened) {
     if (e.details?.libraryItemId === row.id && typeof e.details.email === 'string') opens.push({ who: `email:${e.details.email}`, at: Date.parse(e.timestamp), iso: e.timestamp })
   }
-  for (const e of viewed.rows) opens.push({ who: `user:${e.actorId}`, at: Date.parse(e.timestamp), iso: e.timestamp })
+  for (const e of viewed) opens.push({ who: `user:${e.actorId}`, at: Date.parse(e.timestamp), iso: e.timestamp })
 
   type Out = ShareHistoryEntry & { who: string; at: number }
   const out: Out[] = []
@@ -311,7 +322,7 @@ async function loadShare(app: FastifyInstance, token: string, reply: FastifyRepl
     select: { id: true, title: true, body: true, tags: true, framework: true, version: true, retiredAt: true, isCurrent: true },
   })
   if (!item || item.retiredAt) { await reply.code(410).send({ error: 'withdrawn', message: 'This document has been withdrawn and can no longer be read.' }); return null }
-  // A link to a version that a later one has replaced stops working (SME decision, 2026-11-24), so nobody outside
+  // A link to a version that a later one has replaced stops working (demo feedback, 2026-11-23), so nobody outside
   // keeps reading an out-of-date document. The share history and audit trail keep the record.
   if (item.isCurrent === false) { await reply.code(410).send({ error: 'superseded', message: 'A newer version of this document exists. Ask the person who shared it to share the new version.' }); return null }
   return { share, item }

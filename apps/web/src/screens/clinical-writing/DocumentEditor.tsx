@@ -84,6 +84,8 @@ const AUTHORING_LOCK_KEYS: Partial<Record<DocumentStatus, { shortKey: string; no
 const PROJECT_CLOSED_LOCK_KEYS = { shortKey: 'lock_short_project_closed', noteKey: 'lock_note_project_closed' }
 // Everyone but the document's authors (PMs, admins, reviewers, approvers…) views it read-only.
 const VIEW_ONLY_LOCK_KEYS = { shortKey: 'lock_short_view_only', noteKey: 'lock_note_view_only' }
+// An author who has submitted their part waits for the others (or the review) without editing.
+const PART_SUBMITTED_LOCK_KEYS = { shortKey: 'lock_short_part_submitted', noteKey: 'lock_note_part_submitted' }
 
 export function DocumentEditor() {
   const { t } = useTranslation()
@@ -247,17 +249,20 @@ export function DocumentEditor() {
   // heartbeats every 30s, releases on unmount / section switch. Editor
   // becomes editable only when we own the live lock.
   // The whole document locked for authoring — no section lock is taken then.
-  const authoringLockKey: DocumentStatus | 'project-closed' | 'view-only' | null = project?.status === 'closed'
+  const authoringLockKey: DocumentStatus | 'project-closed' | 'view-only' | 'part-submitted' | null = project?.status === 'closed'
     ? 'project-closed'
     : document && AUTHORING_LOCK_KEYS[document.status] ? document.status
-    : canEditDocument === false ? 'view-only' : null
+    : canEditDocument === false ? 'view-only'
+    : iSubmittedMyPart ? 'part-submitted' : null
   const authoringLock = (() => {
     if (!authoringLockKey) return null
     const keys = authoringLockKey === 'project-closed'
       ? PROJECT_CLOSED_LOCK_KEYS
       : authoringLockKey === 'view-only'
         ? VIEW_ONLY_LOCK_KEYS
-        : AUTHORING_LOCK_KEYS[authoringLockKey as DocumentStatus]
+        : authoringLockKey === 'part-submitted'
+          ? PART_SUBMITTED_LOCK_KEYS
+          : AUTHORING_LOCK_KEYS[authoringLockKey as DocumentStatus]
     if (!keys) return null
     return {
       short: t(`page.document_editor.${keys.shortKey}`),

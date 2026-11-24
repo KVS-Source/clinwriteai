@@ -14,7 +14,7 @@ async function build(opts: { currentHtml?: Record<string, string> } = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     document: { findUnique: vi.fn(async () => ({ id: DOC, projectId: 'p-1', status: 'in_authoring', assigneeId: 'u-1', currentVersionId: 'v3' })) },
-    documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-r' })) },
+    documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-r' })), findMany: vi.fn(async () => [{ submittedAt: null, rejectedAt: null }]) },
     project: { findUnique: vi.fn(async () => ({ id: 'p-1', status: 'initiated' })) },
     // v1 holds s1 and s2; v2 holds only s1. Versions of other documents are filtered out by the where.
     documentVersion: {

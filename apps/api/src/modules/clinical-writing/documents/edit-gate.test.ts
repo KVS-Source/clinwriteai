@@ -32,6 +32,7 @@ const AI_CHAT_ROUTES = new Set(['AI suggest', 'accept an AI message'])
 
 type BuildOpts = {
   rRow?: boolean
+  submitted?: boolean         // the caller's R row is already submitted for review
   assignee?: string
   withSection?: boolean       // the document's current version holds section 's1'
   lockHolder?: string         // someone holding a live section lock on 's1'
@@ -61,7 +62,7 @@ async function build(actor: Partial<AuthenticatedUser>, opts: BuildOpts = {}) {
         if (where?.letter === undefined) return opts.rRow ? { id: 'raci-r' } : null
         return (opts.letters ?? (opts.rRow ? ['R'] : [])).includes(where.letter) ? { id: `raci-${where.letter}` } : null
       }),
-      findMany:  vi.fn(async () => (opts.rRow ? [{ id: 'raci-r', userId, sectionId: null, submittedAt: null, rejectedAt: null }] : [])),
+      findMany:  vi.fn(async () => (opts.rRow ? [{ id: 'raci-r', userId, sectionId: null, submittedAt: opts.submitted ? new Date('2026-11-24') : null, rejectedAt: null }] : [])),
     },
     editHistory: {
       findUnique: vi.fn(async () => ({ documentId: DOC, sectionId: 's1' })),
@@ -120,6 +121,15 @@ describe('editing a document is for its authors only', () => {
     })
   })
 
+  it('an author who has submitted their part cannot save a section, and is told why', async () => {
+    const app = await build({ role: 'contributor' }, { rRow: true, submitted: true, withSection: true })
+    const res = await app.inject({ method: 'PATCH', url: `/documents/${DOC}/sections/s1`, payload: { contentHtml: '<p>x</p>' } })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toMatchObject({ error: 'document_edit_forbidden' })
+    expect(res.json().message).toContain('until they submit their part for review')
+    await app.close()
+  })
+
   it.each(['pm', 'tenant-admin'] as const)('%s cannot edit even as the assignee holding an R row', async (role) => {
     const app = await build({ role }, { rRow: true, assignee: 'u-1' })
     const res = await app.inject({ method: 'PATCH', url: `/documents/${DOC}/sections/s1`, payload: { contentHtml: '<p>x</p>' } })
@@ -129,9 +139,10 @@ describe('editing a document is for its authors only', () => {
 })
 
 describe('actorCanEditDocumentContent', () => {
-  const prisma = (rRow: boolean, assigneeId = 'someone-else') => ({
+  type Own = { submittedAt: Date | null; rejectedAt: Date | null }
+  const prisma = (rRow: boolean, assigneeId = 'someone-else', own: Own[] = rRow ? [{ submittedAt: null, rejectedAt: null }] : []) => ({
     document:     { findUnique: async () => ({ assigneeId }) },
-    documentRaci: { findFirst:  async () => (rRow ? { id: 'raci-r' } : null) },
+    documentRaci: { findFirst:  async () => (rRow ? { id: 'raci-r' } : null), findMany: async () => own },
   }) as never
   const user = (over: Partial<AuthenticatedUser> = {}): AuthenticatedUser =>
     ({ id: 'u-1', email: 'u@x', role: 'contributor', modules: ['A'], tenantId: null, ...over })
@@ -146,6 +157,19 @@ describe('actorCanEditDocumentContent', () => {
 
   it('refuses everyone else', async () => {
     expect(await actorCanEditDocumentContent(prisma(false), user(), DOC)).toBe(false)
+  })
+
+  // Two authors: the document stays In Authoring until both submit, but the one who submitted is done.
+  it('refuses an author who has submitted their part for review', async () => {
+    const submitted = new Date('2026-11-24')
+    expect(await actorCanEditDocumentContent(prisma(true, 'someone-else', [{ submittedAt: submitted, rejectedAt: null }]), user(), DOC)).toBe(false)
+    expect(await actorCanEditDocumentContent(prisma(true, 'someone-else', [{ submittedAt: submitted, rejectedAt: null }, { submittedAt: submitted, rejectedAt: null }]), user(), DOC)).toBe(false)
+  })
+
+  it('lets them edit again once the part is returned (rejected) or the round is reset', async () => {
+    const at = new Date('2026-11-24')
+    expect(await actorCanEditDocumentContent(prisma(true, 'someone-else', [{ submittedAt: at, rejectedAt: at }]), user(), DOC)).toBe(true)
+    expect(await actorCanEditDocumentContent(prisma(true, 'someone-else', [{ submittedAt: null, rejectedAt: null }]), user(), DOC)).toBe(true)
   })
 
   it('gives the realtime sidecar no exemption — it saves as the author who typed (x-acting-user)', async () => {

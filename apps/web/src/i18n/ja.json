@@ -253,6 +253,8 @@
       "lock_note_signed":               "署名済みバージョンは最終版のため、変更できません。",
       "lock_short_view_only": "閲覧のみ",
       "lock_note_view_only": "このドキュメントを編集できるのは作成者 (Responsible, R) のみです。",
+      "lock_short_part_submitted": "提出済み",
+      "lock_note_part_submitted": "担当部分をレビューに提出したため、編集できません。レビュアーがドキュメントを差し戻すと再び編集できます。",
       "lock_short_project_closed":      "プロジェクト完了",
       "lock_note_project_closed":       "プロジェクトが完了しているため、ドキュメントは読み取り専用です。",
 

@@ -3191,7 +3191,7 @@
       "load_error_title": "Couldn't load the Master Library.",
       "retrying": "Retrying…",
       "try_again": "Try again",
-      "empty_library": "The library is empty. Approved documents and sections appear here once they are pushed from a module's Final Output.",
+      "empty_library": "The library is empty. Signed documents appear here once they are pushed from a project, or uploaded by a Project Manager.",
       "empty_filters": "No items match your filters.",
       "discipline_a": "Clinical Writing",
       "discipline_b": "Scientific Writing",

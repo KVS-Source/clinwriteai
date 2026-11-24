@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { textExcerpt, wordStartPattern } from './search.js'
+import { likeLiteral, textExcerpt, wordStartPattern } from './search.js'
 
 describe('wordStartPattern', () => {
   it('anchors the term at the start of a word', () => {
@@ -41,5 +41,14 @@ describe('textExcerpt', () => {
     expect(textExcerpt(null, 'test')).toBeNull()
     expect(textExcerpt('Reduces HbA1c (1.2%) at week 24', '(1.2%)')).toBeNull()       // starts with "(", not a word
     expect(textExcerpt('Reduces HbA1c (1.2%) at week 24', 'HbA1c (1.2')).toContain('HbA1c (1.2%)')
+  })
+})
+
+describe('likeLiteral', () => {
+  it('escapes the LIKE wildcards and the escape character, so "%" and "_" search for themselves', () => {
+    expect(likeLiteral('%')).toBe('\\%')
+    expect(likeLiteral('50%_off')).toBe('50\\%\\_off')
+    expect(likeLiteral('a\\b')).toBe('a\\\\b')
+    expect(likeLiteral('plain text')).toBe('plain text')
   })
 })

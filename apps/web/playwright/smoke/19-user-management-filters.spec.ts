@@ -86,7 +86,7 @@ test('the filter bar shows grey "All Status" / "All Roles" placeholders, the sea
   await expect(clear(page)).toBeDisabled()
   await expect(page.getByText('5 users', { exact: true })).toBeVisible()
   // only the standard roles are offered (now including QC) — no legacy roles such as clinical-writer
-  await expect(role(page).locator('option:not([hidden])')).toHaveText(['All Roles', 'Tenant admin', 'Project manager', 'Contributor', 'Auditor', 'QC', 'Guest'])
+  await expect(role(page).locator('option:not([hidden])')).toHaveText(['All Roles', 'Tenant admin', 'Project manager', 'Contributor', 'Auditor', 'QC'])
   await expect(role(page).locator('option[value="clinical-writer"]')).toHaveCount(0)
 })
 

@@ -2652,7 +2652,6 @@
       "role_desc_contributor": "Authors and edits documents on assigned projects.",
       "role_desc_auditor": "Read-only access to the audit trail and documents.",
       "role_desc_qc": "Quality Control: reads all content (no admin settings) and approves framework supersede requests.",
-      "role_desc_guest": "Limited, time-bound access to a specific document or project.",
       "send_invite": "Send invite",
       "inviting": "Sending invite…",
       "err_invalid_email": "{{email}} is not a valid email address.",

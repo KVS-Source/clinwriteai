@@ -19,7 +19,7 @@ import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../sign
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
 import { APPROVE_DOCUMENT_REF } from '../signatures/auto-start.js'
-import { COMMENT_LOCKED_ROLES, actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { COMMENT_LOCKED_ROLES, actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanResolveCommentsAsAuthor, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_AUTHOR_ONLY, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, documentsActorCanResolveAsAuthor, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
@@ -311,11 +311,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       },
       orderBy: { createdAt: 'desc' },
     })
-    const [reviewers, canResolve] = await Promise.all([
+    const [reviewers, canResolve, canResolveInCrm] = await Promise.all([
       fetchCommentReviewers(app.prisma, rows),
+      actorCanResolveCommentsAsAuthor(app.prisma, request.user!, documentId),
       actorCanResolveComments(app.prisma, request.user!, documentId),
     ])
-    return rows.map(r => ({ ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null), canResolve }))
+    return rows.map(r => ({ ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null), canResolve, canResolveInCrm }))
   })
 
   // Whether the caller may add comments — lets the screens leave out the composer instead of failing it.
@@ -450,8 +451,9 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (comment.status === 'resolved') {
       return reply.code(409).send({ error: 'conflict', message: 'Comment already resolved' })
     }
-    if (!(await actorCanResolveComments(app.prisma, request.user!, documentId))) {
-      return reply.code(403).send(COMMENT_RESOLVE_FORBIDDEN)
+    // Outside a CRM meeting only the Author answers a comment.
+    if (!(await actorCanResolveCommentsAsAuthor(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(COMMENT_RESOLVE_AUTHOR_ONLY)
     }
 
     const updated = await app.prisma.comment.update({
@@ -705,8 +707,9 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
       where: { documentId: { in: docs.map(d => d.id) } },
       orderBy: { createdAt: 'desc' },
     })
-    const [reviewers, canResolve] = await Promise.all([
+    const [reviewers, canResolve, canResolveInCrm] = await Promise.all([
       fetchCommentReviewers(app.prisma, rows),
+      documentsActorCanResolveAsAuthor(app.prisma, request.user!, docs.map(d => d.id)),
       documentsActorCanResolve(app.prisma, request.user!, docs.map(d => d.id)),
     ])
     return rows.map(r => {
@@ -714,6 +717,7 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
       return {
         ...commentShape(r, author, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null),
         canResolve: canResolve.has(r.documentId),
+        canResolveInCrm: canResolveInCrm.has(r.documentId),
         // Admins, PMs and auditors cannot comment (action table row 15); a comment from one is old data.
         // The dashboard keeps the comment but leaves its author out of the reviewer lists (CW-086).
         reviewerCanComment: !(author?.role && COMMENT_LOCKED_ROLES.has(author.role)),

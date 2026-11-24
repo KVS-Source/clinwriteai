@@ -211,6 +211,10 @@
       "sync": "Sync",
       "sync_button_tooltip": "Pull the latest from the server across every panel on this document (body, comments, references, history, stage, signatures, checklist, presence, AI).",
       "submitted_button_tooltip": "This document has been submitted and is with the reviewers",
+      "open_comments_block_one": "{{count}} open comment must be resolved before you can submit this document for review.",
+      "open_comments_block_other": "{{count}} open comments must be resolved before you can submit this document for review.",
+      "open_comments_view": "View comments",
+      "open_comments_button_title": "Resolve the open comments first",
       "submitted_for_review_button": "Submitted for review ✓",
       "you_submitted_button": "You submitted for review ✓",
       "you_submitted_waiting": "Your part is in. The document goes to review when the other authors submit: {{names}}.",
@@ -1011,7 +1015,9 @@
       "submitting": "Submitting…",
       "submit_for_review": "Submit for review →",
       "footer_pick_due": "Pick a review-due date above to enable the Submit button.",
-      "footer_submit_hint": "Submitting will lock the document for authoring and notify all reviewers."
+      "footer_submit_hint": "Submitting will lock the document for authoring and notify all reviewers.",
+      "open_comments_block_one": "{{count}} open comment must be resolved before you can submit for review.",
+      "open_comments_block_other": "{{count}} open comments must be resolved before you can submit for review."
     },
     "tlf_panel": {
       "type_table": "Table",

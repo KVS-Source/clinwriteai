@@ -195,8 +195,8 @@ function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment;
 
 function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote, informedParticipant = false }: { comment: Comment; meetingRunning: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null; informedParticipant?: boolean }) {
   const { t } = useTranslation()
-  // The Author, Reviewer and Approver (the API's canResolve), and an Informed person invited to this meeting.
-  const allowed = comment.canResolve !== false || informedParticipant
+  // The Author, Reviewer and Approver (the API's canResolveInCrm), and an Informed person invited to this meeting.
+  const allowed = (comment.canResolveInCrm ?? comment.canResolve) !== false || informedParticipant
   const canResolve = meetingRunning && allowed
   const btn = 'rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40'
   return (

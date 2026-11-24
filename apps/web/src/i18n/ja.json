@@ -234,6 +234,9 @@
       "sync":                         "同期",
       "sync_button_tooltip":          "このドキュメントに関するすべてのパネル (本文、コメント、参照、履歴、ステージ、署名、チェックリスト、プレゼンス、AI) について、サーバーから最新の情報を取得します。",
       "submitted_button_tooltip":     "このドキュメントは提出済みで、レビュアーのもとにあります",
+      "open_comments_block_other":    "レビューに提出する前に、未解決のコメント {{count}} 件を解決してください。",
+      "open_comments_view":           "コメントを表示",
+      "open_comments_button_title":   "先に未解決のコメントを解決してください",
       "submitted_for_review_button":  "レビューに提出済み ✓",
       "you_submitted_button": "あなたはレビューに提出済み ✓",
       "you_submitted_waiting": "あなたの分は提出済みです。他の作成者({{names}})が提出するとレビューに進みます。",
@@ -1109,7 +1112,8 @@
       "submitting":                    "送信中…",
       "submit_for_review":             "レビューに送信 →",
       "footer_pick_due":               "送信ボタンを有効にするには、上でレビュー期限日を選択してください。",
-      "footer_submit_hint":            "送信するとドキュメントは執筆ロックされ、すべてのレビュアーに通知されます。"
+      "footer_submit_hint":            "送信するとドキュメントは執筆ロックされ、すべてのレビュアーに通知されます。",
+      "open_comments_block_other":     "レビューに提出する前に、未解決のコメント {{count}} 件を解決してください。"
     },
 
     "tlf_panel": {

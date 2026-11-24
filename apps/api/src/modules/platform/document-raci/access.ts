@@ -489,18 +489,20 @@ export async function resetRaciRound(
   })
 }
 
-// Resolving a comment, in a CRM meeting or outside one: the document's Author (R, or the assignee),
+// Recording a resolution for a comment in a CRM meeting: the document's Author (R, or the assignee),
 // Reviewer (C) or Approver (A). QC and Informed can't, and a PM, admin, auditor or guest can't even
 // when holding a letter. Of the given documents, returns the ones this actor may resolve comments on.
+// `letters` narrows who counts (the assignee is the first Author, so they always count).
 export async function documentsActorCanResolve(
   prisma: PrismaClient,
   actor: AuthenticatedUser,
   documentIds: string[],
+  letters: readonly string[] = ['R', 'C', 'A'],
 ): Promise<Set<string>> {
   if (onlyRolesIn(actor, COMMENT_LOCKED_ROLES) || documentIds.length === 0) return new Set()
   const [rows, assigned] = await Promise.all([
     prisma.documentRaci.findMany({
-      where: { documentId: { in: documentIds }, userId: actor.id, letter: { in: ['R', 'C', 'A'] }, removedAt: null },
+      where: { documentId: { in: documentIds }, userId: actor.id, letter: { in: [...letters] }, removedAt: null },
       select: { documentId: true },
     }),
     prisma.document.findMany({ where: { id: { in: documentIds }, assigneeId: actor.id }, select: { id: true } }),
@@ -511,6 +513,25 @@ export async function documentsActorCanResolve(
 export async function actorCanResolveComments(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
   return (await documentsActorCanResolve(prisma, actor, [documentId])).has(documentId)
 }
+
+// Resolving a comment outside a CRM meeting (the Comments panel and dashboard): the document's Author only
+// (R, or the assignee). A Reviewer or Approver raises comments, and the Author answers them.
+export async function documentsActorCanResolveAsAuthor(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentIds: string[],
+): Promise<Set<string>> {
+  return documentsActorCanResolve(prisma, actor, documentIds, ['R'])
+}
+
+export async function actorCanResolveCommentsAsAuthor(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
+  return (await documentsActorCanResolveAsAuthor(prisma, actor, [documentId])).has(documentId)
+}
+
+export const COMMENT_RESOLVE_AUTHOR_ONLY = {
+  error: 'comment_resolve_forbidden',
+  message: "Only this document's author can resolve its comments.",
+} as const
 
 export const COMMENT_RESOLVE_FORBIDDEN = {
   error: 'comment_resolve_forbidden',

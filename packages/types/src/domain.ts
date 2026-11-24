@@ -171,7 +171,8 @@ export type ReviewerVerdict = 'approve' | 'request_changes' | 'block_approval'
 export interface Comment {
   id: string // CMT-###
   documentId: string
-  canResolve?: boolean // the signed-in user may resolve it; only the comment list routes send this
+  canResolve?: boolean // the signed-in user (the document's Author) may resolve it; only the comment list routes send this
+  canResolveInCrm?: boolean // the signed-in user may record a resolution for it in a CRM meeting (Author, Reviewer or Approver)
   // False when the author is an admin, PM or auditor (they cannot comment; old data): kept out of reviewer lists. Project list only.
   reviewerCanComment?: boolean
   sectionRef: string

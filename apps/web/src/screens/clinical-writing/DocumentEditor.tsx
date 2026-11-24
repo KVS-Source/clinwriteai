@@ -506,7 +506,18 @@ export function DocumentEditor() {
     navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/diff`)
   }
 
+  // The Author answers every open Reviewer comment (approvals don't count) before submitting for review.
+  // Same query key as the Comments panel, so this is a cache read once that has loaded.
+  const { data: commentList = [] } = useQuery({
+    queryKey: ['comments', documentId],
+    queryFn:  () => documentsApi.getComments(documentId!),
+    enabled:  !!documentId,
+    retry:    false,
+  })
+  const openCommentCount = commentList.filter(c => c.status === 'open' && c.verdict !== 'approve').length
+
   const handleSubmitForReview = () => {
+    if (openCommentCount > 0) return
     setActivePanel('review-assignment')
   }
 
@@ -1009,7 +1020,9 @@ export function DocumentEditor() {
               <button
                 type="button"
                 onClick={handleSubmitForReview}
-                className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
+                disabled={openCommentCount > 0}
+                title={openCommentCount > 0 ? t('page.document_editor.open_comments_button_title') : undefined}
+                className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
               >
                 {t('page.document_editor.submit_for_review')}
               </button>
@@ -1017,6 +1030,23 @@ export function DocumentEditor() {
           </div>
         </div>
       </div>
+
+      {/* Open comments block submitting: the Author resolves them first. */}
+      {canEditDocument && document.status !== 'in-review' && !iSubmittedMyPart && openCommentCount > 0 && (
+        <div
+          role="alert"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-6 py-2 text-[13px] text-amber-900"
+          data-open-comments-block
+        >
+          <span aria-hidden="true" className="font-bold">!</span>
+          <span className="font-semibold">{t('page.document_editor.open_comments_block', { count: openCommentCount })}</span>
+          <button
+            type="button"
+            onClick={() => setActivePanel('comments')}
+            className="font-semibold text-blue-700 underline hover:text-blue-800"
+          >{t('page.document_editor.open_comments_view')}</button>
+        </div>
+      )}
 
       {/* The AI provider isn't set up and the placeholder drafter is on (dev/CI): say so (CW-095). */}
       {aiDraft.data?.aiStubMode && (

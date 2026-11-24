@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
-import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanScheduleCrm, actorCanViewChecklist, actorCanViewVersions, documentsActorCanResolve } from './access.js'
+import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanResolveCommentsAsAuthor, actorCanScheduleCrm, actorCanViewChecklist, actorCanViewVersions, documentsActorCanResolve } from './access.js'
 
 const DOC = 'd-1'
 type Row = { documentId: string; userId: string; letter: string }
@@ -147,6 +147,17 @@ describe('resolving comments', () => {
   it('answers per document in the batched form', async () => {
     const rows = [{ documentId: 'd-1', userId: 'u-1', letter: 'C' }, { documentId: 'd-2', userId: 'u-1', letter: 'Q' }]
     expect([...await documentsActorCanResolve(prisma({ rows }), user(), ['d-1', 'd-2', 'd-3'])]).toEqual(['d-1'])
+  })
+})
+
+describe('resolving comments outside a CRM meeting', () => {
+  it('is open to the author (R) and the assignee', async () => {
+    expect(await actorCanResolveCommentsAsAuthor(prisma({ rows: holds('R') }), user(), DOC)).toBe(true)
+    expect(await actorCanResolveCommentsAsAuthor(prisma({ assignee: 'u-1' }), user(), DOC)).toBe(true)
+  })
+
+  it.each(['C', 'A', 'Q', 'I'])('is closed to a holder of %s alone', async (letter) => {
+    expect(await actorCanResolveCommentsAsAuthor(prisma({ rows: holds(letter) }), user(), DOC)).toBe(false)
   })
 })
 

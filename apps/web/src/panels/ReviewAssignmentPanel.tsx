@@ -178,6 +178,16 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
     enabled:  !!projectId,
   })
 
+  // Open comments (approvals don't count) must be resolved by the Author before submitting.
+  // Same query key as the Comments panel, so this is a cache read.
+  const { data: commentList = [] } = useQuery({
+    queryKey: ['comments', documentId],
+    queryFn:  () => documentsApi.getComments(documentId),
+    enabled:  !!documentId,
+    retry:    false,
+  })
+  const openCommentCount = commentList.filter(c => c.status === 'open' && c.verdict !== 'approve').length
+
   const [reviewType, setReviewType] = useState<'parallel' | 'sequential'>('parallel')
   const [dueDate,    setDueDate]    = useState('')
   const [dateError,  setDateError]  = useState<string | null>(null)
@@ -437,6 +447,11 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             {t('page.review_assignment_panel.part_submitted', { names: waitingFor.join(', ') })}
           </div>
         )}
+        {openCommentCount > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" role="alert" data-open-comments-block>
+            {t('page.review_assignment_panel.open_comments_block', { count: openCommentCount })}
+          </div>
+        )}
         {submitMut.isError && (
           <div className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
             {submitErrorMessage(submitMut.error, statusMeta.label, t)}
@@ -454,7 +469,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitMut.isPending || !dueDate || isPastDate(dueDate) || !!waitingFor}
+            disabled={submitMut.isPending || !dueDate || isPastDate(dueDate) || !!waitingFor || openCommentCount > 0}
             title={!dueDate ? t('page.review_assignment_panel.pick_due_first_title') : undefined}
             className="flex-1 rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
           >

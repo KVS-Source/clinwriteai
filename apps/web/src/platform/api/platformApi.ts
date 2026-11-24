@@ -1023,7 +1023,10 @@ export interface DocumentTypePolicyEditableFields {
 
 export interface DocumentTypePolicyCreateBody extends DocumentTypePolicyEditableFields {
   docType:    string
-  smePrompt:  string          // required on create (API Zod)
+  // Optional on create — server defaults to a "configure in AI Prompts"
+  // placeholder since the real SME text lives on AiPromptRecord, which
+  // the policy auto-resolves per docType.
+  smePrompt?: string
 }
 
 export type DocumentTypePolicyUpdateBody = DocumentTypePolicyEditableFields

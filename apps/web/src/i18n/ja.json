@@ -1215,7 +1215,7 @@
       "col_status":         "ステータス",
       "col_updated":        "最終更新",
       "col_assignee":       "担当者",
-      "col_quick_actions":  "クイック アクション",
+      "col_quick_actions":  "操作",
       "col_comments":       "コメント",
 
       "loading":        "ドキュメントを読み込み中…",

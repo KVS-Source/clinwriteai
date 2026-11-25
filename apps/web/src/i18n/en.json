@@ -1108,7 +1108,7 @@
       "col_status": "Status",
       "col_updated": "Last Updated",
       "col_assignee": "Assigned To",
-      "col_quick_actions": "Quick Actions",
+      "col_quick_actions": "Actions",
       "col_comments": "Comments",
       "loading": "Loading documents…",
       "empty_filters": "No documents match these filters",

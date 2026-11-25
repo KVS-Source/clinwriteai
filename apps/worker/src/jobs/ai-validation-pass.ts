@@ -73,6 +73,9 @@ const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   'undefined_acronym':      10,
   // Module C — Medical FK regression soft flag (migration 105 C-5).
   'fk_score_raised':        15,
+  // Module C — CME MCQ structure (D-3) + expiry gate (D-4), both soft.
+  'mcq_structure_invalid':  15,
+  'content_past_expiry':    10,
 }
 const AI_UNKNOWN_WEIGHT = 15
 

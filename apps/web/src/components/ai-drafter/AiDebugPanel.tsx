@@ -237,6 +237,9 @@ const FLAG_LABELS: Record<string, string> = {
   'undefined_acronym':        'Used an acronym that was never defined in this document',
   // Module C FK regression (migration 105 Package C-5).
   'fk_score_raised':          'Flesch-Kincaid grade rose above the patient-facing target (8.0) after rewrite',
+  // Module C MCQ + expiry (Packages D-3 + D-4).
+  'mcq_structure_invalid':    'CME assessment section is missing a correct-answer marker or has fewer than 4 options per question',
+  'content_past_expiry':      'Content item is past its expiry date — re-approve before the next MLR submission',
 }
 
 const DROP_REASON_LABELS: Record<string, string> = {

@@ -41,6 +41,18 @@ export const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   // decides; doesn't trigger a retry because patient-facing
   // simplification is rarely a one-prompt fix.
   'fk_score_raised':        15,
+  // Module C CME MCQ structural check (Package D-3). Fired on
+  // cme_module content when the rewritten HTML looks like an
+  // assessment-style section (contains question marks + lettered
+  // options) but doesn't satisfy the MCQ contract (≥4 options per
+  // question + exactly one correct marker per question). Soft.
+  'mcq_structure_invalid':  15,
+  // Module C expiry gate (Package D-4). Fired when the author
+  // regenerates a section on a content item past its expiryDate.
+  // Soft — a rewrite on expired content is unusual but not
+  // forbidden; the flag signals it's time to re-approve before the
+  // next MLR submission.
+  'content_past_expiry':    10,
 }
 
 const AI_UNKNOWN_WEIGHT = 15

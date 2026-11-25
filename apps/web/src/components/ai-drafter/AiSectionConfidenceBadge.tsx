@@ -29,6 +29,9 @@ const FLAG_KEY: Record<string, string> = {
   'undefined_acronym':      'flag_undefined_acronym',
   // Module C FK regression (migration 105 Package C-5).
   'fk_score_raised':        'flag_fk_score_raised',
+  // Module C MCQ + expiry (Packages D-3 + D-4).
+  'mcq_structure_invalid':  'flag_mcq_structure_invalid',
+  'content_past_expiry':    'flag_content_past_expiry',
 }
 
 function friendlyFlag(code: string, t: TFunction): string {

@@ -62,6 +62,9 @@ const FLAG_LABEL_KEYS: Record<string, string> = {
   'undefined_acronym':      'page.ai_drafting_report_panel.flag_undefined_acronym',
   // Module C FK regression (migration 105 Package C-5).
   'fk_score_raised':        'page.ai_drafting_report_panel.flag_fk_score_raised',
+  // Module C MCQ + expiry (Packages D-3 + D-4).
+  'mcq_structure_invalid':  'page.ai_drafting_report_panel.flag_mcq_structure_invalid',
+  'content_past_expiry':    'page.ai_drafting_report_panel.flag_content_past_expiry',
 }
 
 interface Props {

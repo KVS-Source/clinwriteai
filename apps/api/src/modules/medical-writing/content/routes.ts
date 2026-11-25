@@ -38,6 +38,7 @@ import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
 import { loadMedContentDocuments } from './content-sources.js'
 import { computeFkGrade, isFkGatedType, FK_TARGET } from './fk-score.js'
 import { buildMedContentAttachedContext } from './must-preserve-med.js'
+import { validateMcqStructure, isMcqGatedType } from './mcq-validator.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -955,6 +956,32 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
         fkTrace = { preGrade, postGrade, fired }
       }
 
+      // CME MCQ structural soft validator (Package D-3). Fires on
+      // cme_module content when the rewritten HTML looks like an
+      // assessment block but doesn't satisfy the MCQ contract.
+      let mcqTrace: { looksLikeMcq: boolean; questionCount: number; optionCount: number; correctMarkerCount: number; structurallyValid: boolean } | null = null
+      if (isMcqGatedType(item.type)) {
+        const r = validateMcqStructure(validation.html)
+        mcqTrace = r
+        if (r.looksLikeMcq && !r.structurallyValid && !flagsWithFk.includes('mcq_structure_invalid')) {
+          flagsWithFk.push('mcq_structure_invalid')
+        }
+      }
+
+      // Expiry-aware rewrite gate (Package D-4). Soft flag when the
+      // author regenerates content on an item past its expiryDate —
+      // a rewrite isn't forbidden (reaffirming content is a valid
+      // workflow), but the author should re-approve before the next
+      // MLR submission.
+      let expiryTrace: { expiryDate: string | null; pastExpiry: boolean } | null = null
+      if (item.expiryDate) {
+        const past = item.expiryDate.getTime() < Date.now()
+        expiryTrace = { expiryDate: item.expiryDate.toISOString(), pastExpiry: past }
+        if (past && !flagsWithFk.includes('content_past_expiry')) {
+          flagsWithFk.push('content_past_expiry')
+        }
+      }
+
       // Persist aiConfidence + aiFlags onto the matching MedContentSection
       // row so the Medical confidence badge reflects the retry outcome +
       // any FK regression. Best-effort — this route accepts an opaque
@@ -988,6 +1015,9 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
           validatorRetried: validation.retried,
           // Package C-5: FK regression audit (null when type isn't gated).
           fkTrace:          fkTrace,
+          // Packages D-3 + D-4: MCQ structure + expiry gate audit.
+          mcqTrace:         mcqTrace,
+          expiryTrace:      expiryTrace,
           validatorTrace:   validation.trace.map(t => ({
             attempt: t.attempt,
             flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),

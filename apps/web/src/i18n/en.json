@@ -703,7 +703,9 @@
       "flag_invented_citation": "Invented citation",
       "flag_number_drift": "Number drift",
       "flag_undefined_acronym": "Undefined acronym",
-      "flag_fk_score_raised": "Reading-grade rose above target"
+      "flag_fk_score_raised": "Reading-grade rose above target",
+      "flag_mcq_structure_invalid": "MCQ structure broken",
+      "flag_content_past_expiry": "Content past expiry"
     },
     "audit_trail_panel": {
       "no_access": "You don't have access to this document's audit trail.",
@@ -4464,7 +4466,9 @@
       "flag_invented_citation": "Invented citation",
       "flag_number_drift": "Number drift",
       "flag_undefined_acronym": "Undefined acronym",
-      "flag_fk_score_raised": "Reading-grade rose above target"
+      "flag_fk_score_raised": "Reading-grade rose above target",
+      "flag_mcq_structure_invalid": "MCQ structure broken",
+      "flag_content_past_expiry": "Content past expiry"
     },
     "checklist_item_badge": {
       "owner_label_r": "R",

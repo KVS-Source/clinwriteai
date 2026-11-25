@@ -509,6 +509,11 @@ async function buildServer() {
     await import('./modules/medical-writing/content/ai-suggest-section-routes.js')
   await app.register(medContentAiSuggestSectionRoutes, { prefix: '/med-content' })
 
+  // Migration 105 Package C-7 — slide-level AI rewrite for HCP decks.
+  const { medSlideAiSuggestRoutes } =
+    await import('./modules/medical-writing/content/slide-ai-suggest-routes.js')
+  await app.register(medSlideAiSuggestRoutes, { prefix: '/med-content' })
+
   // Phase M-C.5 — section + slide comments with RACI gating.
   const { medContentCommentRoutes, medSlideCommentRoutes } =
     await import('./modules/medical-writing/content/comment-routes.js')

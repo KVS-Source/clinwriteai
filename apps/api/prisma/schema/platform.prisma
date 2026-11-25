@@ -72,6 +72,9 @@ model User {
   // text, optional, never validated. Not the tenant link above (which decides
   // what data the user can see and stays as the inviting admin set it).
   tenantRef     String?  @map("tenant_ref")
+  // Job title and department the invitee entered when registering (optional free text). Migration 104.
+  title         String?
+  department    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

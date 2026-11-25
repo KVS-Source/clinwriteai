@@ -18,6 +18,8 @@ export interface AdminUser {
   tenantId: string | null
   tenantName?: string | null    // the real tenant's name (looked up by the API from tenantId)
   tenantRef?: string | null     // Tenant ID the user typed when registering (free text)
+  title?: string | null         // job title and department entered when registering
+  department?: string | null
   termsAcceptedAt?: string | null   // set when the invitation is accepted (registration)
   lastActiveAt: string | null   // stamped on each sign-in (auth/routes.ts)
   createdAt: string

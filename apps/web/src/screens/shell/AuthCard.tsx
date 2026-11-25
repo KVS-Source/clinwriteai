@@ -49,7 +49,7 @@ export function AuthCard({ title, subtitle, screen, children }: {
   )
 }
 
-export function AuthField({ id, label, type = 'text', value, onChange, autoComplete, autoFocus, placeholder, requiredMark, optional }: {
+export function AuthField({ id, label, type = 'text', value, onChange, autoComplete, autoFocus, placeholder, requiredMark, optional, maxLength }: {
   id: string
   label: string
   type?: 'text' | 'email' | 'password'
@@ -62,6 +62,7 @@ export function AuthField({ id, label, type = 'text', value, onChange, autoCompl
   requiredMark?: boolean
   /** Inputs are `required` by default; pass true for an optional field. */
   optional?: boolean
+  maxLength?: number
 }) {
   return (
     <div>
@@ -77,6 +78,7 @@ export function AuthField({ id, label, type = 'text', value, onChange, autoCompl
         autoFocus={autoFocus}
         placeholder={placeholder}
         required={!optional}
+        maxLength={maxLength}
         className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600 focus:shadow-focus transition-colors"
       />
     </div>

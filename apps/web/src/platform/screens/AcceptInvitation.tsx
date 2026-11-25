@@ -66,6 +66,8 @@ export function AcceptInvitation() {
   const token = params.get('token') ?? ''
 
   const [name,     setName]     = useState('')
+  const [title,    setTitle]    = useState('')   // optional job title
+  const [department, setDepartment] = useState('')   // optional
   const [tenantRef, setTenantRef] = useState('')   // optional free text
   const [password, setPassword] = useState('')
   const [confirm,  setConfirm]  = useState('')
@@ -79,7 +81,7 @@ export function AcceptInvitation() {
   })
 
   const register = useMutation({
-    mutationFn: () => authApi.registerFromInvite(token, name.trim(), password, tenantRef.trim() || undefined),
+    mutationFn: () => authApi.registerFromInvite(token, name.trim(), password, { title: title.trim(), department: department.trim(), tenantRef: tenantRef.trim() }),
     onSuccess: () => navigate('/sign-in?registered=1', { replace: true }),
   })
 
@@ -129,6 +131,8 @@ export function AcceptInvitation() {
           <ReadOnlyField label={t('page.accept_invitation.role_label')} value={formatRole(data.role)} attr="data-invite-role" />
 
           {/* Optional free text, saved as entered. */}
+          <AuthField id="invite-title" label={t('page.accept_invitation.title_label')} value={title} onChange={setTitle} autoComplete="organization-title" placeholder={t('page.accept_invitation.optional_placeholder')} maxLength={120} optional />
+          <AuthField id="invite-department" label={t('page.accept_invitation.department_label')} value={department} onChange={setDepartment} autoComplete="off" placeholder={t('page.accept_invitation.optional_placeholder')} maxLength={120} optional />
           <AuthField
             id="invite-tenant"
             label={t('page.accept_invitation.tenant_label')}

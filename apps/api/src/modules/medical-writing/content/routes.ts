@@ -1170,4 +1170,35 @@ export const kolSessionRoutes: FastifyPluginAsync = async (app) => {
       generatedAt: new Date().toISOString(),
     }
   })
+
+  // GET /med-content/:id/ai-debug-steps (migration 105 Package C-8)
+  //
+  // Returns the per-content step log the ai-suggest + slide-ai-suggest
+  // retry wrappers write via Package C-4 + C-7's step emitters.
+  // Scoped subset of Clinical's GET /documents/:id/ai-debug — only
+  // the draftSteps field, because Module C doesn't have Clinical's
+  // full ai-debug rollup infrastructure (sources, pass summary) yet.
+  // Any future MedContentAiDebugPanel consumes this endpoint.
+  app.get('/:contentId/ai-debug-steps', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const item = await app.prisma.medContentItem.findUnique({
+      where:  { id: contentId },
+      select: { id: true, projectId: true, status: true },
+    })
+    if (!item || item.status === 'archived') return reply.code(404).send({ error: 'not_found' })
+
+    const steps = await app.prisma.aiDraftStep.findMany({
+      where:   { documentId: contentId },
+      orderBy: { timestamp: 'asc' },
+      select:  { id: true, kind: true, message: true, sectionId: true, details: true, elapsedMs: true, timestamp: true },
+      take:    500,
+    })
+    // BigInt id doesn't serialise through JSON.stringify — stringify
+    // here so the client's useQuery can hold the shape without
+    // BigInt errors.
+    return {
+      contentItemId: contentId,
+      draftSteps:    steps.map(s => ({ ...s, id: String(s.id) })),
+    }
+  })
 }

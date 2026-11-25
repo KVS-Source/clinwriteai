@@ -336,6 +336,26 @@ export const medContentApi = {
       `/med-slide-comments/${commentId}/resolve`,
       body,
     ),
+
+  // AI debug step log — migration 105 Package C-8. Returns the per-call
+  // step emissions the ai-suggest + slide-ai-suggest retry wrappers
+  // write (manifest_extracted, validator_check_result, validator_retry).
+  // Clinical has a richer GET /documents/:id/ai-debug that bundles
+  // sources + flags + passes + build summary; Module C returns only the
+  // steps for now (same minimum-viable shape Module B uses).
+  aiDebugSteps: (contentItemId: string) =>
+    api.get<{
+      contentItemId: string
+      draftSteps: Array<{
+        id:         string
+        kind:       string
+        message:    string
+        sectionId:  string | null
+        details:    Record<string, unknown>
+        elapsedMs:  number | null
+        timestamp:  string
+      }>
+    }>(`/med-content/${contentItemId}/ai-debug-steps`),
 }
 
 // --- Comment shapes (Phase M-C.5) --------------------------------------

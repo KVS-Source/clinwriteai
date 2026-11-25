@@ -568,8 +568,7 @@ export function ClinicalWritingHome() {
               return (
                 <div
                   key={doc.id}
-                  onClick={() => setDetailDoc(cur => (cur?.id === doc.id ? null : doc))}
-                  data-panel-trigger
+                  onClick={() => handleDocClick(doc)}
                   data-doc-row={doc.id}
                   aria-selected={detailDoc?.id === doc.id}
                   className={`cursor-pointer items-center border-b border-slate-100 px-5 py-4 text-sm hover:bg-slate-50 transition-colors ${detailDoc?.id === doc.id ? 'bg-blue-50/50' : ''}`}
@@ -627,6 +626,7 @@ export function ClinicalWritingHome() {
                     <DocumentRowMenu
                       doc={doc}
                       onOpen={() => handleDocClick(doc)}
+                      onDetails={() => setDetailDoc(cur => (cur?.id === doc.id ? null : doc))}
                       onDuplicate={isPm ? () => setNewDocOpen({ duplicateSourceId: doc.id }) : undefined}
                       onAuditTrail={() => setAuditDoc({ id: doc.id, title: doc.title })}
                       onRaci={() => setRaciDoc(doc)}
@@ -942,12 +942,13 @@ const PROTOCOL_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol
 function DocumentRowMenu(props: {
   doc: Document
   onOpen: () => void
+  onDetails: () => void
   onDuplicate?: () => void
   onAuditTrail: () => void
   onRaci: () => void
   onProtocolMetadata: () => void
 }) {
-  const { doc, onOpen, onDuplicate, onAuditTrail, onRaci, onProtocolMetadata } = props
+  const { doc, onOpen, onDetails, onDuplicate, onAuditTrail, onRaci, onProtocolMetadata } = props
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
@@ -1018,6 +1019,7 @@ function DocumentRowMenu(props: {
           onClick={e => e.stopPropagation()}
         >
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>{t('page.clinical_writing_home.menu_open')}</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onDetails() }}>{t('page.clinical_writing_home.menu_details', { defaultValue: 'Details & comments' })}</MenuItem>
           {onDuplicate && (
             <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>{t('page.clinical_writing_home.menu_duplicate')}</MenuItem>
           )}

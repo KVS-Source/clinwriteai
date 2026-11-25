@@ -17,16 +17,42 @@ import { SlidePanel, ProjectStatusPill } from '../../components/ui'
 import { documentsApi, projectsApi, reportsApi } from '../../api'
 import {
   MODULE_COLOURS,
-  MODULE_KEY_TO_SLUG,
   MODULE_LABELS,
-  type ModuleKey,
+  MODULE_SLUG_TO_KEY,
+  isModuleEnabled,
   type ModuleSlug,
 } from '../../config/modules'
+
+// Keep the overview panel in lock-step with the Projects-list chips —
+// show every module the install is licensed for (same order, same zero
+// treatment), not just the ones this project happens to have activated.
+const MODULE_ORDER: ModuleSlug[] = [
+  'clinical-writing',
+  'scientific-writing',
+  'medical-writing',
+  'regulatory-writing',
+  'ideation-publishing',
+]
 
 interface Props {
   open:     boolean
   onClose:  () => void
   project:  Project | null
+}
+
+// Map a module slug onto the corresponding Project.documentCountByModule
+// camelCase key so the overview panel can read the count the server sent
+// without duplicating the per-module list.
+const COUNT_KEY_FOR_SLUG: Record<ModuleSlug, keyof NonNullable<Project['documentCountByModule']>> = {
+  'clinical-writing':    'clinicalWriting',
+  'scientific-writing':  'scientificWriting',
+  'medical-writing':     'medicalWriting',
+  'regulatory-writing':  'regulatoryWriting',
+  'ideation-publishing': 'ideationPublishing',
+}
+
+function moduleDocCount(project: Project, slug: ModuleSlug): number {
+  return project.documentCountByModule?.[COUNT_KEY_FOR_SLUG[slug]] ?? 0
 }
 
 export function ProjectOverviewPanel({ open, onClose, project }: Props) {
@@ -168,21 +194,24 @@ export function ProjectOverviewPanel({ open, onClose, project }: Props) {
           </div>
         </section>
 
-        {/* Active modules — "Open Clinical Writing →" and friends.
-            Replaces the row of module cards from the retired full
-            dashboard page so writers can enter each active module
-            without closing the panel to click a row chip. Inactive
-            modules stay row-level (DocumentCountChips rendered 0 → no
-            chip); the panel only lists what's turned on for this
-            project. */}
-        {project.activeModules.length > 0 && (
+        {/* Modules — one row per install-licensed module (same list the
+            Projects-column chips render). Each row carries the doc count
+            for that module so customers see what they're licensed for
+            AND how much work is in each one. Zero-count rows render
+            muted but stay clickable so a fresh project can jump straight
+            into any enabled module. */}
+        {(() => {
+          const enabledModules = MODULE_ORDER.filter(slug => isModuleEnabled(MODULE_SLUG_TO_KEY[slug]))
+          if (enabledModules.length === 0) return null
+          return (
           <section className="rounded-lg border border-slate-200 bg-white p-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Modules</p>
             <div className="mt-2 flex flex-col gap-1.5">
-              {project.activeModules.map(rawKey => {
-                const slug: ModuleSlug = (MODULE_KEY_TO_SLUG[rawKey as ModuleKey] ?? rawKey) as ModuleSlug
+              {enabledModules.map(slug => {
                 const label  = MODULE_LABELS[slug] ?? slug
                 const colour = MODULE_COLOURS[slug] ?? '#2563EB'
+                const count  = moduleDocCount(project, slug)
+                const isZero = count === 0
                 return (
                   <button
                     key={slug}
@@ -190,18 +219,32 @@ export function ProjectOverviewPanel({ open, onClose, project }: Props) {
                     onClick={() => { onClose(); navigate(`/projects/${project.id}/${slug}`) }}
                     className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-[13px] hover:bg-slate-50"
                     data-module-open={slug}
+                    data-module-count={count}
                   >
                     <span className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colour }} />
                       <span className="font-semibold" style={{ color: colour }}>{label}</span>
                     </span>
-                    <span className="text-slate-400">Open →</span>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="inline-flex min-w-[24px] justify-center rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums"
+                        style={
+                          isZero
+                            ? { backgroundColor: '#F1F5F9', color: '#94A3B8' }
+                            : { backgroundColor: `${colour}14`, color: colour }
+                        }
+                      >
+                        {count}
+                      </span>
+                      <span className="text-slate-400">Open →</span>
+                    </span>
                   </button>
                 )
               })}
             </div>
           </section>
-        )}
+          )
+        })()}
       </div>
     </SlidePanel>
   )

@@ -16,6 +16,18 @@ import {
   actorCanEditRegulatoryDocument,
   REG_DOC_EDIT_FORBIDDEN,
 } from '../access/regulatory-document-raci.js'
+// Migration 105 Package R-4 — shared validators + retry wrapper + the
+// three regulatory-specific helpers (CSR grounding, source auto-attach,
+// Module 5 gate).
+import { extractManifest, renderForPrompt as renderMustPreserve } from '../../clinical-writing/documents/must-preserve.js'
+import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
+import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
+import { buildRegulatoryAttachedContext } from './must-preserve-reg.js'
+// loadRegulatoryDocumentSources exists in ./document-sources.js for
+// shared use by R-5 and future code paths; the existing inline PDF
+// loader below already covers this route's needs (same upload-filter +
+// cap logic the helper encapsulates).
+import { checkModule5Gate, MODULE_5_READONLY_FORBIDDEN } from './ectd-gate.js'
 
 const writeGate = requireAuth({ modules: ['D'] })
 
@@ -62,9 +74,22 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
       return reply.code(403).send(REG_DOC_EDIT_FORBIDDEN)
     }
 
+    // Module 5 read-only gate (Package R-4). DD-D-001: Module 5 (CSR)
+    // sections are sourced from Clinical Writing documents in Module A
+    // and are read-only here. Refuse BEFORE any AI call.
+    const module5 = await checkModule5Gate(app.prisma, id)
+    if (module5.readOnly) {
+      return reply.code(403).send({ ...MODULE_5_READONLY_FORBIDDEN, message: module5.message, moduleSections: module5.moduleSections })
+    }
+
     const section = await app.prisma.regulatoryDocumentSection.findFirst({
       where:  { regulatoryDocumentVersionId: doc.currentVersionId, sectionId },
-      select: { id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
+      select: {
+        id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true,
+        // Package R-4: read snapshotted guidance for the TEMPLATE
+        // GUIDANCE prompt block.
+        templateInstructions: true, templateGuidance: true,
+      },
     })
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
@@ -193,33 +218,109 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
       SECTION_GROUNDING_RULES,
     ].join('\n')
 
+    // Package R-4: TEMPLATE GUIDANCE block from the snapshotted
+    // instructions + guidance on the section row.
+    const tIns  = ((section as { templateInstructions?: string | null }).templateInstructions ?? '').trim()
+    const tGuid = ((section as { templateGuidance?:     string | null }).templateGuidance     ?? '').trim()
+    const templateGuidanceBlock = tIns || tGuid
+      ? [
+          ``,
+          `TEMPLATE GUIDANCE for this section (from the template authored for ${docType}):`,
+          tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+          tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+          `Follow these precisely — they are the template's authored intent for this section.`,
+          ``,
+        ].filter(Boolean).join('\n')
+      : ''
+
+    // Package R-4: MUST PRESERVE manifest extracted fresh from the
+    // current body. Catches dropped CSR cross-refs (Table 14.2.1,
+    // §14.3.2.1, Figure 2.1) + numbers + study ids via the shared
+    // regex. The retry wrapper diffs this against the model output.
+    const manifestBefore = extractManifest(currentContent)
+    const mustPreserveBlock = renderMustPreserve(manifestBefore)
+
+    // Package R-4: CSR grounding via CanonicalJsonEntry on the parent
+    // submission. Degraded mode (no indexed entries) returns empty
+    // allowedTokens → the citation-grounding check becomes
+    // informational only; dropped-ref catches still fire.
+    const attachedSources = await buildRegulatoryAttachedContext(app.prisma, id)
+
     const composedPrompt = [
       scaffold,
       authorBlock,
       policyBlock ? `\n${policyBlock}\n` : '',
+      templateGuidanceBlock,
+      mustPreserveBlock,
       '---',
       promptBody,
       textExcerpts.length > 0 ? `\n---\nAttachments metadata:\n${textExcerpts.join('\n')}` : '',
     ].filter(Boolean).join('\n')
 
     try {
-      const result = await app.aiGateway.chat({
-        tenantId:          request.user!.tenantId ?? 'unknown',
-        projectId:         doc.projectId,
-        actorId:           request.user!.id,
-        module:            'D',
-        intent:            parsed.data.intent,
-        model:             parsed.data.model || 'claude-sonnet-4-5',
-        prompt:            composedPrompt,
-        maxOutputTokens:   parsed.data.intent === 'edit' ? 4096 : 2048,
-        documents:         documentAttachments.length > 0 ? documentAttachments : undefined,
-        documentId:        id,                     // reuse the field for regulatoryDocumentId
-        sectionId:         section.sectionId,
-        preCallSectionHtml: currentContent,
-        promptText:        parsed.data.customPrompt ?? parsed.data.intent,
-      })
+      // Package R-4: step emitter writes to ai_draft_steps keyed by
+      // regulatoryDocumentId (no FK on that column, so safe).
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId: id,
+              versionId:  doc.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
 
-      const responseText = parsed.data.intent === 'edit' ? stripCodeFence(result.responseText) : result.responseText
+      let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
+      const validation = await callWithValidation({
+        manifestBefore,
+        attachedSources,
+        steps:     stepsEmitter,
+        sectionId: section.sectionId,
+        call: async ({ prependPrompt }) => {
+          const effectivePrompt = prependPrompt
+            ? `${prependPrompt}\n\n----\n\n${composedPrompt}`
+            : composedPrompt
+          const r = await app.aiGateway.chat({
+            tenantId:           request.user!.tenantId ?? 'unknown',
+            projectId:          doc.projectId,
+            actorId:            request.user!.id,
+            module:             'D',
+            intent:             parsed.data.intent,
+            model:              parsed.data.model || 'claude-sonnet-4-5',
+            prompt:             effectivePrompt,
+            maxOutputTokens:    parsed.data.intent === 'edit' ? 4096 : 2048,
+            documents:          documentAttachments.length > 0 ? documentAttachments : undefined,
+            documentId:         id,
+            sectionId:          section.sectionId,
+            preCallSectionHtml: currentContent,
+            promptText:         parsed.data.customPrompt ?? parsed.data.intent,
+          })
+          lastGatewayResult = r
+          return { html: parsed.data.intent === 'edit' ? stripCodeFence(r.responseText) : r.responseText }
+        },
+      })
+      const result = lastGatewayResult!
+
+      // Package R-4: persist aiConfidence + aiFlags on the section row
+      // so the existing RegulatoryDocumentLiveEditor badge + flag
+      // chips reflect the retry outcome.
+      try {
+        const score = scoreSection(validation.flags)
+        await app.prisma.regulatoryDocumentSection.update({
+          where: { id: section.id },
+          data:  { aiConfidence: score, aiFlags: validation.flags },
+        })
+      } catch (err) {
+        app.log.warn({ err, regulatoryDocumentId: id, sectionId: section.sectionId }, 'reg section confidence update failed (non-fatal)')
+      }
+
+      const responseText = validation.html
 
       await app.audit.append({
         timestamp:  new Date().toISOString(),
@@ -242,6 +343,15 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
           autoAttachedSources:   autoAttachedUploadIds.length,
           explicitAttachedSources: explicitAttachedIds.length,
           outcome:               'completed',
+          // Package R-4: CSR grounding + validator outcome audit.
+          canonicalTokensCount: attachedSources.allowedTokens?.length ?? 0,
+          validatorFlags:       validation.flags,
+          validatorRetried:     validation.retried,
+          validatorTrace:       validation.trace.map(t => ({
+            attempt: t.attempt,
+            flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),
+            retriedBecause: t.retriedBecause,
+          })),
         },
         ipAddress: request.ip ?? null,
       }).catch(err => request.log.error({ err }, 'regulatory_document_ai_suggestion_requested audit failed'))

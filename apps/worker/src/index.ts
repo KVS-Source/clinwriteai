@@ -33,6 +33,7 @@ import { handleAiValidationPassIdeationArtefact }   from './jobs/ideation-ai-val
 import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleDistillPubTemplate } from './jobs/distill-pub-template.js'
 import { handleDistillMedTemplate } from './jobs/distill-med-template.js'
+import { handleDistillRegTemplate } from './jobs/distill-reg-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
@@ -144,6 +145,9 @@ const handlers = {
   // Module C — same but for the medical-communications template library
   // (migration 105 Package C-2).
   'med_content.distill_template':  handleDistillMedTemplate,
+  // Module D — same but for the regulatory-submission template library
+  // (migration 105 Package R-2).
+  'regulatory.distill_template':   handleDistillRegTemplate,
   // Module C — one slide inserted into a MedSlideDeckJob via Claude.
   // Enqueued from the Content Editor's "+ New slide with AI" button.
   'med_content.ai_slide_draft': handleGenerateMedSlide,
@@ -193,6 +197,7 @@ const concurrency: Record<JobName, number> = {
   'platform.distill_template':     1,
   'publications.distill_template': 1,
   'med_content.distill_template':  1,
+  'regulatory.distill_template':   1,
   // Slide generation: serial to keep provider pressure predictable — users
   // click "+ New slide with AI" one slide at a time anyway. Bump when
   // full-deck generation (20 slides at a time) lands.

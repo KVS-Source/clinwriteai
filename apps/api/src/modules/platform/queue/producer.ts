@@ -40,6 +40,8 @@ export type QueueJobName =
   | 'publications.distill_template'
   // Module C medical-communications template PDF distiller — migration 105 Package C-2.
   | 'med_content.distill_template'
+  // Module D regulatory-submission template PDF distiller — migration 105 Package R-2.
+  | 'regulatory.distill_template'
   // Module C — medical-writing initial-draft + 85% loop.
   | 'med_content.ai_initial_draft'
   | 'med_content.ai_validation_pass'

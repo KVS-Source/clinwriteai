@@ -349,6 +349,11 @@ async function buildServer() {
   await app.register(regulatoryAiPromptRoutes,      { prefix: '/regulatory-ai-prompts' })
   await app.register(regulatoryBestPracticeRoutes,  { prefix: '/regulatory-best-practice-records' })
 
+  // Migration 105 Package R-2 — regulatory template PDF distiller endpoint.
+  const { regulatoryDocumentTemplateParseRoutes } =
+    await import('./modules/regulatory-writing/templates/template-parse-routes.js')
+  await app.register(regulatoryDocumentTemplateParseRoutes, { prefix: '/regulatory-document-templates' })
+
   // Ideation Policy admin (Phase M-E.1, migration 87) — mirror of the
   // regulatory policy stack scoped to ideation / KOL engagement
   // doctypes (kol_engagement_brief, patient_story, hcp_insight_report,

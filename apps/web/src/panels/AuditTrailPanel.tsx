@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next'
 import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
-import { ApiError, apiConfig } from '../api/client'
+import { ApiError, apiConfig, identityHeaders } from '../api/client'
 import { useSignatureAccess } from '../screens/output/useSignatureAccess'
 import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZoneMode } from '../components/ui/DateTimeRangeFilter'
 import { wordDiff, type DiffOp } from './wordDiff'
@@ -303,7 +303,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
     setDownloadError(null)
     try {
       const path = format === 'csv' ? 'audit/export' : 'audit/pdf'
-      const res = await fetch(`${apiConfig.baseUrl}/documents/${encodeURIComponent(documentId)}/${path}`, { credentials: 'include' })
+      const res = await fetch(`${apiConfig.baseUrl}/documents/${encodeURIComponent(documentId)}/${path}`, { credentials: 'include', headers: identityHeaders() })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1]

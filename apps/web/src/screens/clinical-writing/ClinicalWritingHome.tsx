@@ -160,10 +160,10 @@ export function ClinicalWritingHome() {
   const qc = useQueryClient()
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
-  const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
+  const [justAdded, setJustAdded] = useState<{ count: number } | null>(null)
   // Source saved from the upload drawer while the New document wizard was open.
-  const [wizardUploadId, setWizardUploadId] = useState<string | null>(null)
-  useEffect(() => { if (newDocOpen === false) setWizardUploadId(null) }, [newDocOpen])
+  const [wizardUploadIds, setWizardUploadIds] = useState<readonly string[]>(NO_UPLOADS)
+  useEffect(() => { if (newDocOpen === false) setWizardUploadIds(NO_UPLOADS) }, [newDocOpen])
 
   useEffect(() => { if (view !== 'documents') { setDetailDoc(null); setCommentsDocId(null); setRaciDoc(null) } }, [view])
 
@@ -196,13 +196,15 @@ export function ClinicalWritingHome() {
   // it is uploaded, even if the user cancels before saving it to the library.
   // An upload is stored as soon as the file transfers, but it only joins the library when the
   // user presses "Save to library". Closing the panel any other way discards it.
-  const pendingUploadRef = useRef<string | null>(null)
+  const pendingUploadRef = useRef<readonly string[]>([])
   const closeUpload = () => {
     const pending = pendingUploadRef.current
-    pendingUploadRef.current = null
+    pendingUploadRef.current = []
     setUploadOpen(false)
     const refresh = () => { void qc.invalidateQueries({ queryKey: ['source-documents', projectId] }) }
-    if (pending && projectId) void documentsApi.discardSource(projectId, pending).catch(() => undefined).finally(refresh)
+    if (pending.length > 0 && projectId) {
+      void Promise.all(pending.map(id => documentsApi.discardSource(projectId, id).catch(() => undefined))).finally(refresh)
+    }
     else refresh()
   }
 
@@ -464,7 +466,7 @@ export function ClinicalWritingHome() {
           <div className="flex min-w-0 flex-1 flex-col gap-4">
             {justAdded && (
               <div className="flex items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-900" role="status" data-upload-success>
-                <span>{t('page.clinical_writing_home.source_saved_toast')}</span>
+                <span>{t('page.clinical_writing_home.source_saved_toast', { count: justAdded.count })}</span>
                 <span className="flex flex-none items-center gap-4">
                   <button type="button" onClick={() => setJustAdded(null)} className="font-semibold underline" aria-label={t('page.clinical_writing_home.dismiss')}>{t('page.clinical_writing_home.dismiss')}</button>
                 </span>
@@ -793,7 +795,7 @@ export function ClinicalWritingHome() {
             // picks + chosen type survive; after upload closes they're
             // back in step 2 with the new source available.
             onRequestUpload={() => setUploadOpen(true)}
-            uploadedSourceId={wizardUploadId}
+            uploadedSourceIds={wizardUploadIds}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)
@@ -841,15 +843,15 @@ export function ClinicalWritingHome() {
           <UploadDocumentForm
             projectId={projectId}
             onCancel={closeUpload}
-            onPendingChange={id => { pendingUploadRef.current = id }}
-            onSaved={uploadId => {
+            onPendingChange={ids => { pendingUploadRef.current = ids }}
+            onSaved={uploadIds => {
               closeUpload()
-              // Opened from the New document wizard: hand the source back to it (selected),
+              // Opened from the New document wizard: hand the source(s) back to it (selected),
               // and leave the page behind the wizard as it was.
-              if (newDocOpen !== false) { setWizardUploadId(uploadId); return }
-              // Stay on the project's source-document list: the new row appears here as "Saved".
+              if (newDocOpen !== false) { setWizardUploadIds(uploadIds); return }
+              // Stay on the project's source-document list: the new row(s) appear here as "Saved".
               showSources()
-              setJustAdded({ uploadId })
+              setJustAdded({ count: uploadIds.length })
             }}
           />
         )}
@@ -859,6 +861,9 @@ export function ClinicalWritingHome() {
 }
 
 // --- Small helpers ---
+
+// A stable "none", so the wizard's effect doesn't run on every render.
+const NO_UPLOADS: readonly string[] = []
 
 // Initials skip honorifics, so "Dr Elena Vasquez" → "EV", not "DE".
 const initialsOf = (name: string) =>

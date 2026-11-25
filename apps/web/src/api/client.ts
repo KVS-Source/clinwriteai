@@ -61,6 +61,14 @@ function demoPersonaHeader(): Record<string, string> {
   } catch { return {} }
 }
 
+/**
+ * Who is asking, and in which role. The calls below add these themselves; code that must bypass them (an
+ * XMLHttpRequest for upload progress) has to send them too, or the server answers as someone else.
+ */
+export function identityHeaders(): Record<string, string> {
+  return { ...demoPersonaHeader(), ...activeRoleHeader() }
+}
+
 // 429 means "slow down", not "you're signed out" and not "this failed". A read waits as long as the API
 // asks and goes again, so the page carries on by itself. Anything that changes data isn't retried here:
 // the user is told, and decides. RateLimitNotice shows both.
@@ -96,7 +104,7 @@ async function requestWithHeaders<T>(endpoint: string, options?: RequestOptions)
       // this header is rejected by Fastify ("Body cannot be empty").
       ...(init.body != null ? { 'Content-Type': 'application/json' } : {}),
       Accept: 'application/json',
-      ...demoPersonaHeader(), ...activeRoleHeader(),
+      ...identityHeaders(),
       ...(init.headers ?? {}),
     },
   })
@@ -141,7 +149,7 @@ async function upload<T>(endpoint: string, body: FormData, options?: RequestOpti
     body,
     headers: {
       Accept: 'application/json',
-      ...demoPersonaHeader(), ...activeRoleHeader(),
+      ...identityHeaders(),
       ...(init.headers ?? {}),
     },
   })
@@ -163,7 +171,7 @@ async function upload<T>(endpoint: string, body: FormData, options?: RequestOpti
 // on failure, so callers can show the real reason ("file_missing", "quarantined"...).
 async function download(endpoint: string, options?: Pick<RequestOptions, 'on401'>): Promise<{ blob: Blob; filename: string | null }> {
   const { on401 = 'throw' } = options ?? {}
-  const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include', headers: { ...demoPersonaHeader(), ...activeRoleHeader() } })
+  const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include', headers: identityHeaders() })
   if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined' && !onPublicAuthPage()) {
     window.location.assign(`${LOGIN_URL}?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     throw new ApiError(401, null)

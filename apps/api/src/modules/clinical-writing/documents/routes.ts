@@ -886,11 +886,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    const [project, generatedBy, compliance] = await Promise.all([
+    const [project, generatedBy, compliance, signerProfiles] = await Promise.all([
       app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { shortTitle: true, name: true, therapeuticArea: true, phase: true } }),
       app.prisma.user.findUnique({ where: { id: actor.id }, select: { name: true } }),
       buildComplianceSummary(app.prisma, doc),
+      // Each signer's department and job title as they are now, so an edit shows in the next export.
+      signatures.length === 0 ? Promise.resolve([]) : app.prisma.user.findMany({
+        where:  { id: { in: [...new Set(signatures.map(s => s.signerId))] } },
+        select: { id: true, title: true, department: true },
+      }),
     ])
+    const profileOf = new Map(signerProfiles.map(u => [u.id, u]))
+    const printedSignatures = signatures.map(s => ({
+      ...s,
+      signerDepartment: profileOf.get(s.signerId)?.department ?? null,
+      signerTitle:      profileOf.get(s.signerId)?.title ?? null,
+    }))
     const version = doc.currentVersion?.versionNumber ?? 'v0.0'
     const mode = signed ? 'signed' as const : 'draft' as const
     const exportId = randomUUID()
@@ -903,7 +914,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       project,
       sections: sections.map(s => ({ number: s.sectionNumber, title: s.sectionTitle, contentHtml: s.contentHtml })),
       compliance,
-      signatures,
+      signatures: printedSignatures,
       documentHash,
     })
 

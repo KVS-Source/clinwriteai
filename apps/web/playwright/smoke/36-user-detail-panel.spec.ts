@@ -211,4 +211,8 @@ test('the Tenant column shows the typed Tenant ID when the user isn’t linked t
   // Same in the User Detail panel.
   await openUser(page, 'u-ref')
   await expect(panel(page).locator('[data-detail-tenant]')).toHaveText('12345')
+  // QA: the Title field was labelled "User Detail" (its i18n key clashed with the panel title's).
+  for (const [f, label] of [['title', 'Title'], ['department', 'Department']]) {
+    await expect(panel(page).locator(`div:has(> [data-detail-${f}]) > p`).first()).toHaveText(label!)
+  }
 })

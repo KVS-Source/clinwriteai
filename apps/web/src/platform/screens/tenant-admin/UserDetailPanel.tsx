@@ -118,7 +118,7 @@ export function UserDetailPanel({ user, onClose, onSuspend, onReactivate }: {
               <p className="text-slate-900" data-detail-role>{roles.map(r => roleLabelOf(r, t)).join(', ')}</p>
             </div>
             <div>
-              <p className="text-[11px] text-slate-500">{t('page.user_management_live.detail_title')}</p>
+              <p className="text-[11px] text-slate-500">{t('page.user_management_live.detail_job_title')}</p>
               <p className="break-words text-slate-900" data-detail-title>{user.title || '—'}</p>
             </div>
             <div>

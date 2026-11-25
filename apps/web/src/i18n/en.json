@@ -2642,7 +2642,7 @@
     },
     "user_management_live": {
       "tenant_ref_entered": "Tenant ID: {{ref}}",
-      "detail_title": "Title",
+      "detail_job_title": "Title",
       "detail_department": "Department",
       "title": "User Management",
       "user_count_one": "{{count}} user",

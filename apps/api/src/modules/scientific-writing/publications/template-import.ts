@@ -16,7 +16,19 @@ const sectionSchema = z.object({
   id:          z.string().regex(/^[a-z0-9_]+$/),
   number:      z.string().min(1),
   title:       z.string().min(1),
-  guidance:    z.string().optional(),
+  // `guidance` was already authored — kept as-is. Migration 105 adds a
+  // sibling `instructions` field (content requirements: "what this
+  // section must cover") so authored templates can carry BOTH halves of
+  // the per-section NL that the AI regenerate + initial-draft paths
+  // consume. Both are optional + length-capped so a bad import can't
+  // bloat the template JSON blob past reasonable limits.
+  instructions: z.string().max(4_000).optional(),
+  guidance:     z.string().max(4_000).optional(),
+  // `formatRules` — same per-section NL the Clinical distill-template
+  // worker merges in. Kept optional so authored JSON doesn't have to
+  // supply it; the PDF distiller (Package B-2) will populate it when
+  // admins upload an exemplar.
+  formatRules: z.string().max(4_000).optional(),
   internal:    z.boolean().optional(),
   starterHtml: z.string().optional(),
 })

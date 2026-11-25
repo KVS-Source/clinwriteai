@@ -105,6 +105,51 @@ describe('importing a publication template', () => {
     const bad = { ...load(), sections: [{ id: 'a', number: '1', title: 'A' }, { id: 'a', number: '2', title: 'B' }] }
     expect(publicationTemplateFileSchema.safeParse(bad).success).toBe(false)
   })
+
+  // Package B-1 (migration 105): the schema accepts per-section
+  // `instructions` + `guidance` + `formatRules` so authored JSON
+  // carries the same content steering the Clinical distiller extracts
+  // from a PDF. All three are optional — authored templates can supply
+  // any combination.
+  describe('migration 105 — instructions + guidance + formatRules authoring', () => {
+    it('accepts instructions + guidance + formatRules when present and persists them verbatim', async () => {
+      const db = fakeDb()
+      const f = load()
+      f.sections[0] = {
+        ...f.sections[0]!,
+        instructions: 'Include the manuscript short title, journal target, and corresponding author.',
+        guidance:     'Keep the title under 25 words; avoid declarative claims of superiority.',
+        formatRules:  'Font: Times New Roman 12 pt.\nParagraph: double-spaced, flush left.',
+      }
+      const plan = await importPublicationTemplate(db as never, f, 'sys', true)
+      expect(plan.template.action).toBe('create')
+      const [tpl] = db.publicationTemplate.rows
+      const section0 = (tpl!.sections as Array<Record<string, unknown>>)[0]!
+      expect(section0.instructions).toMatch(/short title/)
+      expect(section0.guidance).toMatch(/under 25 words/)
+      expect(section0.formatRules).toMatch(/Times New Roman/)
+    })
+
+    it('leaves instructions undefined when the authored file omits it (fixture pre-dates migration 105)', async () => {
+      const db = fakeDb()
+      const plan = await importPublicationTemplate(db as never, load(), 'sys', true)
+      expect(plan.template.action).toBe('create')
+      const [tpl] = db.publicationTemplate.rows
+      // The shipped fixture authors `guidance` for every section but
+      // doesn't carry `instructions` yet (that field is new in
+      // migration 105). Confirm the importer tolerates its absence
+      // rather than silently defaulting to an empty string.
+      for (const sec of tpl!.sections as Array<Record<string, unknown>>) {
+        expect(sec.instructions).toBeUndefined()
+      }
+    })
+
+    it('rejects an overlong instructions string (shape validation)', () => {
+      const bad = load()
+      bad.sections[0] = { ...bad.sections[0]!, instructions: 'x'.repeat(5_000) }
+      expect(publicationTemplateFileSchema.safeParse(bad).success).toBe(false)
+    })
+  })
 })
 
 describe('a new publication from the imported template', () => {

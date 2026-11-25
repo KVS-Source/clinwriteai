@@ -17,8 +17,9 @@
 //     AI-suggest route (Phase M-B.4) + the validation-pass worker
 //     (Phase M-B.3).
 
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
+import { extractManifest } from '../../clinical-writing/documents/must-preserve.js'
 
 export interface PublicationSectionPayload {
   sectionId:     string
@@ -35,6 +36,16 @@ export interface InitialiseArgs {
    *  provided, each PublicationSectionContent row is seeded with the
    *  approved template's formatJson so AI calls get formatting hints. */
   docType?:      string
+  /** PublicationTemplate.id of the resolved-at-create-time template.
+   *  Snapshots formatRules + instructions + guidance per section onto
+   *  the new PublicationSectionContent rows (migration 105 Package B-4).
+   *  Routes already resolve this via policy.templateId before calling. */
+  templateId?:   string
+  /** Pinned PublicationAiPromptRecord id. Snapshots the per-section
+   *  sectionRules slice onto PublicationSectionContent.aiPromptSectionRules
+   *  so later in-place edits to the pinned record can't silently flow
+   *  through to in-flight publications' regenerate calls. */
+  aiPromptRecordId?: string
 }
 
 /** A PublicationTemplate's `sections` JSON → the v0.1 section payloads for a new publication. Each section keeps its
@@ -94,25 +105,78 @@ export async function initialisePublicationVersion(
   })
 
   if (args.sections.length > 0) {
-    // Per-section snapshot fields (templateFormatRules / templateInstructions
-    // / templateGuidance / aiPromptSectionRules / mustPreserveManifest —
-    // migrations 94 + 104) are populated by the clinical distill-template
-    // worker today. The publications distiller doesn't write into
-    // PublicationTemplate.sections[] yet, so these stay null here. The
-    // Scientific Writing ai-suggest path (not yet implemented) will
-    // consume them once the per-module distiller catches up.
+    // Per-section snapshot fields (migrations 94 + 105):
+    //   - templateFormatRules  : from PublicationTemplate.sections[].formatRules
+    //   - templateInstructions : from PublicationTemplate.sections[].instructions
+    //   - templateGuidance     : from PublicationTemplate.sections[].guidance
+    //   - aiPromptSectionRules : from the pinned PublicationAiPromptRecord's
+    //                            sectionRules[sectionId], deep-cloned
+    //   - mustPreserveManifest : extractManifest(contentHtml) at create
+    //
+    // Mirrors the Clinical Writing service (apps/api/src/modules/
+    // clinical-writing/documents/service.ts). Admin edits to the template
+    // after pub-create can't silently change what in-flight publications
+    // draft against.
+    const rulesBySection        = new Map<string, string>()
+    const instructionsBySection = new Map<string, string>()
+    const guidanceBySection     = new Map<string, string>()
+    if (args.templateId) {
+      try {
+        const tpl = await tx.publicationTemplate.findUnique({
+          where:  { id: args.templateId },
+          select: { sections: true },
+        })
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          for (const raw of tpl.sections as Array<Record<string, unknown>>) {
+            const id = typeof raw.id === 'string' ? raw.id : null
+            if (!id) continue
+            const rules        = typeof raw.formatRules  === 'string' ? raw.formatRules.trim()  : ''
+            const instructions = typeof raw.instructions === 'string' ? raw.instructions.trim() : ''
+            const guidance     = typeof raw.guidance     === 'string' ? raw.guidance.trim()     : ''
+            if (rules.length        > 0) rulesBySection.set(id, rules)
+            if (instructions.length > 0) instructionsBySection.set(id, instructions)
+            if (guidance.length     > 0) guidanceBySection.set(id, guidance)
+          }
+        }
+      } catch { /* missing template → snapshots stay null */ }
+    }
+
+    const aiPromptRulesBySection = new Map<string, unknown>()
+    if (args.aiPromptRecordId) {
+      try {
+        const pinned = await tx.publicationAiPromptRecord.findUnique({
+          where:  { id: args.aiPromptRecordId },
+          select: { sectionRules: true },
+        })
+        const sectionRules = pinned?.sectionRules as Record<string, unknown> | null | undefined
+        if (sectionRules && typeof sectionRules === 'object' && !Array.isArray(sectionRules)) {
+          for (const s of args.sections) {
+            const slice = sectionRules[s.sectionId]
+            if (slice !== undefined) aiPromptRulesBySection.set(s.sectionId, JSON.parse(JSON.stringify(slice)))
+          }
+        }
+      } catch { /* missing pinned prompt → snapshots stay null */ }
+    }
+
     await tx.publicationSectionContent.createMany({
-      data: args.sections.map(s => ({
-        publicationVersionId: version.id,
-        sectionId:            s.sectionId,
-        sectionNumber:        s.sectionNumber,
-        sectionTitle:         s.sectionTitle,
-        contentHtml:          s.contentHtml ?? '',
-        wordCount:            wordsIn(s.contentHtml ?? ''),
-        templateFormatRules:  null,
-        templateInstructions: null,
-        templateGuidance:     null,
-      })),
+      data: args.sections.map(s => {
+        const html = s.contentHtml ?? ''
+        const manifest = extractManifest(html)
+        const promptRules = aiPromptRulesBySection.get(s.sectionId)
+        return {
+          publicationVersionId: version.id,
+          sectionId:            s.sectionId,
+          sectionNumber:        s.sectionNumber,
+          sectionTitle:         s.sectionTitle,
+          contentHtml:          html,
+          wordCount:            wordsIn(html),
+          templateFormatRules:  rulesBySection.get(s.sectionId)        ?? null,
+          templateInstructions: instructionsBySection.get(s.sectionId) ?? null,
+          templateGuidance:     guidanceBySection.get(s.sectionId)     ?? null,
+          aiPromptSectionRules: (promptRules ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+          mustPreserveManifest: (manifest    ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+        }
+      }),
     })
   }
 

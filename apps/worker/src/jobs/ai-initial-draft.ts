@@ -483,6 +483,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // all. Only runs when the Anthropic key is present to avoid wasting IO
   // on stub-mode drafts.
   const sourcePdfs: SourcePdfPayload[] = []
+  const unreadable: string[] = []
   if (apiKey && sources.length > 0) {
     const reader = createBlobReaderFromEnv()
     for (const src of sources) {
@@ -511,13 +512,32 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
           })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        log.warn({ documentId, sourceId: src.id, err: message }, 'ai_initial_draft: could not read source blob — dropped')
+        unreadable.push(title)
+        log.warn({ documentId, sourceId: src.id, err: message }, 'ai_initial_draft: could not read source blob')
         await steps.emit('source_skipped',
           `Skipped "${title}" — blob read failed: ${message.slice(0, 200)}`, {
             details: { sourceId: src.id, err: message },
           })
       }
     }
+  }
+
+  // --- A source could not be read: draft nothing -------------------------
+  // Without it the model would fill the document from general knowledge, and nothing on the page would say so.
+  // Sections are left as they are; the writer can start again once the file is readable.
+  if (unreadable.length > 0) {
+    log.error({ documentId, unreadable: unreadable.length, attached: sources.length }, 'ai_initial_draft: source files unreadable — stopped')
+    await steps.emit('warning',
+      `Stopped — ${unreadable.length} of ${sources.length} source document${sources.length === 1 ? '' : 's'} could not be read: ${unreadable.join(', ').slice(0, 300)}. Nothing was drafted.`, {
+        details: { reason: 'sources_unreadable', unreadable },
+      })
+    if (!targetSet) {
+      await prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'failed' },
+      }).catch(() => undefined)
+    }
+    return { skipped: 'sources_unreadable', unreadable }
   }
 
   // --- Load the SectionContent rows the API seeded for this version ------

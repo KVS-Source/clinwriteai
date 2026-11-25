@@ -16,6 +16,7 @@ import { SlidePanel } from '../../components/ui/SlidePanel'
 import { LibraryPushWarning, LibraryStatusLine, useLibraryAutoPush } from '../../components/library/LibraryAutoPushStatus'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 import { useSignatureAccess } from './useSignatureAccess'
+import { fillSignatureBlockHtml } from './signatureBlock'
 
 // Avatar palette — matches design-system Pattern 7
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -271,6 +272,20 @@ export function FinalDocument() {
   // e-signature chain (AC-A-045 / 046). It is not presented or exported as a signed record.
   const signatureGap = isSigned && signedRecords.length === 0
   const orderedSections = useMemo(() => (document ? [...document.sections].sort(bySectionNumber) : []), [document])
+  // A signed document's own signature block (its template's) shows who signed, as the PDF does.
+  const signatureBlock = useMemo(() => {
+    if (!isSigned) return null
+    const signatures = signedRecords.map(r => ({
+      role: r.role ? signerRoleLabel(r.role) : '',
+      name: r.signer,
+      signature: [MEANING_VERB_KEY[r.meaning] ? t(MEANING_VERB_KEY[r.meaning]!) : r.meaning, formatUtc(r.timestamp), r.id].filter(Boolean).join(' · '),
+    }))
+    for (const section of orderedSections) {
+      const html = fillSignatureBlockHtml(section.contentHtml ?? '', signatures)
+      if (html) return { sectionId: section.id, html }
+    }
+    return null
+  }, [isSigned, signedRecords, orderedSections, t])
 
   // Access first: a refused read never delivers the document, so checking for it
   // first would leave "Loading document…" on screen for good. The API's 403 counts
@@ -488,7 +503,7 @@ export function FinalDocument() {
 
               {/* Every section of the document, in order */}
               {orderedSections.map(section => {
-                const html = section.contentHtml
+                const html = signatureBlock?.sectionId === section.id ? signatureBlock.html : section.contentHtml
                 return (
                   <section
                     key={section.id}
@@ -501,7 +516,7 @@ export function FinalDocument() {
                     </h2>
                     {isBlankHtml(html)
                       ? <p className="mt-2 text-sm italic text-slate-400">{t('page.final_document.no_section_content')}</p>
-                      : <FinalSectionBody html={html} />}
+                      : <FinalSectionBody key={html} html={html} />}
                   </section>
                 )
               })}

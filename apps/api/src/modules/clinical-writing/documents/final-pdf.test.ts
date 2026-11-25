@@ -9,6 +9,7 @@ import { extractTextFromBlob } from './extract-text.js'
 import { htmlToBlocks } from './final-pdf-html.js'
 import { DRAFT_WATERMARK, orderSections, renderFinalDocumentPdf, type FinalPdfInput } from './final-pdf-renderer.js'
 import { documentsRoutes } from './routes.js'
+import { fillSignatureBlock } from './signature-block.js'
 import { hashSections } from './service.js'
 
 process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E'
@@ -88,6 +89,41 @@ describe('renderFinalDocumentPdf', () => {
     for (const part of ['Asha Rao', 'Authored', 'SIG-0001-01', 'Sam Lee', 'Approved', 'SIG-0001-02', '§11.50', 'Password at signing', 'Server clock (UTC)', 'v0.3']) expect(text).toContain(part)
     expect(text.indexOf('Asha Rao')).toBeLessThan(text.indexOf('Sam Lee'))
     expect(text).toContain('current content matches this hash')
+  })
+
+  // The Protocol template's own block, as the editor stores it.
+  const BLOCK = '<table><tbody><tr><th><p>Function / signatory</p></th><th><p>Name / title</p></th><th><p>Signature / date</p></th></tr>'
+    + '<tr><td><p>Sponsor-authorized approver</p></td><td><p>[To be designated]</p></td><td><p>[Pending]</p></td></tr>'
+    + '<tr><td><p>Biostatistics approver</p></td><td><p>[Per sponsor SOP]</p></td><td><p>[Pending]</p></td></tr></tbody></table>'
+    + '<table><tbody><tr><th><p>Version</p></th><th><p>Date</p></th></tr><tr><td><p>0.1</p></td><td><p>[Date]</p></td></tr></tbody></table><p>After the block.</p>'
+  const withBlock = [{ number: 'ii', title: 'Document approval and version history', contentHtml: BLOCK }, { number: '1', title: 'Summary', contentHtml: '<p>Body.</p>' }]
+
+  it("fills the template's own signature block and adds no signature page", async () => {
+    const text = await textOf((await renderFinalDocumentPdf(input({ sections: withBlock }))).pdf)
+    for (const part of ['Sponsor-authorized approver', 'Biostatistics approver', '[Pending]', 'Signature Page']) expect(text).not.toContain(part)
+    for (const part of ['Function / signatory', 'Asha Rao', 'SIG-0001-01', 'Sam Lee', 'SIG-0001-02', 'electronically signed', '28 Oct 2026 15:47 UTC', '§11.50', 'Password at signing', 'current content matches this hash', 'After the block.', '0.1', '[Date]']) expect(text).toContain(part)
+    expect(text.indexOf('Asha Rao')).toBeLessThan(text.indexOf('Sam Lee'))
+    expect(text.indexOf('SIG-0001-02')).toBeLessThan(text.indexOf('After the block.'))
+  })
+
+  it('a draft leaves the block as written, with no signatures and no signature page', async () => {
+    const text = await textOf((await renderFinalDocumentPdf(input({ mode: 'draft', signatures: [], documentHash: null, sections: withBlock }))).pdf)
+    expect(text).toContain('[Pending]')
+    for (const part of ['Signature Page', 'electronically']) expect(text).not.toContain(part)
+  })
+
+  it('keeps a row someone filled in by hand, and leaves a fully filled block and other tables alone', () => {
+    const sigs = [{ role: 'Approver', name: 'Sam Lee', signature: 'SIG-1' }]
+    const rows = (html: string) => {
+      const r = fillSignatureBlock(htmlToBlocks(html), sigs)
+      const t = r?.blocks[r.index]
+      return t?.kind === 'table' ? t.rows.map(x => x.map(c => c.text)) : null
+    }
+    const table = (...body: string[]) => `<table><tr><th>Function</th><th>Name</th><th>Signature</th></tr>${body.map(b => `<tr>${b}</tr>`).join('')}</table>`
+    expect(rows(table('<td>QA</td><td>Ann</td><td>Wet ink, 1 Nov</td>', '<td>Stats</td><td></td><td>____</td>')))
+      .toEqual([['Function', 'Name', 'Signature'], ['QA', 'Ann', 'Wet ink, 1 Nov'], ['Approver', 'Sam Lee', 'SIG-1']])
+    expect(rows(table('<td>QA</td><td>Ann</td><td>Wet ink, 1 Nov</td>'))).toBeNull()
+    expect(rows('<table><tr><th>Parameter</th><th>Detail</th></tr><tr><td>Sponsor</td><td>[TBD]</td></tr></table>')).toBeNull()
   })
 
   it('the appendix carries frameworks, rule outcomes, and waived and removed items with who and why', async () => {

@@ -967,9 +967,6 @@
     },
     "review_assignment_panel": {
       "err_open_comments": "Resolve every comment before submitting for review. Still open: {{total}}. Open the Comments panel to resolve them.",
-      "err_need_reviewer_approver": "Add at least one Reviewer (C) and one Approver (A) in the document's RACI before submitting it for review.",
-      "err_need_reviewer": "Add at least one Reviewer (C) in the document's RACI before submitting it for review.",
-      "err_need_approver": "Add at least one Approver (A) in the document's RACI before submitting it for review.",
       "err_network": "Could not reach the server. Check your connection and try again.",
       "err_checklist_blocked": "{{count}} mandatory checklist item(s) must be completed or waived before submitting:\n{{bullets}}",
       "err_checklist_more": "…and {{count}} more",

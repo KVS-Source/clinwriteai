@@ -20,13 +20,6 @@ function submitErrorMessage(err: unknown, currentStatus: string, t: TFunction): 
   }
   if (err.status === 409) {
     const body = err.body as { error?: string; blocking?: Array<{ text: string; framework: string }>; blockingCount?: number } | null
-    // No Reviewer or no Approver on the document's RACI yet.
-    const missing = (body as { missing?: string[] } | null)?.missing
-    if (body?.error === 'reviewer_approver_required' && Array.isArray(missing)) {
-      return t(missing.length > 1 ? 'page.review_assignment_panel.err_need_reviewer_approver'
-        : missing[0] === 'A' ? 'page.review_assignment_panel.err_need_approver'
-        : 'page.review_assignment_panel.err_need_reviewer')
-    }
     // Comments still open: the author resolves every one before submitting.
     if (body?.error === 'comments_unresolved') {
       return t('page.review_assignment_panel.err_open_comments', { total: (body as { unresolvedCount?: number }).unresolvedCount ?? '' })

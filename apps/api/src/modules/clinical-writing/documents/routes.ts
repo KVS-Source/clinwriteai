@@ -2392,21 +2392,6 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
 
-    // The review needs at least one Reviewer (C), and the approval after it at least one Approver (A):
-    // without them the document would stop half-way (SME decision, 2026-11-24).
-    const needed = await app.prisma.documentRaci.findMany({
-      where:  { documentId, letter: { in: ['C', 'A'] }, removedAt: null },
-      select: { letter: true },
-    })
-    const missing = ([['C', 'Reviewer (C)'], ['A', 'Approver (A)']] as const).filter(([letter]) => !needed.some(r => r.letter === letter))
-    if (missing.length > 0) {
-      return reply.code(409).send({
-        error:   'reviewer_approver_required',
-        message: `Add at least one ${missing.map(([, name]) => name).join(' and one ')} in the document's RACI before submitting it for review.`,
-        missing: missing.map(([letter]) => letter),
-      })
-    }
-
     // No open comments go into review: the author resolves every one first, so a new round never starts
     // with the last round's backlog (SME decision, 2026-11-25). Applies to each author's submission.
     const openComments = await countUnresolvedComments(app.prisma, documentId)

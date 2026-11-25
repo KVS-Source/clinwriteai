@@ -28,32 +28,37 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
+// Pure helpers extracted in Package B-2 (migration 105) so the
+// Scientific Writing distiller (distill-pub-template.ts) can share the
+// same parsers, rubric, gates, and merges without copy-paste drift.
+// Only the Claude prompt-building + call functions live here — those
+// carry docType-specific framing (ICH E3 / CTD for Clinical).
+import {
+  ID_RE,
+  MAX_SECTIONS,
+  type ParsedSection,
+  type ExtractedGuidance,
+  slugify,
+  stripJsonFence,
+  parseSectionsResponse,
+  parseFormatRulesResponse,
+  parseGuidanceResponse,
+  scoreFormatRules,
+  shouldStopFormatLoop,
+  gateGuidanceString,
+  applyGuidanceGate,
+  mergeFormatRulesIntoSections,
+  mergeGuidanceIntoSections,
+  FORMAT_CONFIDENCE_TARGET,
+  FORMAT_MIN_ITERATIONS,
+  FORMAT_MAX_ITERATIONS,
+} from './template-distill-common.js'
 import type { JobHandler } from './types.js'
 
 interface DistillTemplatePayload {
   templateId: string
   uploadId:   string
   actorId:    string
-}
-
-interface ParsedSection {
-  id:           string     // stable key — safe id, slugified from number if the model doesn't supply one
-  number:       string     // '1', '1.1', '§6.2', …
-  title:        string
-  usOnly?:      boolean    // some sections are US-only (ICH E3 §16.4)
-  // Per-section NL formatting rules — populated by the format-extraction
-  // phase that runs after structural extraction. Written back into
-  // DocumentTemplate.sections[] so the template is the single source of
-  // truth (migration 94 retired the standalone SectionTemplate entity).
-  formatRules?: string
-  // Per-section content guidance — "what this section must cover" +
-  // "how to write it". Populated by the guidance-extraction phase that
-  // runs after formatRules. Strict verbatim extraction only; null when
-  // the template provides no explicit guidance (no synthesis, no
-  // paraphrasing — authors see what the template says, not what the
-  // model would write).
-  instructions?: string
-  guidance?:     string
 }
 
 interface Report {
@@ -80,7 +85,6 @@ interface Report {
 }
 
 const MAX_OUTPUT_TOKENS = 6_000      // ~150 sections at ~35 tokens each + JSON overhead
-const MAX_SECTIONS      = 200
 
 // ────────────────────────────────────────────────────────────────────────
 // Format-rule extraction (M-F.2, migration 91).
@@ -100,107 +104,15 @@ const MAX_SECTIONS      = 200
 //   - CONFIDENCE_TARGET = 85 (stops iterating once ALL sections clear
 //     this score AND MIN_ITERATIONS has been reached)
 //
-// Scoring rubric (pure, inline — same flavour as ai-validation-pass):
-//   flag                               weight   trigger
-//   format:too_short                   35       rules < 40 chars
-//   format:missing_font                25       no font/size/typeface mention
-//   format:missing_paragraph           20       no paragraph/line/align/indent
-//   format:missing_structure_hint      20       no list/table/heading mention
-// Max penalty = 100 → bottoms at 0. A 4-axis ruleset ≥40 chars scores 100.
-
+// Scoring rubric + loop-exit live in template-distill-common.ts so the
+// publication distiller shares them; see FORMAT_FLAG_WEIGHTS there.
+// scoreFormatRules + shouldStopFormatLoop are re-exported below so the
+// existing test imports (distill-template-format.test.ts) keep working.
 const MAX_FORMAT_OUTPUT_TOKENS = 8_000                // ~50 sections × ~150 tokens of rules each
-const FORMAT_CONFIDENCE_TARGET = 85
-const FORMAT_MIN_ITERATIONS    = 3
-const FORMAT_MAX_ITERATIONS    = 5
 
-const FORMAT_FLAG_WEIGHTS: Readonly<Record<string, number>> = {
-  'format:too_short':              35,
-  'format:missing_font':           25,
-  'format:missing_paragraph':      20,
-  'format:missing_structure_hint': 20,
-}
-
-const FONT_RE       = /\b(font|typeface|times|arial|calibri|helvetica|georgia|verdana|pt\b|point)\b/i
-const PARAGRAPH_RE  = /\b(paragraph|line[- ]?height|line[- ]?spacing|alignment|align|justif|indent|margin|space (before|after))\b/i
-const STRUCTURE_RE  = /\b(list|bullet|numbered|table|heading|header|footer|reference|cell|row|column)\b/i
-
-/** Score a single section's format rules. Returns 0–100 and the flags
- *  that fired (empty array = perfect score). Pure — unit-testable. */
-export function scoreFormatRules(rules: string): { score: number; flags: string[] } {
-  const flags: string[] = []
-  const trimmed = rules.trim()
-  if (trimmed.length < 40)              flags.push('format:too_short')
-  if (!FONT_RE.test(trimmed))           flags.push('format:missing_font')
-  if (!PARAGRAPH_RE.test(trimmed))      flags.push('format:missing_paragraph')
-  if (!STRUCTURE_RE.test(trimmed))      flags.push('format:missing_structure_hint')
-  let penalty = 0
-  for (const f of flags) penalty += FORMAT_FLAG_WEIGHTS[f] ?? 15
-  return { score: Math.max(0, Math.min(100, 100 - penalty)), flags }
-}
-
-/** Decide whether the loop can exit — all sections at or above target
- *  AND the minimum-iteration floor has been reached. Pure. */
-export function shouldStopFormatLoop(
-  iteration: number,
-  scoresBySection: ReadonlyMap<string, number>,
-): boolean {
-  if (iteration >= FORMAT_MAX_ITERATIONS) return true
-  if (iteration < FORMAT_MIN_ITERATIONS)  return false
-  for (const s of scoresBySection.values()) {
-    if (s < FORMAT_CONFIDENCE_TARGET) return false
-  }
-  return true
-}
-
-const ID_RE     = /^[a-zA-Z0-9_.\-§]+$/
-const NUMBER_RE = /^[\p{L}\p{N}.\-§\s]{1,30}$/u                    // digits, dots, letters, § allowed
-
-function slugify(input: string): string {
-  return input.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'section'
-}
-
-/** Strict JSON parse + structural validation. */
-function parseSectionsResponse(raw: string): { ok: ParsedSection[] } | { fail: string } {
-  const stripped = stripJsonFence(raw)
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stripped)
-  } catch (err) {
-    return { fail: `json_parse: ${err instanceof Error ? err.message : String(err)}` }
-  }
-  const arr = Array.isArray(parsed)
-    ? parsed
-    : (parsed && typeof parsed === 'object' && Array.isArray((parsed as { sections?: unknown }).sections)
-        ? (parsed as { sections: unknown[] }).sections
-        : null)
-  if (!arr) return { fail: 'shape: expected an array (or {"sections": [...]})' }
-  if (arr.length === 0) return { fail: 'shape: zero sections extracted' }
-  if (arr.length > MAX_SECTIONS) return { fail: `shape: too many sections (${arr.length} > ${MAX_SECTIONS})` }
-
-  const out: ParsedSection[] = []
-  const seenIds = new Set<string>()
-  for (const [i, s] of arr.entries()) {
-    if (!s || typeof s !== 'object') return { fail: `shape: section[${i}] is not an object` }
-    const sec = s as Record<string, unknown>
-    const number = typeof sec.number === 'string' ? sec.number.trim() : ''
-    const title  = typeof sec.title  === 'string' ? sec.title.trim()  : ''
-    if (!NUMBER_RE.test(number)) return { fail: `shape: section[${i}].number invalid (${JSON.stringify(sec.number)})` }
-    if (title.length === 0)      return { fail: `shape: section[${i}].title missing` }
-    if (title.length > 300)      return { fail: `shape: section[${i}].title exceeds 300 chars` }
-    // id: use the model's if valid + unique; else derive from (number, slugified title).
-    let id = typeof sec.id === 'string' && ID_RE.test(sec.id) ? sec.id : `s${slugify(number)}_${slugify(title)}`
-    while (seenIds.has(id)) id = `${id}_${seenIds.size + 1}`
-    seenIds.add(id)
-    const usOnly = sec.usOnly === true ? true : undefined
-    out.push({ id, number, title, ...(usOnly ? { usOnly: true } : {}) })
-  }
-  return { ok: out }
-}
-
-function stripJsonFence(text: string): string {
-  const m = /^\s*```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/i.exec(text.trim())
-  return (m ? m[1]! : text).trim()
-}
+// Re-exports kept so the existing `distill-template-format.test.ts` and
+// anything else that imports from this module stays source-stable.
+export { scoreFormatRules, shouldStopFormatLoop }
 
 /** Dev/CI only: AI_ALLOW_STUB=1 → synthetic 3-section outline so the
  *  pipeline is exercisable without an Anthropic key. */
@@ -293,32 +205,7 @@ async function parseWithClaude(args: {
 
 // ────────────────────────────────────────────────────────────────────────
 // Format-rule extraction — Claude calls (initial + refine) + loop glue.
-
-/** Parse a `{<sectionKey>: "<rules>"}` JSON response. Robust against
- *  stray markdown fences + accepts either the bare object or a
- *  `{ rules: {...} }` wrapper. */
-function parseFormatRulesResponse(raw: string): { ok: Record<string, string> } | { fail: string } {
-  const stripped = stripJsonFence(raw)
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stripped)
-  } catch (err) {
-    return { fail: `json_parse: ${err instanceof Error ? err.message : String(err)}` }
-  }
-  const body = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-    ? ((parsed as { rules?: unknown }).rules ?? parsed)
-    : null
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return { fail: 'shape: expected an object keyed by section id' }
-  }
-  const out: Record<string, string> = {}
-  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-    if (!ID_RE.test(key)) continue                                   // ignore unexpected keys
-    if (typeof value !== 'string') continue
-    out[key] = value.trim()
-  }
-  return { ok: out }
-}
+// parseFormatRulesResponse now lives in template-distill-common.ts (pure).
 
 /** Initial Claude pass — the whole PDF + the section outline in, one
  *  `{<sectionKey>: "<rules>"}` object out. */
@@ -549,25 +436,7 @@ async function runFormatValidationLoop(args: {
   return { rules, scores, iterations: iteration, belowTarget }
 }
 
-/** Merge per-section formatRules into the DocumentTemplate.sections[]
- *  JSON — the single source of truth after migration 94. Returns the
- *  merged sections[] (caller persists it with the structural update).
- *  Sections without extracted rules are left as-is (no `formatRules` key
- *  rather than an empty string, so the shape stays clean). */
-export function mergeFormatRulesIntoSections(
-  sections: ParsedSection[],
-  rules:    Record<string, string>,
-): { sections: ParsedSection[]; merged: number } {
-  let merged = 0
-  const out = sections.map(sec => {
-    const raw = rules[sec.id]
-    const trimmed = raw?.trim() ?? ''
-    if (trimmed.length === 0) return sec
-    merged += 1
-    return { ...sec, formatRules: trimmed }
-  })
-  return { sections: out, merged }
-}
+// mergeFormatRulesIntoSections now lives in template-distill-common.ts.
 
 // ────────────────────────────────────────────────────────────────────────
 // Content-guidance extraction (migration 104, Package 2).
@@ -595,60 +464,17 @@ export function mergeFormatRulesIntoSections(
 //                                         similar hedging without concrete content
 //   guidance:no_imperative                no verb from the whitelist
 //                                         (covers synthesis cases)
+//
+// gateGuidanceString / applyGuidanceGate / parseGuidanceResponse /
+// mergeGuidanceIntoSections now live in template-distill-common.ts
+// (pure, shared with the publication distiller).
 
 const GUIDANCE_MAX_OUTPUT_TOKENS = 6_000   // ~80 sections × ~75 tokens avg
 
-const GUIDANCE_IMPERATIVE_RE = /\b(cover|include|describe|list|state|provide|summari[sz]e|present|report|detail|discuss|outline|specify|define|address|explain|document)\b/i
-const GUIDANCE_GENERIC_HEDGE_RE = /^(this section (should|will|must|is intended|is used|describes|contains)|the purpose of this section|this is the section)/i
-
-interface ExtractedGuidance {
-  instructions: string | null
-  guidance:     string | null
-}
-
-/** Score + gate an extracted guidance string. Returns the cleaned
- *  string, or null if the gate rejects it. Pure — unit-testable. */
-export function gateGuidanceString(raw: string | null | undefined): { kept: string | null; rejectedReason: string | null } {
-  if (raw === null || raw === undefined) return { kept: null, rejectedReason: null }
-  const trimmed = raw.trim()
-  if (trimmed.length === 0) return { kept: null, rejectedReason: null }
-  if (trimmed.length < 30) return { kept: null, rejectedReason: 'guidance:too_short' }
-  if (GUIDANCE_GENERIC_HEDGE_RE.test(trimmed)) return { kept: null, rejectedReason: 'guidance:generic_hedge' }
-  if (!GUIDANCE_IMPERATIVE_RE.test(trimmed)) return { kept: null, rejectedReason: 'guidance:no_imperative' }
-  return { kept: trimmed, rejectedReason: null }
-}
-
-/** Parse a `{<sectionId>: {instructions?, guidance?}}` JSON response.
- *  Robust against stray markdown fences + the `{ sections: {...} }` wrapper. */
-function parseGuidanceResponse(raw: string): { ok: Record<string, ExtractedGuidance> } | { fail: string } {
-  const stripped = stripJsonFence(raw)
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stripped)
-  } catch (err) {
-    return { fail: `json_parse: ${err instanceof Error ? err.message : String(err)}` }
-  }
-  const body = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-    ? ((parsed as { sections?: unknown }).sections ?? parsed)
-    : null
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return { fail: 'shape: expected an object keyed by section id' }
-  }
-  const out: Record<string, ExtractedGuidance> = {}
-  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-    if (!ID_RE.test(key)) continue
-    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
-    const obj = value as Record<string, unknown>
-    const instructions = typeof obj.instructions === 'string' ? obj.instructions : null
-    const guidance     = typeof obj.guidance     === 'string' ? obj.guidance     : null
-    out[key] = { instructions, guidance }
-  }
-  return { ok: out }
-}
-
-/** Claude call — single pass, strict verbatim prompting. The gate (above)
- *  nulls out anything that looks synthesised; we rely on that + the
- *  prompt to keep hallucinations out. No refinement loop. */
+/** Claude call — single pass, strict verbatim prompting. The gate
+ *  (template-distill-common) nulls out anything that looks synthesised;
+ *  we rely on that + the prompt to keep hallucinations out. No
+ *  refinement loop. */
 async function extractGuidanceWithClaude(args: {
   pdfBytes:  Buffer
   sections:  ParsedSection[]
@@ -727,54 +553,9 @@ async function extractGuidanceWithClaude(args: {
   return parsed.ok
 }
 
-interface GuidanceExtractResult {
-  byId: Map<string, ExtractedGuidance>
-  instructionsExtracted: number
-  guidanceExtracted:     number
-  rejectedForHallucinationRisk: number
-}
-
-/** Run the guidance extraction + apply the gate. Pure given the Claude
- *  output (callers test with the parsed response). */
-export function applyGuidanceGate(
-  raw: Record<string, ExtractedGuidance>,
-): GuidanceExtractResult {
-  const byId = new Map<string, ExtractedGuidance>()
-  let instructionsExtracted = 0
-  let guidanceExtracted = 0
-  let rejectedForHallucinationRisk = 0
-  for (const [key, value] of Object.entries(raw)) {
-    const { kept: ins, rejectedReason: insReason } = gateGuidanceString(value.instructions)
-    const { kept: gui, rejectedReason: guiReason } = gateGuidanceString(value.guidance)
-    if (insReason) rejectedForHallucinationRisk += 1
-    if (guiReason) rejectedForHallucinationRisk += 1
-    if (ins) instructionsExtracted += 1
-    if (gui) guidanceExtracted += 1
-    if (ins || gui) byId.set(key, { instructions: ins, guidance: gui })
-  }
-  return { byId, instructionsExtracted, guidanceExtracted, rejectedForHallucinationRisk }
-}
-
-/** Merge gated guidance into the DocumentTemplate.sections[] JSON.
- *  Returns the merged sections[] + a count of sections written to.
- *  Pure — unit-testable. */
-export function mergeGuidanceIntoSections(
-  sections: ParsedSection[],
-  byId: ReadonlyMap<string, ExtractedGuidance>,
-): { sections: ParsedSection[]; merged: number } {
-  let merged = 0
-  const out = sections.map(sec => {
-    const found = byId.get(sec.id)
-    if (!found || (!found.instructions && !found.guidance)) return sec
-    merged += 1
-    return {
-      ...sec,
-      ...(found.instructions ? { instructions: found.instructions } : {}),
-      ...(found.guidance     ? { guidance:     found.guidance }     : {}),
-    }
-  })
-  return { sections: out, merged }
-}
+// applyGuidanceGate + mergeGuidanceIntoSections now live in
+// template-distill-common.ts — pure, shared with the publication
+// distiller. Both are imported above.
 
 export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> = async (job, { prisma, log }) => {
   const { templateId, uploadId, actorId } = job.data

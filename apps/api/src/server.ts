@@ -446,6 +446,11 @@ async function buildServer() {
     await import('./modules/scientific-writing/publications/comment-routes.js')
   await app.register(publicationCommentRoutes, { prefix: '/publications' })
 
+  // Migration 105 Package B-2 — publication template PDF distiller.
+  const { publicationTemplateParseRoutes } =
+    await import('./modules/scientific-writing/publications/template-parse-routes.js')
+  await app.register(publicationTemplateParseRoutes, { prefix: '/publication-templates' })
+
   const { citationsRoutes, pubmedRoutes } = await import('./modules/scientific-writing/citations/routes.js')
   await app.register(citationsRoutes, { prefix: '/publications' })
   // pubmedRoutes mounts at root — the client's citation-search endpoint

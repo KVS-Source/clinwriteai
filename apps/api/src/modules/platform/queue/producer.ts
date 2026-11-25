@@ -36,6 +36,8 @@ export type QueueJobName =
   // Mirror of the clinical chain scoped to publications.
   | 'publications.ai_initial_draft'
   | 'publications.ai_validation_pass'
+  // Module B publication template PDF distiller — migration 105 Package B-2.
+  | 'publications.distill_template'
   // Module C — medical-writing initial-draft + 85% loop.
   | 'med_content.ai_initial_draft'
   | 'med_content.ai_validation_pass'

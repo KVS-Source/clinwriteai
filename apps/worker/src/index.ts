@@ -31,6 +31,7 @@ import { handleAiValidationPassRegulatoryDocument } from './jobs/regulatory-ai-v
 import { handleAiInitialDraftIdeationArtefact }     from './jobs/ideation-ai-initial-draft.js'
 import { handleAiValidationPassIdeationArtefact }   from './jobs/ideation-ai-validation-pass.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
+import { handleDistillPubTemplate } from './jobs/distill-pub-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
@@ -135,7 +136,10 @@ const handlers = {
   'compliance.access_review': handleAccessReviewCron,
   // Platform — one-off Template PDF → structured sections[]. Enqueued
   // from the admin "Upload + parse" button on the Template Library screen.
-  'platform.distill_template': handleDistillTemplate,
+  'platform.distill_template':     handleDistillTemplate,
+  // Module B — same as platform.distill_template but for the publication
+  // template library (migration 105 Package B-2).
+  'publications.distill_template': handleDistillPubTemplate,
   // Module C — one slide inserted into a MedSlideDeckJob via Claude.
   // Enqueued from the Content Editor's "+ New slide with AI" button.
   'med_content.ai_slide_draft': handleGenerateMedSlide,
@@ -182,7 +186,8 @@ const concurrency: Record<JobName, number> = {
   'clinical.presence_reaper': 1,
   // Template parsing: one AI call per distillation; serial to keep
   // provider pressure predictable.
-  'platform.distill_template': 1,
+  'platform.distill_template':     1,
+  'publications.distill_template': 1,
   // Slide generation: serial to keep provider pressure predictable — users
   // click "+ New slide with AI" one slide at a time anyway. Bump when
   // full-deck generation (20 slides at a time) lands.

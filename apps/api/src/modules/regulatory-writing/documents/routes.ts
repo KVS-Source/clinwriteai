@@ -212,6 +212,11 @@ export const regulatorySubmissionDocumentRoutes: FastifyPluginAsync = async (app
         actorId:              request.user!.id,
         sections:             sectionPayload,
         docType,                                                    // migration 90: SectionTemplate snapshot
+        // Package R-3 (migration 105): snapshot per-section
+        // instructions / guidance / aiPromptSectionRules from the
+        // resolved template + pinned AI prompt record.
+        templateId:           policy?.templateId ?? undefined,
+        aiPromptRecordId:     promptPin?.id      ?? undefined,
       })
       return doc
     })

@@ -450,18 +450,17 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
   if (!open) return null
 
+  // Docked to the right side of the viewport (no backdrop, no dimming
+  // of the editor). Writers can keep editing the document while the
+  // panel is open; close is only via the X in the header.
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end"
-      role="dialog"
+    <aside
+      className="fixed right-0 top-0 bottom-0 z-40 flex w-[720px] max-w-[95vw] flex-col bg-white shadow-2xl"
+      style={{ borderLeft: '1px solid #E2E8F0' }}
+      role="complementary"
       aria-label="AI debug panel"
       data-ai-debug-panel
     >
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} data-ai-debug-backdrop />
-      <aside
-        className="relative flex h-full w-[720px] max-w-[95vw] flex-col bg-white shadow-2xl"
-        style={{ borderLeft: '1px solid #E2E8F0' }}
-      >
         {/* Header */}
         <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
@@ -679,8 +678,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
             </div>
           )}
         </div>
-      </aside>
-    </div>
+    </aside>
   )
 }
 

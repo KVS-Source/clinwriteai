@@ -2642,6 +2642,7 @@
     },
     "user_management_live": {
       "tenant_ref_entered": "Tenant ID: {{ref}}",
+      "edit_profile_aria": "Edit title and department",
       "detail_job_title": "Title",
       "detail_department": "Department",
       "title": "User Management",

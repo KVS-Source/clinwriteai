@@ -69,6 +69,8 @@ export const usersApi = {
   suspend:      (id: string) => api.post<AdminUser>(`/admin/users/${id}/suspend`, {}),
   reactivate:   (id: string) => api.post<AdminUser>(`/admin/users/${id}/reactivate`, {}),
   deprovision:  (id: string) => api.delete<{ ok: true }>(`/admin/users/${id}`),
+  // Job title and department; blank clears.
+  updateProfile: (id: string, body: { title: string; department: string }) => api.patch<AdminUser>(`/admin/users/${id}`, body),
   addRole:      (id: string, role: string) => api.post<AdminUser>(`/admin/users/${id}/roles`, { role }),
   revokeRole:   (id: string, role: string) => api.delete<AdminUser>(`/admin/users/${id}/roles/${encodeURIComponent(role)}`),
   resendInvite: (id: string) => api.post<{ ok: true; email: string; note: string } & InviteLink>(`/admin/users/${id}/resend-invite`, {}),

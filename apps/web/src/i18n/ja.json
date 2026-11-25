@@ -2823,6 +2823,7 @@
       "filter_all_status": "すべてのステータス",
       "showing_count": "{{total}} 人中 {{shown}} 人を表示",
       "tenant_ref_entered": "テナント ID: {{ref}}",
+      "edit_profile_aria": "役職と部署を編集",
       "detail_job_title": "役職",
       "detail_department": "部署",
       "title": "ユーザー管理",

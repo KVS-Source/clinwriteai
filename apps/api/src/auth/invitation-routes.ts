@@ -119,8 +119,9 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
 
     // Free text, saved exactly as entered (trimmed); blank saves nothing.
     const tenantRef = parsed.data.tenantRef || null
-    const title = parsed.data.title || null
-    const department = parsed.data.department || null
+    // Blank keeps whatever an admin already entered for the user.
+    const title = parsed.data.title || undefined
+    const department = parsed.data.department || undefined
 
     const now = new Date()
     const passwordHash = await hashPassword(parsed.data.newPassword)
@@ -138,8 +139,8 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
         data: {
           name: parsed.data.name,
           initials: initialsOf(parsed.data.name),
-          title,
-          department,
+          ...(title && { title }),
+          ...(department && { department }),
           tenantRef,
           passwordHash,
           passwordChangedAt: now,

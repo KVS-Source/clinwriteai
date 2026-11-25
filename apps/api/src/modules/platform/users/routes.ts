@@ -69,8 +69,13 @@ const inviteSchema = z.object({
   path: ['name'],
 })
 
+// Job title / department: free text; blank clears it.
+const profileText = z.string().trim().max(120).nullable().transform(v => v || null).optional()
+
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
+  title: profileText,
+  department: profileText,
   role: z.enum(ROLES).optional(),
   modules: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).optional(),
   // The full new set (add or revoke = send the list without / with it); duplicates collapse.
@@ -362,6 +367,8 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     await audit(request, 'user.update', id, {
       changedFields: Object.keys(fields),
       ...(fields.role !== undefined && { roleFrom: existing.role, roleTo: fields.role }),
+      ...(fields.title !== undefined && { titleFrom: existing.title, titleTo: fields.title }),
+      ...(fields.department !== undefined && { departmentFrom: existing.department, departmentTo: fields.department }),
       ...(fields.capabilities !== undefined && { capabilitiesFrom: existing.capabilities, capabilitiesTo: fields.capabilities }),
       ...(event && { statusFrom: existing.status, statusTo: target }),
     })

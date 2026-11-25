@@ -29,6 +29,7 @@ import {
   AI_DEBUG_MIN_WIDTH,
   AI_DEBUG_MAX_WIDTH,
 } from './AiDebugLayoutContext'
+import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
 
 interface Props {
   documentId: string
@@ -780,7 +781,9 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 /** In-panel equivalent of the floating AiDraftingProgressToast. Shown
  *  at the bottom of the AI Debug panel when a draft is in flight or
  *  paused, so the writer has Pause / Resume / Stop reachable without
- *  the floating toast colliding with the docked panel. */
+ *  the floating toast colliding with the docked panel. Mirrors the
+ *  toast's section-count + progress bar so no info is lost on the
+ *  swap. */
 function AiDebugDraftingFooter({
   documentId, state,
 }: {
@@ -788,6 +791,7 @@ function AiDebugDraftingFooter({
   state:      string | null | undefined
 }) {
   const qc = useQueryClient()
+  const { summary } = useAiDraftStatus(documentId)
   const inFlight = state === 'pending' || state === 'drafting' || state === 'validating'
   const paused   = state === 'paused'
   const pauseMut = useMutation({
@@ -809,23 +813,46 @@ function AiDebugDraftingFooter({
 
   if (!inFlight && !paused) return null
 
+  // Build a section-count sub-line that matches the floating toast:
+  //   drafting   → "Drafted X of Y sections · N%"
+  //   validating → "Validation pass P · N% overall"
+  //   paused     → "Paused after X of Y sections"
+  const total   = summary.totalSections
+  const drafted = summary.draftedSections
+  const percent = summary.draftedPercent
+  const subLine = paused
+    ? (total > 0 ? `Paused after ${drafted} of ${total} sections` : 'Paused — ready to resume')
+    : state === 'validating'
+      ? (summary.currentPass > 0
+          ? `Validation pass ${summary.currentPass}${summary.hasConfidence ? ` · ${summary.confidence}% overall` : ''}`
+          : 'Validation running…')
+      : (total > 0 ? `Drafted ${drafted} of ${total} sections · ${percent}%` : 'Waiting for the worker…')
+
+  // Progress bar — drafting shows draftedPercent; validating shows the
+  // overall confidence once a pass has completed. Paused freezes at
+  // whatever drafted% reached before the pause.
+  const barPercent = state === 'validating' && summary.hasConfidence ? summary.confidence : percent
+  const barColor   = paused ? '#D97706' : state === 'validating' ? '#15803D' : '#2563EB'
+
   return (
     <div
-      className={`flex flex-none items-center justify-between gap-3 border-t px-4 py-2 text-[12px] ${
+      className={`flex flex-none flex-col gap-1.5 border-t px-4 py-2 text-[12px] ${
         paused ? 'border-amber-200 bg-amber-50' : 'border-sky-200 bg-sky-50'
       }`}
       data-ai-debug-footer
     >
-      <div className="flex items-center gap-2">
-        {paused
-          ? <span className="font-semibold text-amber-900">Draft paused — ready to resume.</span>
-          : <span className="flex items-center gap-2 font-semibold text-sky-900">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
-              {state === 'validating' ? 'Validating…' : 'Drafting document…'}
-            </span>
-        }
-      </div>
-      <div className="flex items-center gap-1.5">
+      {/* Row 1 — headline + action buttons */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex items-center gap-2">
+          {paused
+            ? <span className="inline-block h-2 w-2 flex-none rounded-full bg-amber-500" />
+            : <span className="inline-block h-2 w-2 flex-none animate-pulse rounded-full bg-sky-500" />
+          }
+          <span className={`font-semibold ${paused ? 'text-amber-900' : 'text-sky-900'}`}>
+            {paused ? 'Draft paused' : state === 'validating' ? 'Validating' : 'Drafting document'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
         {inFlight && (
           <>
             <button
@@ -870,7 +897,33 @@ function AiDebugDraftingFooter({
             </button>
           </>
         )}
+        </div>
       </div>
+
+      {/* Row 2 — section-count sub-line, same text the floating toast shows */}
+      <p className={`ml-4 text-[11px] ${paused ? 'text-amber-800' : 'text-sky-800'}`}>
+        {subLine}
+      </p>
+
+      {/* Row 3 — progress bar. Matches the toast's bar: fills as the
+          worker commits sections (drafting) or jumps to overall
+          confidence (validating). Hidden when there's no meaningful
+          progress to show (no sections known yet). */}
+      {total > 0 && (
+        <div className="ml-4 flex items-center gap-2">
+          <span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
+            <span
+              className="block h-full"
+              style={{
+                width: `${barPercent}%`,
+                backgroundColor: barColor,
+                transition: 'width 300ms ease-out',
+              }}
+            />
+          </span>
+          <span className="font-mono text-[10px] text-slate-600 tabular-nums">{barPercent}%</span>
+        </div>
+      )}
     </div>
   )
 }

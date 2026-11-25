@@ -37,6 +37,7 @@ import { callWithValidation, type StepEmitter } from '../../clinical-writing/doc
 import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
 import { loadMedContentDocuments } from './content-sources.js'
 import { computeFkGrade, isFkGatedType, FK_TARGET } from './fk-score.js'
+import { buildMedContentAttachedContext } from './must-preserve-med.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -903,9 +904,16 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       // Retry wrapper (Package 8) — one AI call + optional single retry
       // on hard validator failures. Shared with CW.
       let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
+      // Attached-source context for Vancouver-style grounding (Package
+      // D-2). Enumerates ClaimsMatrixItem.sourceRef strings for
+      // approved + library-adopted claims so the validator's
+      // citation-grounding check can flag AI-invented SmPC/CSR/Label
+      // references as 'invented_citation' → hard retry.
+      const attachedSources = await buildMedContentAttachedContext(app.prisma, contentId)
+
       const validation = await callWithValidation({
         manifestBefore,
-        attachedSources: {},   // Medical doesn't attach source library docs on this route yet
+        attachedSources,
         steps:     stepsEmitter,
         sectionId: body.sectionId ?? undefined,
         call: async ({ prependPrompt }) => {

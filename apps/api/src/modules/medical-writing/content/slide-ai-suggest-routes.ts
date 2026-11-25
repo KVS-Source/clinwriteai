@@ -36,6 +36,7 @@ import {
   SECTION_GROUNDING_RULES,
 } from '../policy/resolve.js'
 import { loadMedContentDocuments, type BlobReader } from './content-sources.js'
+import { buildMedContentAttachedContext } from './must-preserve-med.js'
 
 const slideSuggestSchema = z.object({
   prompt:         z.string().min(1).max(2_000).optional(),
@@ -147,10 +148,15 @@ export const medSlideAiSuggestRoutes: FastifyPluginAsync = async (app) => {
         },
       }
 
+      // Attached-source context for Vancouver-style grounding (Package
+      // D-2) — slides share the parent content item's ClaimsMatrixItem
+      // allow-list.
+      const attachedSources = await buildMedContentAttachedContext(app.prisma, contentId)
+
       let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
       const validation = await callWithValidation({
         manifestBefore,
-        attachedSources: {},
+        attachedSources,
         steps:     stepsEmitter,
         sectionId: sectionIdForLog,
         call: async ({ prependPrompt }) => {

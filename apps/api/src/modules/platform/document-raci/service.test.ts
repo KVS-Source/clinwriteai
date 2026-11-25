@@ -10,6 +10,7 @@ interface StubUser {
   id: string
   capabilities: string[]
   role: string
+  additionalRoles?: string[]
 }
 
 function makePrisma(opts: {
@@ -135,8 +136,18 @@ describe('validateRaciInsert — capability match', () => {
     }
   })
 
-  it('lets a PM hold any letter, R included', async () => {
-    const user = { id: 'u-1', capabilities: ['can-author', 'can-review'], role: 'pm' }
+  it('refuses every letter for a PM who is not also a Contributor', async () => {
+    for (const additionalRoles of [[], ['qc'], ['auditor']]) {
+      const user = { id: 'u-1', capabilities: ['can-author', 'can-approve', 'can-review', 'can-qc'], role: 'pm', additionalRoles }
+      for (const letter of ['R', 'A', 'C', 'I', 'Q'] as const) {
+        const r = await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter })
+        expect(r).toEqual({ ok: false, failure: { kind: 'pm_not_contributor' } })
+      }
+    }
+  })
+
+  it('lets a PM who is also a Contributor hold any letter, R included', async () => {
+    const user = { id: 'u-1', capabilities: ['can-author', 'can-review'], role: 'pm', additionalRoles: ['contributor'] }
     for (const letter of ['R', 'C', 'I'] as const) {
       expect((await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter })).ok).toBe(true)
     }

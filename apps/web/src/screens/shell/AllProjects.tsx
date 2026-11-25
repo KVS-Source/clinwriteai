@@ -51,7 +51,7 @@ function FolderIcon() {
 }
 
 // Row columns: project · documents · TA · phase · start date · submission countries · AI spend · status · gear · chevron
-const ROW_GRID = 'minmax(220px,2fr) 200px minmax(120px,1fr) 100px 120px minmax(120px,1fr) 100px 120px 28px 14px'
+const ROW_GRID = 'minmax(220px,2fr) 220px minmax(120px,1fr) 100px 120px minmax(120px,1fr) 100px 120px 28px 14px'
 type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'ai' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
@@ -388,7 +388,7 @@ export function AllProjects() {
                           <p className="mt-0.5 truncate text-xs text-slate-500" title={project.name}>{project.name}</p>
                         )}
                       </div>
-                      <div className="min-w-0 overflow-hidden"><DocumentCountChips project={project} /></div>
+                      <div className="min-w-0 overflow-hidden pr-4"><DocumentCountChips project={project} /></div>
                       <div className="min-w-0 truncate pr-2 text-slate-900" title={project.therapeuticArea ?? undefined}>
                         {project.therapeuticArea || <span className="text-slate-400">—</span>}
                       </div>

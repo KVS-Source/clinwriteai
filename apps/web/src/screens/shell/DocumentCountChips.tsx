@@ -77,7 +77,7 @@ export function DocumentCountChips({ project }: Props) {
   // its count. Fits all 5 modules in the narrow Documents column
   // without wrapping.
   return (
-    <div className="flex items-center gap-1 whitespace-nowrap font-mono text-[11px]" data-module-counts>
+    <div className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[11px]" data-module-counts>
       {chips.map(({ slug, n }, idx) => {
         const colour = MODULE_COLOURS[slug]
         const label  = MODULE_LABELS[slug]

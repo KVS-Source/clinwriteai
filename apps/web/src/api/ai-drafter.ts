@@ -47,6 +47,10 @@ export interface AiDraftStatusResponse {
   confidenceOverall:  number | null
   lastPassNumber:     number | null
   lastPassAt:         string | null
+  /** Sections the drafter has written into so far, and all sections of the document (optional: older servers
+   *  and mock data don't send them). */
+  draftedSections?:   number
+  totalSections?:     number
   sections:           AiDraftSectionStatus[]
   passes:             AiDraftingPassSummary[]
 }

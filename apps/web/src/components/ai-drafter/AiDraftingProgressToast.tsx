@@ -105,6 +105,9 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
   const line = buildStatusLine(state, summary, t)
   const canStopOrPause = state === 'pending' || state === 'drafting' || state === 'validating'
   const canResume      = state === 'paused'
+  // The drafting progress bar: while sections are being written, and on a pause that came before the last one.
+  // Once every section is written the bar gives way to the confidence bar (validation).
+  const showDraftedBar = summary.totalSections > 0 && (state === 'drafting' || (state === 'paused' && summary.draftedSections < summary.totalSections))
 
   return (
     <div
@@ -130,7 +133,18 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="text-[13px] font-semibold text-slate-900">{headline}</div>
         <div className="text-[12px] text-slate-500">{line}</div>
-        {summary.hasConfidence && (
+        {showDraftedBar && (
+          <div className="mt-1 flex items-center gap-2" data-testid="ai-drafting-progress">
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
+              <span
+                className="block h-full"
+                style={{ width: `${summary.draftedPercent}%`, backgroundColor: '#2563EB', transition: 'width 300ms ease-out' }}
+              />
+            </span>
+            <span className="font-mono text-[10px] text-slate-500">{summary.draftedPercent}%</span>
+          </div>
+        )}
+        {!showDraftedBar && summary.hasConfidence && (
           <div className="mt-1 flex items-center gap-2">
             <span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
               <span
@@ -256,8 +270,14 @@ function buildStatusLine(state: AiDraftState, summary: AiDraftSummary, t: TFunct
   if (state === 'pending') return t('component.ai_drafting_progress_toast.line_pending')
   if (state === 'drafting') {
     return summary.totalSections > 0
-      ? t('component.ai_drafting_progress_toast.line_drafting_count', { count: summary.totalSections })
+      ? t('component.ai_drafting_progress_toast.line_drafting_progress', { count: summary.totalSections, done: summary.draftedSections, pct: summary.draftedPercent })
       : t('component.ai_drafting_progress_toast.line_drafting_no_count')
+  }
+  if (state === 'paused' && summary.totalSections > 0) {
+    // What was kept, and where Resume picks up (the sections already written are skipped).
+    return summary.draftedSections >= summary.totalSections
+      ? t('component.ai_drafting_progress_toast.line_paused_all_drafted', { count: summary.totalSections })
+      : t('component.ai_drafting_progress_toast.line_paused_progress', { count: summary.totalSections, done: summary.draftedSections })
   }
   if (state === 'validating') {
     const pass = summary.currentPass > 0

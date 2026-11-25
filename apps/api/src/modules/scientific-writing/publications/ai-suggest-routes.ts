@@ -30,6 +30,13 @@ import {
   SECTION_GROUNDING_RULES,
 } from '../policy/resolve.js'
 import { actorCanEditPublicationContent, PUBLICATION_EDIT_FORBIDDEN } from './access/publication-raci.js'
+// Migration 105 Package B-5 — shared manifest + validators + retry
+// wrapper (Clinical), plus the publication-aware attached-context
+// helper (B-3) for Vancouver [N] grounding.
+import { extractManifest, renderForPrompt as renderMustPreserve } from '../../clinical-writing/documents/must-preserve.js'
+import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
+import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
+import { buildPublicationAttachedContext } from './must-preserve-pub.js'
 
 const writeGate = requireAuth({ modules: ['B'] })
 
@@ -78,7 +85,13 @@ export const publicationAiSuggestRoutes: FastifyPluginAsync = async (app) => {
 
     const section = await app.prisma.publicationSectionContent.findFirst({
       where:  { publicationVersionId: pub.currentVersionId, sectionId },
-      select: { id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
+      select: {
+        id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true,
+        // Migration 105 Package B-5 — read the snapshot fields so the
+        // prompt assembly below can render a TEMPLATE GUIDANCE block
+        // without a second query.
+        templateInstructions: true, templateGuidance: true,
+      },
     })
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
@@ -214,35 +227,115 @@ export const publicationAiSuggestRoutes: FastifyPluginAsync = async (app) => {
       SECTION_GROUNDING_RULES,
     ].join('\n')
 
+    // --- Template content guidance (migration 105, Package B-5) ----------
+    // Rendered from the snapshotted templateInstructions + templateGuidance
+    // on the section row (Package B-4 populated them). Same block shape
+    // Clinical uses so the AI sees identical "authored intent" framing
+    // across both modules.
+    const tIns  = ((section as { templateInstructions?: string | null }).templateInstructions ?? '').trim()
+    const tGuid = ((section as { templateGuidance?:     string | null }).templateGuidance     ?? '').trim()
+    const templateGuidanceBlock = tIns || tGuid
+      ? [
+          ``,
+          `TEMPLATE GUIDANCE for this section (from the template authored for ${docType}):`,
+          tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+          tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+          `Follow these precisely — they are the template's authored intent for this section.`,
+          ``,
+        ].filter(Boolean).join('\n')
+      : ''
+
+    // --- Must-preserve manifest (migration 105, Package B-5) -------------
+    // Extracted fresh from currentContent so the manifest matches what
+    // the model is about to rewrite. The retry wrapper uses the SAME
+    // manifest downstream to diff the model's output and catch dropped
+    // cross-refs / invented citations.
+    const manifestBefore = extractManifest(currentContent)
+    const mustPreserveBlock = renderMustPreserve(manifestBefore)
+
+    // Vancouver-aware attached context (Package B-3). Every [N] the AI
+    // introduces is checked against the publication's Citation rows; any
+    // out-of-range index trips 'invented_citation' → hard retry.
+    const attachedSources = await buildPublicationAttachedContext(app.prisma, id)
+
     const composedPrompt = [
       scaffold,
       authorBlock,
       policyBlock ? `\n${policyBlock}\n` : '',
+      templateGuidanceBlock,
+      mustPreserveBlock,
       '---',
       promptBody,
       textExcerpts.length > 0 ? `\n---\nAttachments metadata:\n${textExcerpts.join('\n')}` : '',
     ].filter(Boolean).join('\n')
 
-    // Fire the Claude call.
+    // Fire the Claude call wrapped in the shared validator + retry loop.
     const model = parsed.data.model || undefined
     try {
-      const result = await app.aiGateway.chat({
-        tenantId:          request.user!.tenantId,
-        projectId:         pub.projectId,
-        actorId:           request.user!.id,
-        module:            'B',
-        intent:            parsed.data.intent,
-        model:             model || 'claude-sonnet-4-5',
-        prompt:            composedPrompt,
-        maxOutputTokens:   parsed.data.intent === 'edit' ? 4096 : 2048,
-        documents:         documentAttachments.length > 0 ? documentAttachments : undefined,
-        documentId:        id,                     // reuse the field for publicationId — chat records are polymorphic by entityId
-        sectionId:         section.sectionId,
-        preCallSectionHtml: currentContent,
-        promptText:        parsed.data.customPrompt ?? parsed.data.intent,
-      })
+      // Step-log emitter — writes to ai_draft_steps keyed by the
+      // publicationId (documentId is a plain string on that table, no
+      // FK, so publication ids slot in without schema changes). Package
+      // B-7's AiDebugPanel reads these rows.
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId: id,
+              versionId:  pub.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
 
-      const responseText = parsed.data.intent === 'edit' ? stripCodeFence(result.responseText) : result.responseText
+      let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
+      const validation = await callWithValidation({
+        manifestBefore,
+        attachedSources,
+        steps:     stepsEmitter,
+        sectionId: section.sectionId,
+        call: async ({ prependPrompt }) => {
+          const effectivePrompt = prependPrompt
+            ? `${prependPrompt}\n\n----\n\n${composedPrompt}`
+            : composedPrompt
+          const r = await app.aiGateway.chat({
+            tenantId:          request.user!.tenantId,
+            projectId:         pub.projectId,
+            actorId:           request.user!.id,
+            module:            'B',
+            intent:            parsed.data.intent,
+            model:             model || 'claude-sonnet-4-5',
+            prompt:            effectivePrompt,
+            maxOutputTokens:   parsed.data.intent === 'edit' ? 4096 : 2048,
+            documents:         documentAttachments.length > 0 ? documentAttachments : undefined,
+            documentId:        id,                     // reuse the field for publicationId — chat records are polymorphic by entityId
+            sectionId:         section.sectionId,
+            preCallSectionHtml: currentContent,
+            promptText:        parsed.data.customPrompt ?? parsed.data.intent,
+          })
+          lastGatewayResult = r
+          return { html: parsed.data.intent === 'edit' ? stripCodeFence(r.responseText) : r.responseText }
+        },
+      })
+      const result = lastGatewayResult!
+
+      // Persist aiConfidence + aiFlags on the publication section row so
+      // the Module B badge + report panel reflect the retry outcome.
+      try {
+        const score = scoreSection(validation.flags)
+        await app.prisma.publicationSectionContent.update({
+          where: { id: section.id },
+          data:  { aiConfidence: score, aiFlags: validation.flags },
+        })
+      } catch (err) {
+        app.log.warn({ err, publicationId: id, sectionId: section.sectionId }, 'pub section confidence update failed (non-fatal)')
+      }
+
+      const responseText = validation.html
 
       await app.audit.append({
         timestamp:  new Date().toISOString(),
@@ -265,6 +358,14 @@ export const publicationAiSuggestRoutes: FastifyPluginAsync = async (app) => {
           autoAttachedSources:   autoAttachedUploadIds.length,
           explicitAttachedSources: explicitAttachedIds.length,
           outcome:               'completed',
+          // Post-generation validator outcome (migration 105 Package B-5).
+          validatorFlags:        validation.flags,
+          validatorRetried:      validation.retried,
+          validatorTrace:        validation.trace.map(t => ({
+            attempt: t.attempt,
+            flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),
+            retriedBecause: t.retriedBecause,
+          })),
         },
         ipAddress: request.ip ?? null,
       }).catch(err => request.log.error({ err }, 'pub_ai_suggestion_requested audit failed'))

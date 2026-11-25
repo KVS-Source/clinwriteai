@@ -789,7 +789,11 @@
       "flag_needs_revision":     "改訂が必要",
       "flag_off_template":       "テンプレート外",
       "flag_coherence":          "整合性",
-      "flag_unsupported_claim":  "根拠のない主張"
+      "flag_unsupported_claim":  "根拠のない主張",
+      "flag_dropped_cross_ref":  "参照が失われました",
+      "flag_invented_citation":  "出典のない引用",
+      "flag_number_drift":       "数値の変動",
+      "flag_undefined_acronym":  "未定義の略語"
     },
 
     "audit_trail_panel": {
@@ -4655,7 +4659,11 @@
       "flag_needs_revision": "要修正",
       "flag_off_template": "テンプレート不一致",
       "flag_coherence": "一貫性",
-      "flag_unsupported_claim": "裏付けのない主張"
+      "flag_unsupported_claim": "裏付けのない主張",
+      "flag_dropped_cross_ref": "参照の欠落",
+      "flag_invented_citation": "架空の引用",
+      "flag_number_drift": "数値のずれ",
+      "flag_undefined_acronym": "未定義の略語"
     },
 
     "checklist_item_badge": {

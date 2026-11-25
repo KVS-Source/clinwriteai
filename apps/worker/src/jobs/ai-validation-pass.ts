@@ -62,6 +62,14 @@ const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   'ai:template_mismatch':   20,
   'ai:coherence_issue':     20,
   'ai:unsupported_claim':   30,
+  // Post-generation validator flags (migration 104, Package 5). Also
+  // used to score rewrite results from the ai-suggest route when a
+  // section accumulates flags across multiple rewrites. Keep in sync
+  // with apps/api/.../ai-confidence.ts FLAG_WEIGHTS.
+  'dropped_cross_ref':      25,
+  'invented_citation':      35,
+  'number_drift':           20,
+  'undefined_acronym':      10,
 }
 const AI_UNKNOWN_WEIGHT = 15
 

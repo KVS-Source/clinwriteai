@@ -55,6 +55,11 @@ const FLAG_LABEL_KEYS: Record<string, string> = {
   'ai:template_mismatch':   'page.ai_drafting_report_panel.flag_off_template',
   'ai:coherence_issue':     'page.ai_drafting_report_panel.flag_coherence',
   'ai:unsupported_claim':   'page.ai_drafting_report_panel.flag_unsupported_claim',
+  // Post-generation validator flags (migration 104, Package 5).
+  'dropped_cross_ref':      'page.ai_drafting_report_panel.flag_dropped_cross_ref',
+  'invented_citation':      'page.ai_drafting_report_panel.flag_invented_citation',
+  'number_drift':           'page.ai_drafting_report_panel.flag_number_drift',
+  'undefined_acronym':      'page.ai_drafting_report_panel.flag_undefined_acronym',
 }
 
 interface Props {

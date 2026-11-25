@@ -23,6 +23,17 @@ export const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
 
   // LLM cross-source consistency (one per unsupported claim):
   'ai:unsupported_claim':   30,
+
+  // Deterministic post-generation validators (migration 104, Package 5).
+  // Fired by apps/api/src/modules/clinical-writing/documents/ai-validators.ts
+  // after each section-rewrite call. Hard flags trigger the retry
+  // wrapper (max 1 retry); soft flags surface to the author.
+  // Hard:
+  'dropped_cross_ref':      25,   // citation / cross-ref / study id lost from pre-call body
+  'invented_citation':      35,   // new citation marker not grounded in attached sources
+  // Soft:
+  'number_drift':           20,   // numeric value from pre-call body absent from rewrite
+  'undefined_acronym':      10,   // acronym used in rewrite neither defined nor on allowlist
 }
 
 const AI_UNKNOWN_WEIGHT = 15

@@ -217,6 +217,11 @@ const FLAG_LABELS: Record<string, string> = {
   'ai:template_mismatch':     'Does not match the template structure',
   'ai:coherence_issue':       'Internal consistency problem',
   'ai:unsupported_claim':     'Claim not supported by attached sources',
+  // Post-generation validator flags (migration 104, Package 5).
+  'dropped_cross_ref':        'Dropped a cross-reference or citation present in the previous draft',
+  'invented_citation':        'Introduced a citation not grounded in attached sources',
+  'number_drift':             'A numeric value from the previous draft is not present in the rewrite',
+  'undefined_acronym':        'Used an acronym that was never defined in this document',
 }
 
 const DROP_REASON_LABELS: Record<string, string> = {

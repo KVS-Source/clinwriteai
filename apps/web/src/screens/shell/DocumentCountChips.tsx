@@ -98,8 +98,11 @@ export function DocumentCountChips({ project }: Props) {
               title={`${n} ${label} document${n === 1 ? '' : 's'}`}
               data-module-chip={slug}
               data-module-count={n}
+              // Always render in the module's brand colour (zero-count
+              // chips just drop to 55% opacity so they recede visually
+              // but keep the colour code that identifies the module).
               className="inline-flex items-center gap-0.5 rounded px-1 font-semibold transition-opacity hover:bg-slate-100 hover:opacity-80"
-              style={{ color: isZero ? '#94A3B8' : colour }}
+              style={{ color: colour, opacity: isZero ? 0.55 : 1 }}
             >
               <span className="tabular-nums">{n}</span>
               <span>{mono}</span>

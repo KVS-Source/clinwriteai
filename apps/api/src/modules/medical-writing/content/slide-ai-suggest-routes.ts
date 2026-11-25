@@ -29,6 +29,7 @@ import {
   callWithValidation,
   type StepEmitter,
 } from '../../clinical-writing/documents/ai-suggest-retry.js'
+import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
 import {
   resolveForMedContent,
   renderMedPolicyPromptBlock,
@@ -173,19 +174,22 @@ export const medSlideAiSuggestRoutes: FastifyPluginAsync = async (app) => {
       })
       const result = lastGatewayResult!
 
-      // Persist the new slide body + AI provenance. Match the shape
-      // MedSlide already carries (aiGenerated / aiModel / aiGeneratedAt
-      // / aiPrompt). Validator outcomes land in audit + step log —
-      // slide-level aiConfidence columns deferred (see scope note above).
+      // Persist the new slide body + AI provenance + confidence score
+      // (migration 106 added aiConfidence + aiFlags to MedSlide, so the
+      // slide-level badge now reflects the retry outcome just like
+      // MedContentSection does for section-level rewrites).
       try {
+        const score = scoreSection(validation.flags)
         await app.prisma.medSlide.update({
           where: { id: slideId },
           data:  {
-            bodyHtml:        validation.html,
-            aiGenerated:     true,
-            aiModel:         result.model,
-            aiGeneratedAt:   new Date(),
-            aiPrompt:        parsed.data.prompt ?? instruction,
+            bodyHtml:      validation.html,
+            aiGenerated:   true,
+            aiModel:       result.model,
+            aiGeneratedAt: new Date(),
+            aiPrompt:      parsed.data.prompt ?? instruction,
+            aiConfidence:  score,
+            aiFlags:       validation.flags,
           },
         })
       } catch (err) {

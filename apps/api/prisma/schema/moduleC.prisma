@@ -372,6 +372,12 @@ model MedSlide {
   aiModel                 String?                                          // the model that produced this slide, if AI-drafted
   aiGeneratedAt           DateTime?
   aiPrompt                String?                                          // the free-text prompt the author gave the generator
+  // Per-slide confidence + validator flags (migration 106). Populated by
+  // the slide-level ai-suggest retry wrapper (Package C-7) via the
+  // shared scoreSection() rubric. Enables the MedContentAiDebugPanel
+  // (Package D-5) to render a per-slide confidence badge.
+  aiConfidence            Int?     @map("ai_confidence")
+  aiFlags                 String[] @default([]) @map("ai_flags")
   lastEditedBy            String?
   lastEditedAt            DateTime?
   createdAt               DateTime @default(now())

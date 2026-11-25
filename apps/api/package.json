@@ -21,7 +21,8 @@
     "db:cleanup-checklist-templates": "tsx scripts/cleanup-checklist-templates.ts",
     "db:backfill-checklist-instances": "tsx scripts/backfill-checklist-instances.ts",
     "db:backfill-checklist-items": "tsx scripts/backfill-checklist-items.ts",
-    "auth:set-temp-passwords": "tsx scripts/set-temp-passwords.ts"
+    "auth:set-temp-passwords": "tsx scripts/set-temp-passwords.ts",
+    "script:cleanup-non-sunpharma": "tsx ../../scripts/clear-non-sunpharma-projects.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

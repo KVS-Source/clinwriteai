@@ -37,6 +37,17 @@ interface Props {
   onClose:    () => void
 }
 
+// Migration 105 Package B-7: this panel is Module A (Clinical) only.
+// The equivalent step-log data for Module B publications is written to
+// the SAME ai_draft_steps table by the publication ai-suggest route
+// (keyed by publicationId; documentId column is a plain String, no FK).
+// A dedicated PublicationAiDebugPanel is a follow-up workstream — the
+// Module A panel's dependencies on the Clinical /ai-debug rollup
+// endpoint (sources, passes, build summary) make a single-component
+// dual-mode unsafe. Consumers who want publication step visibility
+// should call publicationsApi.aiDebugSteps(publicationId) directly
+// and render the step log with WorkerActivityList or equivalent.
+
 // ---- Loose shape of the /ai-debug response -----------------------------
 
 interface DebugSection {

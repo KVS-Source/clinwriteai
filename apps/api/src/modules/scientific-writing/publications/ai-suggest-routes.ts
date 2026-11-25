@@ -380,4 +380,38 @@ export const publicationAiSuggestRoutes: FastifyPluginAsync = async (app) => {
       throw err
     }
   })
+
+  // GET /publications/:id/ai-debug-steps (migration 105 Package B-7)
+  //
+  // Returns the per-publication step log the ai-suggest retry wrapper
+  // writes via Package B-5's step emitter. Scoped subset of Clinical's
+  // GET /documents/:id/ai-debug — only the draftSteps field, because
+  // Module B doesn't have Clinical's full ai-debug rollup
+  // infrastructure yet (sources, pass summary, build summary are all
+  // Module A-specific today). Any future PublicationAiDebugPanel reads
+  // from this endpoint.
+  //
+  // Read gate: same as ai-suggest (module B access).
+  app.get('/:id/ai-debug-steps', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const pub = await app.prisma.publication.findUnique({
+      where:  { id },
+      select: { id: true, projectId: true, deletedAt: true },
+    })
+    if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const steps = await app.prisma.aiDraftStep.findMany({
+      where:   { documentId: id },
+      orderBy: { timestamp: 'asc' },
+      select:  { id: true, kind: true, message: true, sectionId: true, details: true, elapsedMs: true, timestamp: true },
+      take:    500,
+    })
+    // BigInt id doesn't serialise through JSON.stringify — stringify
+    // here so the client's useQuery can hold the shape without
+    // wrestling with BigInt errors.
+    return {
+      publicationId: id,
+      draftSteps:    steps.map(s => ({ ...s, id: String(s.id) })),
+    }
+  })
 }

@@ -36,6 +36,26 @@ export const publicationsApi = {
       `/publications/${publicationId}/footprint`,
     ),
 
+  // AI debug step log — migration 105 Package B-7. Returns the per-call
+  // step emissions the ai-suggest retry wrapper writes (manifest_extracted,
+  // validator_check_result, validator_retry) + any future worker-driven
+  // steps. Clinical has a richer GET /documents/:id/ai-debug that bundles
+  // sources + flags + passes + build summary; Module B returns only the
+  // steps for now.
+  aiDebugSteps: (publicationId: string) =>
+    api.get<{
+      publicationId: string
+      draftSteps: Array<{
+        id:         string
+        kind:       string
+        message:    string
+        sectionId:  string | null
+        details:    Record<string, unknown>
+        elapsedMs:  number | null
+        timestamp:  string
+      }>
+    }>(`/publications/${publicationId}/ai-debug-steps`),
+
   // Authors
   getAuthors: (publicationId: string) =>
     api.get<PublicationAuthor[]>(`/publications/${publicationId}/authors`),

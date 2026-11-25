@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { publicationsApi, type PublicationSectionRow, type SectionLockHolder, type PublicationSectionCommentRow } from '../../api/publications'
+import { PublicationAiDebugButton } from '../../components/ai-drafter/PublicationAiDebugPanel'
 import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
@@ -146,7 +147,10 @@ export function ManuscriptLiveEditor() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <AiDraftStateBadge state={aiDraftState} />
+          <div className="flex items-center gap-2">
+            <AiDraftStateBadge state={aiDraftState} />
+            {publicationId && <PublicationAiDebugButton publicationId={publicationId} />}
+          </div>
           <button
             type="button"
             onClick={() => startDraft.mutate()}

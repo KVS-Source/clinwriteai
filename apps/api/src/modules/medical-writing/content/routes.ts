@@ -270,12 +270,17 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
       })
       // Phase M-C.2 — seed v0.1 + sections.
       // docType threads through so SectionTemplate rows can be
-      // snapshotted at create time (migration 90).
+      // snapshotted at create time (migration 90). Package C-3
+      // (migration 105): also pass templateId + pinned AiPromptRecord
+      // id so per-section instructions / guidance / aiPromptSectionRules
+      // land snapshotted on each new MedContentSection row.
       await initialiseMedContentVersion(tx, {
-        contentItemId: item.id,
-        actorId:       request.user!.id,
-        sections:      sectionPayload,
-        docType:       dbType,
+        contentItemId:    item.id,
+        actorId:          request.user!.id,
+        sections:         sectionPayload,
+        docType:          dbType,
+        templateId:       policy?.templateId ?? undefined,
+        aiPromptRecordId: promptPin?.id      ?? undefined,
       })
       return item
     })

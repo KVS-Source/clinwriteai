@@ -5,8 +5,9 @@
 // creation; upsert section content on save; bump new version;
 // score aiConfidence + aiFlags (worker hook).
 
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
+import { extractManifest } from '../../clinical-writing/documents/must-preserve.js'
 
 export interface MedContentSectionPayload {
   sectionId:     string
@@ -21,6 +22,15 @@ export interface MedContentInitialiseArgs {
   sections:      MedContentSectionPayload[]
   /** docType for SectionTemplate snapshot (migration 90). */
   docType?:      string
+  /** MedContentTemplate.id resolved at create. Snapshots formatRules +
+   *  instructions + guidance per section onto the new MedContentSection
+   *  rows (migration 105 Package C-3). Routes resolve this via
+   *  policy.templateId before calling. */
+  templateId?:   string
+  /** Pinned MedContentAiPromptRecord id. Snapshots the per-section
+   *  sectionRules slice so later in-place edits to the pinned record
+   *  can't silently flow through to in-flight content's regenerate calls. */
+  aiPromptRecordId?: string
 }
 
 export function hashMedSections(sections: MedContentSectionPayload[]): string {
@@ -55,26 +65,77 @@ export async function initialiseMedContentVersion(
     },
   })
   if (args.sections.length > 0) {
-    // Per-section snapshot fields (templateFormatRules / templateInstructions
-    // / templateGuidance / aiPromptSectionRules / mustPreserveManifest —
-    // migrations 94 + 104) are populated by the clinical distill-template
-    // worker only. Medical templates aren't parsed yet, so these stay
-    // null here. Package 8 wires the Medical ai-suggest endpoint to the
-    // shared validators — when the Medical distiller catches up, this
-    // snapshot step picks up the new fields automatically (same source
-    // shape as clinical).
+    // Per-section snapshot fields (migrations 94 + 105). Mirror the
+    // Clinical + Publication services (Package 6 / B-4):
+    //   - templateFormatRules  : from MedContentTemplate.sections[].formatRules
+    //   - templateInstructions : from MedContentTemplate.sections[].instructions
+    //   - templateGuidance     : from MedContentTemplate.sections[].guidance
+    //   - aiPromptSectionRules : from the pinned MedContentAiPromptRecord's
+    //                            sectionRules[sectionId], deep-cloned
+    //   - mustPreserveManifest : extractManifest(contentHtml) at create
+    //
+    // Admin edits to the template after create can't silently change
+    // what in-flight content items draft against — snapshot is pinned.
+    const rulesBySection        = new Map<string, string>()
+    const instructionsBySection = new Map<string, string>()
+    const guidanceBySection     = new Map<string, string>()
+    if (args.templateId) {
+      try {
+        const tpl = await tx.medContentTemplate.findUnique({
+          where:  { id: args.templateId },
+          select: { sections: true },
+        })
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          for (const raw of tpl.sections as Array<Record<string, unknown>>) {
+            const id = typeof raw.id === 'string' ? raw.id : null
+            if (!id) continue
+            const rules        = typeof raw.formatRules  === 'string' ? raw.formatRules.trim()  : ''
+            const instructions = typeof raw.instructions === 'string' ? raw.instructions.trim() : ''
+            const guidance     = typeof raw.guidance     === 'string' ? raw.guidance.trim()     : ''
+            if (rules.length        > 0) rulesBySection.set(id, rules)
+            if (instructions.length > 0) instructionsBySection.set(id, instructions)
+            if (guidance.length     > 0) guidanceBySection.set(id, guidance)
+          }
+        }
+      } catch { /* missing template → snapshots stay null */ }
+    }
+
+    const aiPromptRulesBySection = new Map<string, unknown>()
+    if (args.aiPromptRecordId) {
+      try {
+        const pinned = await tx.medContentAiPromptRecord.findUnique({
+          where:  { id: args.aiPromptRecordId },
+          select: { sectionRules: true },
+        })
+        const sectionRules = pinned?.sectionRules as Record<string, unknown> | null | undefined
+        if (sectionRules && typeof sectionRules === 'object' && !Array.isArray(sectionRules)) {
+          for (const s of args.sections) {
+            const slice = sectionRules[s.sectionId]
+            if (slice !== undefined) aiPromptRulesBySection.set(s.sectionId, JSON.parse(JSON.stringify(slice)))
+          }
+        }
+      } catch { /* missing pinned prompt → snapshots stay null */ }
+    }
+
     await tx.medContentSection.createMany({
-      data: args.sections.map(s => ({
-        medContentVersionId:  version.id,
-        sectionId:            s.sectionId,
-        sectionNumber:        s.sectionNumber,
-        sectionTitle:         s.sectionTitle,
-        contentHtml:          s.contentHtml ?? '',
-        wordCount:            wordsIn(s.contentHtml ?? ''),
-        templateFormatRules:  null,
-        templateInstructions: null,
-        templateGuidance:     null,
-      })),
+      data: args.sections.map(s => {
+        const html = s.contentHtml ?? ''
+        const manifest = extractManifest(html)
+        const promptRules = aiPromptRulesBySection.get(s.sectionId)
+        return {
+          medContentVersionId:  version.id,
+          sectionId:            s.sectionId,
+          sectionNumber:        s.sectionNumber,
+          sectionTitle:         s.sectionTitle,
+          contentHtml:          html,
+          wordCount:            wordsIn(html),
+          templateFormatRules:  rulesBySection.get(s.sectionId)        ?? null,
+          templateInstructions: instructionsBySection.get(s.sectionId) ?? null,
+          templateGuidance:     guidanceBySection.get(s.sectionId)     ?? null,
+          aiPromptSectionRules: (promptRules ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+          mustPreserveManifest: (manifest    ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+        }
+      }),
     })
   }
   await tx.medContentItem.update({

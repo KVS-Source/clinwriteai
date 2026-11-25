@@ -34,6 +34,7 @@
 //     accidental double-fires.
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
+import { buildSourceBlocks, inputUsage } from './source-blocks.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 import { createStepLogger } from './ai-draft-step.js'
@@ -463,15 +464,7 @@ async function runLlmChecks(args: {
     .map(s => `--- sectionId: ${s.id} ---\n${s.html}`)
     .join('\n\n')
 
-  const pdfBlocks = args.sourcePdfs.map(p => ({
-    type: 'document' as const,
-    source: {
-      type:       'base64' as const,
-      media_type: 'application/pdf' as const,
-      data:       p.bytes.toString('base64'),
-    },
-    title: p.title,
-  }))
+  const { blocks } = await buildSourceBlocks(args.sourcePdfs, args.model)
 
   const userPrompt = [
     `Attached sources (reference for the source-consistency check):`,
@@ -491,14 +484,14 @@ async function runLlmChecks(args: {
       {
         role: 'user',
         content: [
-          ...pdfBlocks,
+          ...blocks,
           { type: 'text', text: userPrompt },
         ],
       },
     ],
   })
 
-  const inputTokens  = typeof (message.usage?.input_tokens)  === 'number' ? message.usage.input_tokens  : 0
+  const { inputTokens } = inputUsage(message.usage)
   const outputTokens = typeof (message.usage?.output_tokens) === 'number' ? message.usage.output_tokens : 0
 
   const text = message.content

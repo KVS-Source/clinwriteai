@@ -60,6 +60,7 @@ test('a valid invite lets the user enter a name, set a password and register, th
   expect(await page.evaluate(() => (window as unknown as { __registerCalls: number }).__registerCalls)).toBe(1)
   const body = await page.evaluate(() => (window as unknown as { __registerBody: Record<string, unknown> }).__registerBody)
   expect(body).toMatchObject({ name: 'Ravi Kumar', newPassword: STRONG, acceptTerms: true })
+  for (const k of ['title', 'department']) expect(body).not.toHaveProperty(k)
   expect(body).not.toHaveProperty('tenantRef')       // optional Tenant ID left blank → nothing sent
 })
 
@@ -105,6 +106,28 @@ test('whatever the user types as Tenant ID is sent with the registration', async
   await expect(page).toHaveURL(/\/sign-in\?registered=1$/, { timeout: 30_000 })
   expect(await page.evaluate(() => (window as unknown as { __registerBody: unknown }).__registerBody))
     .toMatchObject({ name: 'Ravi Kumar', tenantRef: 'ACME / Mumbai-01' })
+})
+
+test('Title and Department are optional and sent when entered', async ({ page }) => {
+  await mockInvite(page, { valid: true })
+  await page.goto(`/accept-invitation?token=${TOKEN}`)
+  await expect(page.locator('[data-invite-email]')).toBeVisible({ timeout: 30_000 })
+
+  for (const [id, label] of [['invite-title', 'Title'], ['invite-department', 'Department']]) {
+    await expect(page.locator(`label[for="${id}"]`)).toHaveText(label!)      // no asterisk
+    await expect(page.locator(`#${id}`)).not.toHaveAttribute('required', '')
+  }
+  await page.locator('#invite-name').fill('Ravi Kumar')
+  await page.locator('#invite-title').fill(' Medical Writer ')
+  await page.locator('#invite-department').fill(' Clinical Operations ')
+  await page.locator('#new-password').fill(STRONG)
+  await page.locator('#confirm-password').fill(STRONG)
+  await page.locator('[data-input="accept-terms"]').check()
+  await page.getByRole('button', { name: 'Create account' }).click()
+
+  await expect(page).toHaveURL(/\/sign-in\?registered=1$/, { timeout: 30_000 })
+  expect(await page.evaluate(() => (window as unknown as { __registerBody: unknown }).__registerBody))
+    .toMatchObject({ title: 'Medical Writer', department: 'Clinical Operations' })
 })
 
 test('mismatched passwords block submit, and the confirm shows a mismatch hint', async ({ page }) => {

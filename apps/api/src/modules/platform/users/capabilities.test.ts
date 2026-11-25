@@ -74,6 +74,33 @@ describe('PATCH /admin/users/:id — capabilities (the panel’s roles)', () => 
     await t.app.close()
   })
 
+  it('title and department: trimmed, blank clears, audited from → to', async () => {
+    const t = await build({ title: null, department: 'Old' })
+    expect((await t.patch({ title: ' Medical Writer ', department: '  ' })).statusCode).toBe(200)
+    expect(t.user).toMatchObject({ title: 'Medical Writer', department: null })
+    expect(t.audit[0]).toMatchObject({ action: 'user.update', details: {
+      changedFields: ['title', 'department'], titleFrom: null, titleTo: 'Medical Writer', departmentFrom: 'Old', departmentTo: null,
+    } })
+    await t.app.close()
+  })
+
+  it('a patch without title / department leaves them alone', async () => {
+    const t = await build({ title: 'CMC Lead', department: 'CMC' })
+    expect((await t.patch({ name: 'Casey B' })).statusCode).toBe(200)
+    expect(t.update.mock.calls[0]![0].data).toEqual({ name: 'Casey B' })
+    await t.app.close()
+  })
+
+  it.each(['title', 'department'])('refuses an over-long %s, and any edit of a deprovisioned user', async (f) => {
+    const t = await build({})
+    expect((await t.patch({ [f]: 'x'.repeat(121) })).statusCode).toBe(400)
+    const gone = await build({ status: 'deprovisioned' })
+    expect((await gone.patch({ [f]: 'X' })).statusCode).toBe(409)
+    expect(t.update).not.toHaveBeenCalled()
+    expect(gone.update).not.toHaveBeenCalled()
+    await t.app.close(); await gone.app.close()
+  })
+
   it('changing a PM to Contributor and giving capabilities in one request works', async () => {
     const t = await build({ role: 'pm', capabilities: [] })
     expect((await t.patch({ role: 'contributor', capabilities: ['can-author'] })).statusCode).toBe(200)

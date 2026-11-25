@@ -2,7 +2,7 @@
 //
 //   GET  /auth/invitations/preview?token=...   what the accept page shows
 //   POST /auth/invitations/accept              { token, acceptTerms: true }
-//   POST /auth/invitations/register            { token, name, tenantRef?, newPassword, acceptTerms } → activate + set password
+//   POST /auth/invitations/register            { token, name, title?, department?, tenantRef?, newPassword, acceptTerms } → activate + set password
 //
 // `accept` is the legacy SSO path: it validates the link, records that T&C
 // were accepted in the browser, and stores the token in a short-lived
@@ -30,6 +30,9 @@ const registerBody = z.object({
   token: z.string().min(16).max(128),
   // The invitee enters their own name; it replaces the one derived from the email at invite time.
   name: z.string().trim().min(1).max(120),
+  // Optional job title and department, free text.
+  title: z.string().trim().max(120).optional(),
+  department: z.string().trim().max(120).optional(),
   // Optional free-text Tenant ID, stored as entered (users.tenant_ref). It is
   // not the tenant link (users.tenantId), which stays as the admin set it.
   tenantRef: z.string().trim().max(100).optional(),
@@ -116,6 +119,9 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
 
     // Free text, saved exactly as entered (trimmed); blank saves nothing.
     const tenantRef = parsed.data.tenantRef || null
+    // Blank keeps whatever an admin already entered for the user.
+    const title = parsed.data.title || undefined
+    const department = parsed.data.department || undefined
 
     const now = new Date()
     const passwordHash = await hashPassword(parsed.data.newPassword)
@@ -133,6 +139,8 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
         data: {
           name: parsed.data.name,
           initials: initialsOf(parsed.data.name),
+          ...(title && { title }),
+          ...(department && { department }),
           tenantRef,
           passwordHash,
           passwordChangedAt: now,
@@ -150,7 +158,7 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
       action: 'user.invitation.register',
       entityType: 'user',
       entityId: invitation.userId,
-      details: { email: invitation.user.email, termsVersion: TERMS_VERSION, tenantRef },
+      details: { email: invitation.user.email, termsVersion: TERMS_VERSION, title, department, tenantRef },
       ipAddress: request.ip ?? null,
     })
 

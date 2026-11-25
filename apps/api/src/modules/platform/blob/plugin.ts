@@ -20,6 +20,49 @@ import type { BlobBucket, BlobStorage } from './storage.js'
 
 const VALID_BUCKETS: ReadonlySet<string> = new Set(['documents', 'voice', 'exports', 'ectd'])
 
+/** Read from the first store; a file it doesn't have is read from the second. Any other error is thrown as is. */
+export function getWithFallback(first: BlobStorage['get'], second: BlobStorage['get']): BlobStorage['get'] {
+  const missing = (err: unknown) => {
+    const e = err as { code?: string; name?: string } | null
+    return e?.code === 'ENOENT' || e?.name === 'NoSuchKey' || e?.name === 'NotFound'
+  }
+  return async (bucket, key) => {
+    try {
+      return await first(bucket, key)
+    } catch (err) {
+      if (!missing(err)) throw err
+      return second(bucket, key).catch((otherErr: unknown) => { throw missing(otherErr) ? err : otherErr })
+    }
+  }
+}
+
+function s3BucketMap(): Record<BlobBucket, string> {
+  return {
+    documents: process.env.S3_DOCUMENTS_BUCKET ?? 'platform-documents',
+    voice:     process.env.S3_VOICE_BUCKET     ?? 'platform-voice',
+    exports:   process.env.S3_EXPORTS_BUCKET   ?? 'platform-exports',
+    ectd:      process.env.S3_ECTD_BUCKET      ?? 'platform-ectd',
+  }
+}
+
+/** The store that is not the provider, or null when it isn't configured. */
+function otherStore(provider: string): BlobStorage | null {
+  const { S3_ACCESS_KEY_ID: accessKeyId, S3_SECRET_ACCESS_KEY: secretAccessKey, BLOB_LOCAL_ROOT_DIR: rootDir } = process.env
+  if (provider !== 'local') {
+    // Only read from, so the signing key is never used.
+    return rootDir ? new LocalBlobStorage(resolve(rootDir), 'read-only-fallback-store') : null
+  }
+  if (!accessKeyId || !secretAccessKey) return null
+  return new S3BlobStorage({
+    endpoint: process.env.S3_ENDPOINT,
+    region: process.env.S3_REGION ?? 'us-east-1',
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+    accessKeyId,
+    secretAccessKey,
+    bucketMap: s3BucketMap(),
+  })
+}
+
 async function readRawBody(req: { raw: NodeJS.ReadableStream }): Promise<Buffer> {
   const chunks: Buffer[] = []
   for await (const chunk of req.raw) {
@@ -41,21 +84,23 @@ const blobPlugin: FastifyPluginAsync = async (app) => {
     storage = new LocalBlobStorage(rootDir, signingKey)
     app.log.warn({ rootDir, provider: 'local' }, 'BlobStorage: using local filesystem — NOT for production')
   } else {
-    const bucketMap: Record<BlobBucket, string> = {
-      documents: process.env.S3_DOCUMENTS_BUCKET ?? 'platform-documents',
-      voice:     process.env.S3_VOICE_BUCKET     ?? 'platform-voice',
-      exports:   process.env.S3_EXPORTS_BUCKET   ?? 'platform-exports',
-      ectd:      process.env.S3_ECTD_BUCKET      ?? 'platform-ectd',
-    }
     storage = new S3BlobStorage({
       endpoint: process.env.S3_ENDPOINT,
       region: process.env.S3_REGION ?? 'us-east-1',
       forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
       accessKeyId: await app.secrets.getSecret('S3_ACCESS_KEY_ID'),
       secretAccessKey: await app.secrets.getSecret('S3_SECRET_ACCESS_KEY'),
-      bucketMap,
+      bucketMap: s3BucketMap(),
     })
     app.log.info({ provider: 's3', endpoint: process.env.S3_ENDPOINT ?? '(aws default)' }, 'BlobStorage: using S3-compatible')
+  }
+
+  // The shared database can hold uploads made by an API with the other provider (the row doesn't say which), so a
+  // file missing from this store is looked up in the other one when that is configured. Reads only.
+  const other = otherStore(provider)
+  if (other) {
+    storage.get = getWithFallback(storage.get.bind(storage), other.get.bind(other))
+    app.addHook('onClose', async () => { await other.close() })
   }
 
   app.decorate('blob', storage)

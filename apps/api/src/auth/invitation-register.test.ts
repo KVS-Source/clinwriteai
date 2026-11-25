@@ -126,6 +126,26 @@ describe('POST /auth/invitations/register', () => {
     expect(ctx.users[0]).toMatchObject({ status: 'invited', tenantRef: null, passwordHash: null })
   })
 
+  it('saves the optional title and department, trimmed, and records them in the audit trail', async () => {
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', title: ' Medical Writer ', department: ' Clinical Operations ', newPassword: STRONG, acceptTerms: true } })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.users[0]).toMatchObject({ title: 'Medical Writer', department: 'Clinical Operations' })
+    expect(ctx.audit.at(-1)).toMatchObject({ details: { title: 'Medical Writer', department: 'Clinical Operations' } })
+  })
+
+  it('blank or omitted title and department keep what an admin already entered', async () => {
+    Object.assign(ctx.users[0]!, { title: 'Clinical Writer', department: null })
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', title: '  ', newPassword: STRONG, acceptTerms: true } })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.users[0]).toMatchObject({ title: 'Clinical Writer', department: null })
+  })
+
+  it.each(['title', 'department'])('refuses an over-long %s and changes nothing', async (field) => {
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', [field]: 'x'.repeat(121), newPassword: STRONG, acceptTerms: true } })
+    expect(res.statusCode).toBe(400)
+    expect(ctx.users[0]).toMatchObject({ status: 'invited', passwordHash: null })
+  })
+
   it('the preview shows the email and role from the invitation', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: `/auth/invitations/preview?token=${encodeURIComponent(token)}` })
     expect(res.statusCode).toBe(200)

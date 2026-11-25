@@ -18,6 +18,8 @@ export interface AdminUser {
   tenantId: string | null
   tenantName?: string | null    // the real tenant's name (looked up by the API from tenantId)
   tenantRef?: string | null     // Tenant ID the user typed when registering (free text)
+  title?: string | null         // job title and department entered when registering
+  department?: string | null
   termsAcceptedAt?: string | null   // set when the invitation is accepted (registration)
   lastActiveAt: string | null   // stamped on each sign-in (auth/routes.ts)
   createdAt: string
@@ -67,6 +69,8 @@ export const usersApi = {
   suspend:      (id: string) => api.post<AdminUser>(`/admin/users/${id}/suspend`, {}),
   reactivate:   (id: string) => api.post<AdminUser>(`/admin/users/${id}/reactivate`, {}),
   deprovision:  (id: string) => api.delete<{ ok: true }>(`/admin/users/${id}`),
+  // Job title and department; blank clears.
+  updateProfile: (id: string, body: { title: string; department: string }) => api.patch<AdminUser>(`/admin/users/${id}`, body),
   addRole:      (id: string, role: string) => api.post<AdminUser>(`/admin/users/${id}/roles`, { role }),
   revokeRole:   (id: string, role: string) => api.delete<AdminUser>(`/admin/users/${id}/roles/${encodeURIComponent(role)}`),
   resendInvite: (id: string) => api.post<{ ok: true; email: string; note: string } & InviteLink>(`/admin/users/${id}/resend-invite`, {}),

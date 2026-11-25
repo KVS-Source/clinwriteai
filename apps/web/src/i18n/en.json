@@ -2096,6 +2096,9 @@
       "go_to_sign_in": "Go to sign in",
       "role_label": "Role",
       "tenant_label": "Tenant ID",
+      "title_label": "Title",
+      "department_label": "Department",
+      "optional_placeholder": "Optional",
       "tenant_placeholder": "Optional",
       "name_label": "Enter name",
       "name_placeholder": "Your full name"
@@ -2643,6 +2646,9 @@
     },
     "user_management_live": {
       "tenant_ref_entered": "Tenant ID: {{ref}}",
+      "edit_profile_aria": "Edit title and department",
+      "detail_job_title": "Title",
+      "detail_department": "Department",
       "title": "User Management",
       "user_count_one": "{{count}} user",
       "user_count_other": "{{count}} users",

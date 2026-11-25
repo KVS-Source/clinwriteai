@@ -439,16 +439,6 @@ export function DiffView() {
             >
               {t('page.diff_view.back_to_editor')}
             </button>
-            {canEditDocument && (
-              <button
-                type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}?submit=1`)}
-                title={t('page.diff_view.submit_for_review_tooltip')}
-                className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
-              >
-                {t('page.diff_view.submit_for_review')}
-              </button>
-            )}
           </div>
         </div>
       </div>

@@ -1931,7 +1931,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // The panel renders this as a header card so a writer gets the
     // "what did this draft cost" answer at a glance.
     const activeRateCard = await getActiveRateCard(app.prisma)
-    const perModelTotals = new Map<string, { inputTokens: number; outputTokens: number; calls: number }>()
+    const perModelTotals = new Map<string, { inputTokens: number; cachedTokens: number; outputTokens: number; calls: number }>()
     let totalInputTokens = 0
     let totalOutputTokens = 0
     let draftingCalls = 0
@@ -1968,8 +1968,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         totalInputTokens  += inTok
         totalOutputTokens += outTok
         const key = model ?? 'unknown'
-        const bucket = perModelTotals.get(key) ?? { inputTokens: 0, outputTokens: 0, calls: 0 }
+        const bucket = perModelTotals.get(key) ?? { inputTokens: 0, cachedTokens: 0, outputTokens: 0, calls: 0 }
         bucket.inputTokens  += inTok
+        bucket.cachedTokens += typeof d.cachedTokens === 'number' ? d.cachedTokens : 0
         bucket.outputTokens += outTok
         bucket.calls        += 1
         perModelTotals.set(key, bucket)
@@ -2027,7 +2028,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       outputTokens: agg.outputTokens,
       calls:        agg.calls,
       costUsd:      computeCostUsdWithCard(activeRateCard.rates, {
-        model, inputTokens: agg.inputTokens, outputTokens: agg.outputTokens,
+        model, inputTokens: agg.inputTokens, cachedTokens: agg.cachedTokens, outputTokens: agg.outputTokens,
       }),
     }))
     const totalCostUsd = perModel.reduce((n, m) => n + m.costUsd, 0)

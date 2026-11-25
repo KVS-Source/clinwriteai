@@ -1,7 +1,8 @@
 // User detail — the right-hand panel User Management opens when a row is clicked (as in Genrac).
 //
 //   Header   — name and status.
-//   Details  — email (masked), every role held, tenant, activated, last active, created.
+//   Details  — email (masked), every role held, title, department, tenant, activated, last active, created.
+//              Edit changes title and department (PATCH /admin/users/:id, audited); not for deprovisioned users.
 //   Roles    — the platform roles the user holds (at most 2; rights are the union). Slide to revoke
 //              one (never the last); "Add another role" adds one alongside the current role. Only the
 //              allowed pairs are offered: an admin role is never combined, nor Auditor + Contributor
@@ -58,10 +59,11 @@ export function UserDetailPanel({ user, onClose, onSuspend, onReactivate }: {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const [selected, setSelected] = useState('')
+  const [profile, setProfile] = useState<{ title: string; department: string } | null>(null)   // set while editing
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // A different user resets the panel; a success note clears itself after a few seconds.
-  useEffect(() => { setSelected(''); setMessage(null) }, [user?.id])
+  useEffect(() => { setSelected(''); setMessage(null); setProfile(null) }, [user?.id])
   useEffect(() => {
     if (message?.type !== 'success') return
     const timer = setTimeout(() => setMessage(null), 6000)
@@ -87,6 +89,15 @@ export function UserDetailPanel({ user, onClose, onSuspend, onReactivate }: {
     onError: failed,
   })
 
+  const saveProfile = useMutation({
+    mutationFn: (v: { id: string; title: string; department: string }) => usersApi.updateProfile(v.id, { title: v.title.trim(), department: v.department.trim() }),
+    onSuccess: async (_u, v) => {
+      await qc.invalidateQueries({ queryKey: ['admin-users'] })
+      setProfile(p => (user?.id === v.id ? null : p))
+    },
+  })
+  const startEdit = (u: AdminUser) => { saveProfile.reset(); setProfile({ title: u.title ?? '', department: u.department ?? '' }) }
+
   const roles = user ? rolesOfUser(user) : []
   const active = user?.status === 'active'
   const onlyOne = roles.length <= 1
@@ -109,6 +120,13 @@ export function UserDetailPanel({ user, onClose, onSuspend, onReactivate }: {
 
           {/* Details */}
           <section className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border border-slate-200 bg-white p-5 text-[13px]" data-detail-fields>
+            {user.status !== 'deprovisioned' && !profile && (
+              <button type="button" onClick={() => startEdit(user)} data-action="edit-profile"
+                aria-label={t('page.user_management_live.edit_profile_aria')}
+                className="col-span-2 -mb-2 justify-self-end text-[12px] font-medium text-indigo-700 hover:underline">
+                {t('button.edit')}
+              </button>
+            )}
             <div>
               <p className="text-[11px] text-slate-500">{t('page.user_management_live.field_email')}</p>
               <p className="break-all font-mono text-[12px] text-slate-900" data-detail-email>{maskEmail(user.email)}</p>
@@ -118,13 +136,38 @@ export function UserDetailPanel({ user, onClose, onSuspend, onReactivate }: {
               <p className="text-slate-900" data-detail-role>{roles.map(r => roleLabelOf(r, t)).join(', ')}</p>
             </div>
             <div>
-              <p className="text-[11px] text-slate-500">{t('page.user_management_live.detail_title')}</p>
-              <p className="break-words text-slate-900" data-detail-title>{user.title || '—'}</p>
+              <p className="text-[11px] text-slate-500">{t('page.user_management_live.detail_job_title')}</p>
+              {profile ? (
+                <input value={profile.title} onChange={e => setProfile({ ...profile, title: e.currentTarget.value })} maxLength={120} autoFocus
+                  aria-label={t('page.user_management_live.detail_job_title')} data-input="profile-title"
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-[13px] text-slate-900" />
+              ) : <p className="break-words text-slate-900" data-detail-title>{user.title || '—'}</p>}
             </div>
             <div>
               <p className="text-[11px] text-slate-500">{t('page.user_management_live.detail_department')}</p>
-              <p className="break-words text-slate-900" data-detail-department>{user.department || '—'}</p>
+              {profile ? (
+                <input value={profile.department} onChange={e => setProfile({ ...profile, department: e.currentTarget.value })} maxLength={120}
+                  aria-label={t('page.user_management_live.detail_department')} data-input="profile-department"
+                  className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2 text-[13px] text-slate-900" />
+              ) : <p className="break-words text-slate-900" data-detail-department>{user.department || '—'}</p>}
             </div>
+            {profile && (
+              <div className="col-span-2 flex flex-col gap-2">
+                {saveProfile.isError && <p role="alert" data-profile-error className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">{describeApiError(saveProfile.error).message}</p>}
+                <div className="flex gap-2">
+                  <button type="button" data-action="save-profile"
+                    disabled={saveProfile.isPending || (profile.title.trim() === (user.title ?? '') && profile.department.trim() === (user.department ?? ''))}
+                    onClick={() => saveProfile.mutate({ id: user.id, ...profile })}
+                    className="h-8 rounded-md bg-indigo-600 px-3 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">
+                    {t('button.save')}
+                  </button>
+                  <button type="button" data-action="cancel-profile" disabled={saveProfile.isPending} onClick={() => setProfile(null)}
+                    className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700">
+                    {t('button.cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
             <div>
               <p className="text-[11px] text-slate-500">{t('page.user_management_live.col_tenant')}</p>
               <p className="text-slate-900" data-detail-tenant>{user.tenantName || user.tenantId || user.tenantRef || '—'}</p>

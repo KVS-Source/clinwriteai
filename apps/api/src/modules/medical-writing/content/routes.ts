@@ -28,6 +28,13 @@ import {
   STAGE_LABELS,
   type ContentStage,
 } from '../content-stage.js'
+// Migration 104, Package 8 — share CW's manifest + validators + retry
+// wrapper so Medical's ai-suggest rewrites get the same hallucination
+// firewall. See apps/api/src/modules/clinical-writing/documents/... for
+// the module-level rationale and unit tests.
+import { extractManifest, renderForPrompt as renderMustPreserve } from '../../clinical-writing/documents/must-preserve.js'
+import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
+import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -813,16 +820,81 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
 
     try {
       const model = await chooseModel(app.prisma)
-      const result = await app.aiGateway.chat({
-        tenantId:  request.user!.tenantId,
-        projectId: item.projectId ?? 'unknown',
-        actorId:   request.user!.id,
-        module:    'C',
-        intent:    'content_suggest',
-        model,
-        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
-        maxOutputTokens: 1024,
+
+      // Pre-call manifest from the current body — same mechanism as CW
+      // (Package 7). Rendered into the system prompt as a MUST PRESERVE
+      // block, then diffed against the model's output by the retry
+      // wrapper to catch dropped refs / invented citations.
+      const manifestBefore = extractManifest(body.currentContent ?? '')
+      const mustPreserveBlock = renderMustPreserve(manifestBefore)
+      const systemPromptWithPreserve = mustPreserveBlock
+        ? `${systemPrompt}\n\n${mustPreserveBlock}`
+        : systemPrompt
+      const basePrompt = `${systemPromptWithPreserve}\n\n---\n\n${userPrompt}`
+
+      // Step-log emitter — writes to ai_draft_steps (migration 103)
+      // keyed by contentId. Package 9 surfaces the validator trace in
+      // AiDebugPanel's "Worker activity" timeline the same way the CW
+      // path does. AiDraftStep.documentId is a plain String (no FK),
+      // so Medical content ids are safe here.
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId: contentId,
+              versionId:  item.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
+      // Retry wrapper (Package 8) — one AI call + optional single retry
+      // on hard validator failures. Shared with CW.
+      let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
+      const validation = await callWithValidation({
+        manifestBefore,
+        attachedSources: {},   // Medical doesn't attach source library docs on this route yet
+        steps:     stepsEmitter,
+        sectionId: body.sectionId ?? undefined,
+        call: async ({ prependPrompt }) => {
+          const effectivePrompt = prependPrompt
+            ? `${prependPrompt}\n\n----\n\n${basePrompt}`
+            : basePrompt
+          const r = await app.aiGateway.chat({
+            tenantId:  request.user!.tenantId,
+            projectId: item.projectId ?? 'unknown',
+            actorId:   request.user!.id,
+            module:    'C',
+            intent:    'content_suggest',
+            model,
+            prompt:    effectivePrompt,
+            maxOutputTokens: 1024,
+          })
+          lastGatewayResult = r
+          return { html: r.responseText }
+        },
       })
+      const result = lastGatewayResult!
+
+      // Persist aiConfidence + aiFlags onto the matching MedContentSection
+      // row so the Medical confidence badge reflects the retry outcome.
+      // Best-effort — this route accepts an opaque sectionId string and
+      // some callers may not have a matching row yet.
+      if (body.sectionId && item.currentVersionId) {
+        try {
+          const score = scoreSection(validation.flags)
+          await app.prisma.medContentSection.updateMany({
+            where: { medContentVersionId: item.currentVersionId, sectionId: body.sectionId },
+            data:  { aiConfidence: score, aiFlags: validation.flags },
+          })
+        } catch (err) {
+          app.log.warn({ err, contentId, sectionId: body.sectionId }, 'medical section confidence update failed (non-fatal)')
+        }
+      }
 
       await app.audit.append({
         timestamp:  new Date().toISOString(),
@@ -831,15 +903,22 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'med_content',
         entityId:   contentId,
         details: {
-          sectionId:     body.sectionId ?? null,
-          model:         result.model,
-          aiCallRecordId: result.recordId,
+          sectionId:        body.sectionId ?? null,
+          model:            result.model,
+          aiCallRecordId:   result.recordId,
+          validatorFlags:   validation.flags,
+          validatorRetried: validation.retried,
+          validatorTrace:   validation.trace.map(t => ({
+            attempt: t.attempt,
+            flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),
+            retriedBecause: t.retriedBecause,
+          })),
         },
         ipAddress: request.ip ?? null,
       })
 
       return {
-        responseText: result.responseText,
+        responseText: validation.html,
         aiModel:      result.model,
         recordId:     result.recordId,
         generatedAt:  new Date().toISOString(),

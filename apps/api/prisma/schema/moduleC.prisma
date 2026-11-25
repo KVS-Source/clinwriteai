@@ -615,6 +615,15 @@ model MedContentSection {
   // Per-section formatting snapshot (migration 94) — same as SectionContent.
   templateFormatRules     String?   @map("template_format_rules")
 
+  // Per-section guidance + prompt + must-preserve snapshot (migration 104)
+  // — same lifecycle as SectionContent fields; see moduleA.prisma for
+  // rationale. Medical Writing has an ai-suggest endpoint so validators
+  // wire in alongside the snapshot (Package 8 of the plan).
+  templateInstructions    String?   @map("template_instructions")
+  templateGuidance        String?   @map("template_guidance")
+  aiPromptSectionRules    Json?     @map("ai_prompt_section_rules")
+  mustPreserveManifest    Json?     @map("must_preserve_manifest")
+
   version                MedContentVersion @relation(fields: [medContentVersionId], references: [id], onDelete: Cascade)
 
   @@map("med_content_sections")

@@ -55,20 +55,25 @@ export async function initialiseMedContentVersion(
     },
   })
   if (args.sections.length > 0) {
-    // Per-section formatRules snapshot is populated by the clinical
-    // distill-template worker only (migration 94). Non-clinical modules
-    // leave templateFormatRules null until each module's template
-    // distiller is extended to merge formatRules into its own
-    // sections[] JSON.
+    // Per-section snapshot fields (templateFormatRules / templateInstructions
+    // / templateGuidance / aiPromptSectionRules / mustPreserveManifest —
+    // migrations 94 + 104) are populated by the clinical distill-template
+    // worker only. Medical templates aren't parsed yet, so these stay
+    // null here. Package 8 wires the Medical ai-suggest endpoint to the
+    // shared validators — when the Medical distiller catches up, this
+    // snapshot step picks up the new fields automatically (same source
+    // shape as clinical).
     await tx.medContentSection.createMany({
       data: args.sections.map(s => ({
-        medContentVersionId: version.id,
-        sectionId:           s.sectionId,
-        sectionNumber:       s.sectionNumber,
-        sectionTitle:        s.sectionTitle,
-        contentHtml:         s.contentHtml ?? '',
-        wordCount:           wordsIn(s.contentHtml ?? ''),
-        templateFormatRules: null,
+        medContentVersionId:  version.id,
+        sectionId:            s.sectionId,
+        sectionNumber:        s.sectionNumber,
+        sectionTitle:         s.sectionTitle,
+        contentHtml:          s.contentHtml ?? '',
+        wordCount:            wordsIn(s.contentHtml ?? ''),
+        templateFormatRules:  null,
+        templateInstructions: null,
+        templateGuidance:     null,
       })),
     })
   }

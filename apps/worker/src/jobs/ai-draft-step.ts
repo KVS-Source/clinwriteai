@@ -34,6 +34,13 @@ export type AiDraftStepKind =
   | 'job_cancelled'
   | 'job_paused'
   | 'warning'
+  // Post-generation validator steps (migration 104, Package 9) — fired
+  // by the ai-suggest retry wrapper (clinical-writing + medical-writing
+  // routes). One manifest_extracted + one validator_check_result per
+  // attempt, plus a validator_retry when attempt 1 has a hard failure.
+  | 'manifest_extracted'
+  | 'validator_check_result'
+  | 'validator_retry'
 
 export interface StepEmitOptions {
   sectionId?: string | null

@@ -133,10 +133,11 @@ describe('POST /auth/invitations/register', () => {
     expect(ctx.audit.at(-1)).toMatchObject({ details: { title: 'Medical Writer', department: 'Clinical Operations' } })
   })
 
-  it('blank or omitted title and department are stored as empty', async () => {
+  it('blank or omitted title and department keep what an admin already entered', async () => {
+    Object.assign(ctx.users[0]!, { title: 'Clinical Writer', department: null })
     const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', title: '  ', newPassword: STRONG, acceptTerms: true } })
     expect(res.statusCode).toBe(200)
-    expect(ctx.users[0]).toMatchObject({ title: null, department: null })
+    expect(ctx.users[0]).toMatchObject({ title: 'Clinical Writer', department: null })
   })
 
   it.each(['title', 'department'])('refuses an over-long %s and changes nothing', async (field) => {

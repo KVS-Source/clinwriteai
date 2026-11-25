@@ -46,6 +46,14 @@ interface ParsedSection {
   // DocumentTemplate.sections[] so the template is the single source of
   // truth (migration 94 retired the standalone SectionTemplate entity).
   formatRules?: string
+  // Per-section content guidance — "what this section must cover" +
+  // "how to write it". Populated by the guidance-extraction phase that
+  // runs after formatRules. Strict verbatim extraction only; null when
+  // the template provides no explicit guidance (no synthesis, no
+  // paraphrasing — authors see what the template says, not what the
+  // model would write).
+  instructions?: string
+  guidance?:     string
 }
 
 interface Report {
@@ -59,6 +67,15 @@ interface Report {
     merged:      number           // sections written back into the template
     iterations:  number           // passes run through the 85% loop
     belowTarget: number           // sections still below 85 after the final pass
+  }
+  // Content-guidance extraction breadcrumbs — absent when skipped
+  // (AI not configured, no sections). Single-pass, no refinement loop:
+  // guidance is verbatim-or-nothing, so refinement would invite drift.
+  guidance?: {
+    instructionsExtracted: number // sections with a non-null `instructions` after gate
+    guidanceExtracted:     number // sections with a non-null `guidance` after gate
+    merged:                number // sections written back into the template
+    rejectedForHallucinationRisk: number // sections where the gate nulled extracted strings
   }
 }
 
@@ -552,6 +569,213 @@ export function mergeFormatRulesIntoSections(
   return { sections: out, merged }
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Content-guidance extraction (migration 104, Package 2).
+//
+// Third AI phase. Where formatRules describe HOW a section looks,
+// instructions describe WHAT a section must cover, and guidance
+// describes HOW to write it (tone, style, framing). These are the
+// template's content-steering NL the drafter + rewrite paths previously
+// ignored (the schema declared the fields but the parser never touched
+// them).
+//
+// Design choice — SINGLE pass, verbatim-or-null, NO refinement loop.
+// Refinement invites hallucination here: if the template doesn't
+// contain explicit per-section guidance ("Purpose:", "Scope:",
+// "Instructions:"), a refinement prompt pressures the model to
+// invent plausible-sounding guidance that was never in the template.
+// Users would then see fabricated regulatory instructions attributed
+// to their template. Instead: strict system prompt + post-filter gate
+// that nulls out anything that looks synthesised or too short.
+//
+// Gate rubric (nulls out the extracted string on any flag):
+//   flag                                  trigger
+//   guidance:too_short                    < 30 chars after trim
+//   guidance:generic_hedge                starts with "This section should" or
+//                                         similar hedging without concrete content
+//   guidance:no_imperative                no verb from the whitelist
+//                                         (covers synthesis cases)
+
+const GUIDANCE_MAX_OUTPUT_TOKENS = 6_000   // ~80 sections × ~75 tokens avg
+
+const GUIDANCE_IMPERATIVE_RE = /\b(cover|include|describe|list|state|provide|summari[sz]e|present|report|detail|discuss|outline|specify|define|address|explain|document)\b/i
+const GUIDANCE_GENERIC_HEDGE_RE = /^(this section (should|will|must|is intended|is used|describes|contains)|the purpose of this section|this is the section)/i
+
+interface ExtractedGuidance {
+  instructions: string | null
+  guidance:     string | null
+}
+
+/** Score + gate an extracted guidance string. Returns the cleaned
+ *  string, or null if the gate rejects it. Pure — unit-testable. */
+export function gateGuidanceString(raw: string | null | undefined): { kept: string | null; rejectedReason: string | null } {
+  if (raw === null || raw === undefined) return { kept: null, rejectedReason: null }
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) return { kept: null, rejectedReason: null }
+  if (trimmed.length < 30) return { kept: null, rejectedReason: 'guidance:too_short' }
+  if (GUIDANCE_GENERIC_HEDGE_RE.test(trimmed)) return { kept: null, rejectedReason: 'guidance:generic_hedge' }
+  if (!GUIDANCE_IMPERATIVE_RE.test(trimmed)) return { kept: null, rejectedReason: 'guidance:no_imperative' }
+  return { kept: trimmed, rejectedReason: null }
+}
+
+/** Parse a `{<sectionId>: {instructions?, guidance?}}` JSON response.
+ *  Robust against stray markdown fences + the `{ sections: {...} }` wrapper. */
+function parseGuidanceResponse(raw: string): { ok: Record<string, ExtractedGuidance> } | { fail: string } {
+  const stripped = stripJsonFence(raw)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stripped)
+  } catch (err) {
+    return { fail: `json_parse: ${err instanceof Error ? err.message : String(err)}` }
+  }
+  const body = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? ((parsed as { sections?: unknown }).sections ?? parsed)
+    : null
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { fail: 'shape: expected an object keyed by section id' }
+  }
+  const out: Record<string, ExtractedGuidance> = {}
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (!ID_RE.test(key)) continue
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const obj = value as Record<string, unknown>
+    const instructions = typeof obj.instructions === 'string' ? obj.instructions : null
+    const guidance     = typeof obj.guidance     === 'string' ? obj.guidance     : null
+    out[key] = { instructions, guidance }
+  }
+  return { ok: out }
+}
+
+/** Claude call — single pass, strict verbatim prompting. The gate (above)
+ *  nulls out anything that looks synthesised; we rely on that + the
+ *  prompt to keep hallucinations out. No refinement loop. */
+async function extractGuidanceWithClaude(args: {
+  pdfBytes:  Buffer
+  sections:  ParsedSection[]
+  model:     string
+  apiKey:    string
+  docType:   string
+  framework: string | null
+}): Promise<Record<string, ExtractedGuidance>> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
+    throw new Error('ANTHROPIC_API_KEY set but @anthropic-ai/sdk is not installed in apps/worker.')
+  })
+  const client = new Anthropic({ apiKey: args.apiKey })
+  const sectionList = args.sections.map(s => `  - id=${s.id}  number=${s.number}  title=${JSON.stringify(s.title)}`).join('\n')
+  const system = [
+    `You are a regulatory writing template extractor. Your job is to extract per-section writing INSTRUCTIONS and GUIDANCE from a template document — VERBATIM.`,
+    ``,
+    `CONTEXT`,
+    `Document type: ${args.docType}.`,
+    args.framework ? `Framework: ${args.framework}.` : `Framework: unspecified.`,
+    ``,
+    `SECTIONS (use these ids as JSON keys; keep the ids verbatim):`,
+    sectionList,
+    ``,
+    `WHAT YOU ARE EXTRACTING`,
+    `- "instructions" = what this section must COVER. Content requirements.`,
+    `  Typical template labels: "Purpose:", "Scope:", "Intent:", "Content:",`,
+    `  "Instructions:", "This section shall include:", bulleted "must include" lists.`,
+    `- "guidance" = HOW to write it. Style, tone, framing, cautions.`,
+    `  Typical template labels: "Guidance:", "Note:", "Tip:", "Style notes:",`,
+    `  italicised commentary separate from the body text.`,
+    ``,
+    `CRITICAL RULES — ZERO HALLUCINATION`,
+    `1. Extract ONLY text that appears LITERALLY in the template document. Do NOT synthesise. Do NOT paraphrase. Do NOT infer what a section "should" cover based on your training data.`,
+    `2. If a section has NO explicit instructions, return "instructions": null. Same for guidance. Returning null is the CORRECT answer for the majority of sections — templates rarely annotate every section.`,
+    `3. If you are tempted to write "This section should describe X" when the template doesn't literally say that — STOP. Return null.`,
+    `4. Verbatim extraction may be lightly cleaned: strip bullet markers, join wrapped lines, remove template placeholders like "[insert X]". Do not reword.`,
+    `5. If instructions + guidance are mixed in a single block in the template, split them by their semantic role (content requirements → instructions; style/tone → guidance). If they can't be split cleanly, put the whole block in "instructions" and set "guidance" to null.`,
+    ``,
+    `OUTPUT CONTRACT`,
+    `Return ONLY a JSON object matching this shape — no prose, no markdown fences:`,
+    `{`,
+    `  "sections": {`,
+    `    "<section id>": {`,
+    `      "instructions": "<verbatim text from template, or null>",`,
+    `      "guidance":     "<verbatim text from template, or null>"`,
+    `    }`,
+    `  }`,
+    `}`,
+    `Include ONLY ids listed above. Keep ids verbatim. Omit sections you have no guidance for (or set both fields to null).`,
+  ].join('\n')
+  const userPrompt = `Extract per-section instructions and guidance from the attached ${args.docType} template. Remember: null is the correct answer when the template does not explicitly annotate a section. Return the JSON object only.`
+  const message = await client.messages.create({
+    model:      args.model,
+    max_tokens: GUIDANCE_MAX_OUTPUT_TOKENS,
+    system,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document' as const,
+            source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: args.pdfBytes.toString('base64') },
+          },
+          { type: 'text', text: userPrompt },
+        ],
+      },
+    ],
+  })
+  const text = message.content
+    .map(b => (b.type === 'text' ? (b as { type: 'text'; text: string }).text : ''))
+    .join('\n')
+    .trim()
+  if (!text) throw new Error('Claude returned no text content (guidance extract)')
+  const parsed = parseGuidanceResponse(text)
+  if ('fail' in parsed) throw new Error(`guidance_output_${parsed.fail}`)
+  return parsed.ok
+}
+
+interface GuidanceExtractResult {
+  byId: Map<string, ExtractedGuidance>
+  instructionsExtracted: number
+  guidanceExtracted:     number
+  rejectedForHallucinationRisk: number
+}
+
+/** Run the guidance extraction + apply the gate. Pure given the Claude
+ *  output (callers test with the parsed response). */
+export function applyGuidanceGate(
+  raw: Record<string, ExtractedGuidance>,
+): GuidanceExtractResult {
+  const byId = new Map<string, ExtractedGuidance>()
+  let instructionsExtracted = 0
+  let guidanceExtracted = 0
+  let rejectedForHallucinationRisk = 0
+  for (const [key, value] of Object.entries(raw)) {
+    const { kept: ins, rejectedReason: insReason } = gateGuidanceString(value.instructions)
+    const { kept: gui, rejectedReason: guiReason } = gateGuidanceString(value.guidance)
+    if (insReason) rejectedForHallucinationRisk += 1
+    if (guiReason) rejectedForHallucinationRisk += 1
+    if (ins) instructionsExtracted += 1
+    if (gui) guidanceExtracted += 1
+    if (ins || gui) byId.set(key, { instructions: ins, guidance: gui })
+  }
+  return { byId, instructionsExtracted, guidanceExtracted, rejectedForHallucinationRisk }
+}
+
+/** Merge gated guidance into the DocumentTemplate.sections[] JSON.
+ *  Returns the merged sections[] + a count of sections written to.
+ *  Pure — unit-testable. */
+export function mergeGuidanceIntoSections(
+  sections: ParsedSection[],
+  byId: ReadonlyMap<string, ExtractedGuidance>,
+): { sections: ParsedSection[]; merged: number } {
+  let merged = 0
+  const out = sections.map(sec => {
+    const found = byId.get(sec.id)
+    if (!found || (!found.instructions && !found.guidance)) return sec
+    merged += 1
+    return {
+      ...sec,
+      ...(found.instructions ? { instructions: found.instructions } : {}),
+      ...(found.guidance     ? { guidance:     found.guidance }     : {}),
+    }
+  })
+  return { sections: out, merged }
+}
+
 export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> = async (job, { prisma, log }) => {
   const { templateId, uploadId, actorId } = job.data
 
@@ -624,6 +848,11 @@ export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> =
   // outline carries no usable formatting signal and admins author per-
   // section rules by hand in that mode (via the template JSON editor).
   let formatSummary: Report['formatRules']
+  // `sectionsSoFar` tracks the latest merged state across phases so each
+  // subsequent persist lays its diff on top of the previous phase's
+  // writes rather than clobbering them. formatRules writes fire first,
+  // then guidance writes layer on top.
+  let sectionsSoFar: ParsedSection[] = sections
   if (apiKey && sections.length > 0) {
     try {
       const loop = await runFormatValidationLoop({
@@ -633,6 +862,7 @@ export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> =
         log,
       })
       const { sections: mergedSections, merged } = mergeFormatRulesIntoSections(sections, loop.rules)
+      sectionsSoFar = mergedSections
       await prisma.documentTemplate.update({
         where: { id: templateId },
         data:  { sections: mergedSections as unknown as object },
@@ -656,7 +886,41 @@ export const handleDistillTemplate: JobHandler<DistillTemplatePayload, Report> =
     }
   }
 
-  return { status: 'ok', sectionsIn: sections.length, formatRules: formatSummary }
+  // 7. Content-guidance extraction (migration 104). Single-pass,
+  // verbatim-or-null — see the design note on gateGuidanceString /
+  // extractGuidanceWithClaude for why there is no refinement loop.
+  // Non-fatal like format extraction.
+  let guidanceSummary: Report['guidance']
+  if (apiKey && sections.length > 0) {
+    try {
+      const raw = await extractGuidanceWithClaude({
+        pdfBytes, sections, model, apiKey,
+        docType:   template.type,
+        framework: template.framework ?? null,
+      })
+      const gated = applyGuidanceGate(raw)
+      const { sections: mergedSections, merged } = mergeGuidanceIntoSections(sectionsSoFar, gated.byId)
+      sectionsSoFar = mergedSections
+      await prisma.documentTemplate.update({
+        where: { id: templateId },
+        data:  { sections: mergedSections as unknown as object },
+      })
+      guidanceSummary = {
+        instructionsExtracted:        gated.instructionsExtracted,
+        guidanceExtracted:            gated.guidanceExtracted,
+        merged,
+        rejectedForHallucinationRisk: gated.rejectedForHallucinationRisk,
+      }
+      log.info(
+        { templateId, model, actorId, ...guidanceSummary },
+        'template parse: content guidance extracted + gated + merged into template.sections',
+      )
+    } catch (err) {
+      log.warn({ err, templateId }, 'template parse: guidance extraction failed (non-fatal)')
+    }
+  }
+
+  return { status: 'ok', sectionsIn: sections.length, formatRules: formatSummary, guidance: guidanceSummary }
 }
 
 // Exposed for unit testing the pure parse + validate.
@@ -666,6 +930,10 @@ export const __test__ = {
   slugify,
   parseFormatRulesResponse,
   mergeFormatRulesIntoSections,
+  parseGuidanceResponse,
+  gateGuidanceString,
+  applyGuidanceGate,
+  mergeGuidanceIntoSections,
   FORMAT_CONFIDENCE_TARGET,
   FORMAT_MIN_ITERATIONS,
   FORMAT_MAX_ITERATIONS,

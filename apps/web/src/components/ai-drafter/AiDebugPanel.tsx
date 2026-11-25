@@ -217,6 +217,11 @@ const FLAG_LABELS: Record<string, string> = {
   'ai:template_mismatch':     'Does not match the template structure',
   'ai:coherence_issue':       'Internal consistency problem',
   'ai:unsupported_claim':     'Claim not supported by attached sources',
+  // Post-generation validator flags (migration 104, Package 5).
+  'dropped_cross_ref':        'Dropped a cross-reference or citation present in the previous draft',
+  'invented_citation':        'Introduced a citation not grounded in attached sources',
+  'number_drift':             'A numeric value from the previous draft is not present in the rewrite',
+  'undefined_acronym':        'Used an acronym that was never defined in this document',
 }
 
 const DROP_REASON_LABELS: Record<string, string> = {
@@ -1296,6 +1301,13 @@ function WorkerActivityList({ steps }: { steps: DebugDraftStep[] }) {
       case 'section_errored':
       case 'job_cancelled':         return { bg: 'bg-rose-50',    dot: 'bg-rose-600',    fg: 'text-rose-900' }
       case 'tbd_autofill_run':      return { bg: 'bg-teal-50',    dot: 'bg-teal-500',    fg: 'text-teal-900' }
+      // Post-generation validator steps (migration 104, Package 9):
+      //   manifest_extracted     — informational (same tone as policy_loaded)
+      //   validator_check_result — informational
+      //   validator_retry        — warning tone (attempt 1 failed, retrying)
+      case 'manifest_extracted':
+      case 'validator_check_result': return { bg: 'bg-violet-50',  dot: 'bg-violet-500',  fg: 'text-violet-900' }
+      case 'validator_retry':        return { bg: 'bg-amber-50',   dot: 'bg-amber-600',   fg: 'text-amber-900' }
       default:                      return { bg: 'bg-white',      dot: 'bg-slate-400',   fg: 'text-slate-700' }
     }
   }

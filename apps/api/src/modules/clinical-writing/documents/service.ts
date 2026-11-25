@@ -12,7 +12,7 @@
 //      rows, only inserts new ones for AI-accepted spans.
 
 import { createHash } from 'node:crypto'
-import type { PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import {
   isDbStage,
   isLaterStage,
@@ -25,6 +25,7 @@ import { ensureChecklistInstance } from '../checklist/service.js'
 import { hasSectionContent, sectionPlaceholderCount } from '../ich-e3/catalog.js'
 import { areSectionHtmlsVisiblyEqual } from './html-dedupe.js'
 import { deriveBeforeHtml } from './edit-history-before.js'
+import { extractManifest } from './must-preserve.js'
 
 /** Derive a section's status from its current HTML. Drops the "writer must
  *  click Mark complete" step: a section is complete iff it has real content
@@ -136,7 +137,16 @@ export class DocumentService {
         // single source of truth — no more standalone SectionTemplate).
         // The snapshot is what the AI resolver reads so admin approvals
         // of a new template don't retroactively restyle in-flight docs.
-        const rulesBySection = new Map<string, string>()
+        //
+        // Migration 104 (Package 6): ALSO snapshot per-section
+        // instructions + guidance (template content steering) and the
+        // pinned AiPromptRecord's per-section rules. Same lifecycle —
+        // immutable at doc-create. Plus seed the must-preserve manifest
+        // from whatever contentHtml the create call brought in (likely
+        // empty on a fresh create; rebuilt on first body save).
+        const rulesBySection       = new Map<string, string>()
+        const instructionsBySection = new Map<string, string>()
+        const guidanceBySection    = new Map<string, string>()
         if (args.templateId) {
           try {
             const tpl = await tx.documentTemplate.findUnique({
@@ -145,24 +155,60 @@ export class DocumentService {
             })
             if (tpl?.sections && Array.isArray(tpl.sections)) {
               for (const raw of tpl.sections as Array<Record<string, unknown>>) {
-                const id    = typeof raw.id === 'string' ? raw.id : null
-                const rules = typeof raw.formatRules === 'string' ? raw.formatRules.trim() : ''
-                if (id && rules.length > 0) rulesBySection.set(id, rules)
+                const id = typeof raw.id === 'string' ? raw.id : null
+                if (!id) continue
+                const rules        = typeof raw.formatRules  === 'string' ? raw.formatRules.trim()  : ''
+                const instructions = typeof raw.instructions === 'string' ? raw.instructions.trim() : ''
+                const guidance     = typeof raw.guidance     === 'string' ? raw.guidance.trim()     : ''
+                if (rules.length        > 0) rulesBySection.set(id, rules)
+                if (instructions.length > 0) instructionsBySection.set(id, instructions)
+                if (guidance.length     > 0) guidanceBySection.set(id, guidance)
               }
             }
           } catch { /* template missing or test mock without documentTemplate — fine */ }
         }
 
+        // Snapshot the per-section slice of the pinned AiPromptRecord so
+        // later in-place admin edits to the pinned row can't silently
+        // flow through to this document's regenerate calls. Deep-clone
+        // the slice as a plain JSON value.
+        const aiPromptRulesBySection = new Map<string, unknown>()
+        if (args.aiPromptRecordId) {
+          try {
+            const pinned = await tx.aiPromptRecord.findUnique({
+              where:  { id: args.aiPromptRecordId },
+              select: { sectionRules: true },
+            })
+            const sectionRules = pinned?.sectionRules as Record<string, unknown> | null | undefined
+            if (sectionRules && typeof sectionRules === 'object' && !Array.isArray(sectionRules)) {
+              for (const s of sections) {
+                const slice = sectionRules[s.sectionId]
+                if (slice !== undefined) {
+                  aiPromptRulesBySection.set(s.sectionId, JSON.parse(JSON.stringify(slice)))
+                }
+              }
+            }
+          } catch { /* pinned prompt missing or test mock — fine */ }
+        }
+
         await tx.sectionContent.createMany({
-          data: sections.map(s => ({
-            documentVersionId: version.id,
-            sectionId: s.sectionId,
-            sectionNumber: s.sectionNumber,
-            sectionTitle: s.sectionTitle,
-            contentHtml: s.contentHtml,
-            ichStatus: s.ichStatus ?? 'not_started',
-            templateFormatRules: rulesBySection.get(s.sectionId) ?? null,
-          })),
+          data: sections.map(s => {
+            const manifest = extractManifest(s.contentHtml ?? '')
+            const promptRules = aiPromptRulesBySection.get(s.sectionId)
+            return {
+              documentVersionId: version.id,
+              sectionId: s.sectionId,
+              sectionNumber: s.sectionNumber,
+              sectionTitle: s.sectionTitle,
+              contentHtml: s.contentHtml,
+              ichStatus: s.ichStatus ?? 'not_started',
+              templateFormatRules:  rulesBySection.get(s.sectionId)        ?? null,
+              templateInstructions: instructionsBySection.get(s.sectionId) ?? null,
+              templateGuidance:     guidanceBySection.get(s.sectionId)     ?? null,
+              aiPromptSectionRules: (promptRules ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+              mustPreserveManifest: (manifest       ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+            }
+          }),
         })
       }
 

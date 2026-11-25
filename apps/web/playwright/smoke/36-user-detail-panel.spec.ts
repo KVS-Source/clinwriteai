@@ -47,6 +47,12 @@ async function open(page: Page, opts: { refuseAdd?: boolean } = {}) {
       const method = (init?.method ?? 'GET').toUpperCase()
       if (/\/auth\/me(\?.*)?$/.test(url) && method === 'GET') return json(me)
       if (/\/admin\/users(\?.*)?$/.test(url) && method === 'GET') return json(users)
+      const prof = url.match(/\/admin\/users\/([^/]+)$/)
+      if (prof && method === 'PATCH') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, string>
+        w.__calls.push({ method, path: `/admin/users/${prof[1]}`, body })
+        return json(Object.assign(users.find(x => x.id === prof[1])!, body))
+      }
       const add = url.match(/\/admin\/users\/([^/]+)\/roles$/)
       if (add && method === 'POST') {
         const body = JSON.parse(String(init?.body ?? '{}')) as { role: string }
@@ -100,6 +106,25 @@ test('a row click opens User Detail: details list every role; no platform-role d
   // at the maximum of 2
   await expect(select(page)).toBeDisabled()
   await expect(panel(page).locator('[data-roles-max]')).toContainText('maximum of 2 roles')
+})
+
+test('Edit changes Title and Department; Cancel keeps them', async ({ page }) => {
+  await open(page)
+  await openUser(page, 'u-con')
+  await expect(panel(page).locator('[data-detail-title]')).toHaveText('—')
+  const edit = panel(page).locator('[data-action="edit-profile"]')
+  await edit.click()
+  await panel(page).locator('[data-input="profile-title"]').fill('Typo')
+  await panel(page).locator('[data-action="cancel-profile"]').click()
+  await expect(panel(page).locator('[data-detail-title]')).toHaveText('—')
+  await edit.click()
+  await expect(panel(page).locator('[data-action="save-profile"]')).toBeDisabled()
+  await panel(page).locator('[data-input="profile-title"]').fill(' Medical Writer ')
+  await panel(page).locator('[data-input="profile-department"]').fill('Medical Writing')
+  await panel(page).locator('[data-action="save-profile"]').click()
+  await expect(panel(page).locator('[data-detail-title]')).toHaveText('Medical Writer')
+  await expect(panel(page).locator('[data-detail-department]')).toHaveText('Medical Writing')
+  expect(await calls(page)).toEqual([{ method: 'PATCH', path: '/admin/users/u-con', body: { title: 'Medical Writer', department: 'Medical Writing' } }])
 })
 
 test('Add another role adds Contributor alongside Project manager (the current role stays)', async ({ page }) => {
@@ -211,4 +236,8 @@ test('the Tenant column shows the typed Tenant ID when the user isn’t linked t
   // Same in the User Detail panel.
   await openUser(page, 'u-ref')
   await expect(panel(page).locator('[data-detail-tenant]')).toHaveText('12345')
+  // QA: the Title field was labelled "User Detail" (its i18n key clashed with the panel title's).
+  for (const [f, label] of [['title', 'Title'], ['department', 'Department']]) {
+    await expect(panel(page).locator(`div:has(> [data-detail-${f}]) > p`).first()).toHaveText(label!)
+  }
 })

@@ -695,6 +695,16 @@ model PublicationSectionContent {
   // Per-section formatting snapshot (migration 94) — same as SectionContent.
   templateFormatRules     String?   @map("template_format_rules")
 
+  // Per-section guidance + prompt + must-preserve snapshot (migration 104)
+  // — same lifecycle as SectionContent fields; see moduleA.prisma for
+  // rationale. Scientific Writing has no ai-suggest endpoint today, so
+  // only the snapshot lands now; validators wire in when the endpoint
+  // ships.
+  templateInstructions    String?   @map("template_instructions")
+  templateGuidance        String?   @map("template_guidance")
+  aiPromptSectionRules    Json?     @map("ai_prompt_section_rules")
+  mustPreserveManifest    Json?     @map("must_preserve_manifest")
+
   version                PublicationVersion @relation(fields: [publicationVersionId], references: [id], onDelete: Cascade)
 
   @@map("publication_section_contents")

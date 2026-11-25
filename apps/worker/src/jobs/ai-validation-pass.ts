@@ -71,6 +71,8 @@ const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   'invented_citation':      35,
   'number_drift':           20,
   'undefined_acronym':      10,
+  // Module C — Medical FK regression soft flag (migration 105 C-5).
+  'fk_score_raised':        15,
 }
 const AI_UNKNOWN_WEIGHT = 15
 

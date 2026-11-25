@@ -34,6 +34,13 @@ export const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   // Soft:
   'number_drift':           20,   // numeric value from pre-call body absent from rewrite
   'undefined_acronym':      10,   // acronym used in rewrite neither defined nor on allowlist
+  // Module C — Medical Writing (migration 105 Package C-5). Fired by
+  // the Medical ai-suggest route AFTER the shared retry wrapper
+  // returns, when the rewrite pushes the FK grade above 8.0 on a
+  // patient-facing content type (pil / eu_ctr_pls). Soft — author
+  // decides; doesn't trigger a retry because patient-facing
+  // simplification is rarely a one-prompt fix.
+  'fk_score_raised':        15,
 }
 
 const AI_UNKNOWN_WEIGHT = 15

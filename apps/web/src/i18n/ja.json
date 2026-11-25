@@ -793,7 +793,8 @@
       "flag_dropped_cross_ref":  "参照が失われました",
       "flag_invented_citation":  "出典のない引用",
       "flag_number_drift":       "数値の変動",
-      "flag_undefined_acronym":  "未定義の略語"
+      "flag_undefined_acronym":  "未定義の略語",
+      "flag_fk_score_raised":    "読みやすさ指標が目標値を超過"
     },
 
     "audit_trail_panel": {
@@ -4669,7 +4670,8 @@
       "flag_dropped_cross_ref": "参照の欠落",
       "flag_invented_citation": "架空の引用",
       "flag_number_drift": "数値のずれ",
-      "flag_undefined_acronym": "未定義の略語"
+      "flag_undefined_acronym": "未定義の略語",
+      "flag_fk_score_raised": "読みやすさ指標が目標値を超過"
     },
 
     "checklist_item_badge": {

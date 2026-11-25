@@ -60,6 +60,8 @@ const FLAG_LABEL_KEYS: Record<string, string> = {
   'invented_citation':      'page.ai_drafting_report_panel.flag_invented_citation',
   'number_drift':           'page.ai_drafting_report_panel.flag_number_drift',
   'undefined_acronym':      'page.ai_drafting_report_panel.flag_undefined_acronym',
+  // Module C FK regression (migration 105 Package C-5).
+  'fk_score_raised':        'page.ai_drafting_report_panel.flag_fk_score_raised',
 }
 
 interface Props {

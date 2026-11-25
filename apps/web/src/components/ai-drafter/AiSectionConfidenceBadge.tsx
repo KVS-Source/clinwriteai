@@ -27,6 +27,8 @@ const FLAG_KEY: Record<string, string> = {
   'invented_citation':      'flag_invented_citation',
   'number_drift':           'flag_number_drift',
   'undefined_acronym':      'flag_undefined_acronym',
+  // Module C FK regression (migration 105 Package C-5).
+  'fk_score_raised':        'flag_fk_score_raised',
 }
 
 function friendlyFlag(code: string, t: TFunction): string {

@@ -36,6 +36,7 @@ import { extractManifest, renderForPrompt as renderMustPreserve } from '../../cl
 import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
 import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
 import { loadMedContentDocuments } from './content-sources.js'
+import { computeFkGrade, isFkGatedType, FK_TARGET } from './fk-score.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -931,16 +932,31 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       })
       const result = lastGatewayResult!
 
+      // FK soft validator (migration 105 Package C-5). For patient-facing
+      // types (pil, eu_ctr_pls), compute FK grade on the AI output and
+      // compare to the pre-call baseline. If the rewrite pushed the
+      // grade above target (8.0) AND it went up, append the
+      // fk_score_raised flag. Soft — no retry, author decides.
+      const flagsWithFk = [...validation.flags]
+      let fkTrace: { preGrade: number; postGrade: number; fired: boolean } | null = null
+      if (isFkGatedType(item.type)) {
+        const preGrade  = computeFkGrade(body.currentContent ?? '').grade
+        const postGrade = computeFkGrade(validation.html).grade
+        const fired = postGrade > FK_TARGET && postGrade > preGrade
+        if (fired && !flagsWithFk.includes('fk_score_raised')) flagsWithFk.push('fk_score_raised')
+        fkTrace = { preGrade, postGrade, fired }
+      }
+
       // Persist aiConfidence + aiFlags onto the matching MedContentSection
-      // row so the Medical confidence badge reflects the retry outcome.
-      // Best-effort — this route accepts an opaque sectionId string and
-      // some callers may not have a matching row yet.
+      // row so the Medical confidence badge reflects the retry outcome +
+      // any FK regression. Best-effort — this route accepts an opaque
+      // sectionId string and some callers may not have a matching row yet.
       if (body.sectionId && item.currentVersionId) {
         try {
-          const score = scoreSection(validation.flags)
+          const score = scoreSection(flagsWithFk)
           await app.prisma.medContentSection.updateMany({
             where: { medContentVersionId: item.currentVersionId, sectionId: body.sectionId },
-            data:  { aiConfidence: score, aiFlags: validation.flags },
+            data:  { aiConfidence: score, aiFlags: flagsWithFk },
           })
         } catch (err) {
           app.log.warn({ err, contentId, sectionId: body.sectionId }, 'medical section confidence update failed (non-fatal)')
@@ -960,8 +976,10 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
           // Package C-4: auto-attached sources audit shape.
           autoAttachedUploadIds: attachedUploadIds,
           documentCount:         attachedDocs.length,
-          validatorFlags:   validation.flags,
+          validatorFlags:   flagsWithFk,
           validatorRetried: validation.retried,
+          // Package C-5: FK regression audit (null when type isn't gated).
+          fkTrace:          fkTrace,
           validatorTrace:   validation.trace.map(t => ({
             attempt: t.attempt,
             flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),

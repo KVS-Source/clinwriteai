@@ -235,6 +235,8 @@ const FLAG_LABELS: Record<string, string> = {
   'invented_citation':        'Introduced a citation not grounded in attached sources',
   'number_drift':             'A numeric value from the previous draft is not present in the rewrite',
   'undefined_acronym':        'Used an acronym that was never defined in this document',
+  // Module C FK regression (migration 105 Package C-5).
+  'fk_score_raised':          'Flesch-Kincaid grade rose above the patient-facing target (8.0) after rewrite',
 }
 
 const DROP_REASON_LABELS: Record<string, string> = {

@@ -17,11 +17,22 @@ import { SlidePanel, ProjectStatusPill } from '../../components/ui'
 import { documentsApi, projectsApi, reportsApi } from '../../api'
 import {
   MODULE_COLOURS,
-  MODULE_KEY_TO_SLUG,
   MODULE_LABELS,
-  type ModuleKey,
+  MODULE_SLUG_TO_KEY,
+  isModuleEnabled,
   type ModuleSlug,
 } from '../../config/modules'
+
+// Keep the overview panel in lock-step with the Projects-list chips —
+// show every module the install is licensed for (same order, same zero
+// treatment), not just the ones this project happens to have activated.
+const MODULE_ORDER: ModuleSlug[] = [
+  'clinical-writing',
+  'scientific-writing',
+  'medical-writing',
+  'regulatory-writing',
+  'ideation-publishing',
+]
 
 interface Props {
   open:     boolean
@@ -183,17 +194,20 @@ export function ProjectOverviewPanel({ open, onClose, project }: Props) {
           </div>
         </section>
 
-        {/* Active modules — "Open Clinical Writing →" and friends.
-            Each row carries the doc count for that module so customers
-            see what they're licensed for AND how much work is in each
-            one. Zero-count rows render muted but stay clickable so a
-            fresh project can jump straight into any enabled module. */}
-        {project.activeModules.length > 0 && (
+        {/* Modules — one row per install-licensed module (same list the
+            Projects-column chips render). Each row carries the doc count
+            for that module so customers see what they're licensed for
+            AND how much work is in each one. Zero-count rows render
+            muted but stay clickable so a fresh project can jump straight
+            into any enabled module. */}
+        {(() => {
+          const enabledModules = MODULE_ORDER.filter(slug => isModuleEnabled(MODULE_SLUG_TO_KEY[slug]))
+          if (enabledModules.length === 0) return null
+          return (
           <section className="rounded-lg border border-slate-200 bg-white p-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Modules</p>
             <div className="mt-2 flex flex-col gap-1.5">
-              {project.activeModules.map(rawKey => {
-                const slug: ModuleSlug = (MODULE_KEY_TO_SLUG[rawKey as ModuleKey] ?? rawKey) as ModuleSlug
+              {enabledModules.map(slug => {
                 const label  = MODULE_LABELS[slug] ?? slug
                 const colour = MODULE_COLOURS[slug] ?? '#2563EB'
                 const count  = moduleDocCount(project, slug)
@@ -229,7 +243,8 @@ export function ProjectOverviewPanel({ open, onClose, project }: Props) {
               })}
             </div>
           </section>
-        )}
+          )
+        })()}
       </div>
     </SlidePanel>
   )

@@ -71,37 +71,40 @@ export function DocumentCountChips({ project }: Props) {
     return <span className="text-slate-400">—</span>
   }
 
+  // Compact inline layout — no boxes, no borders, just coloured
+  // "count + monogram" per module separated by thin dots. Each cluster
+  // is a click target so writers still drill into a module by clicking
+  // its count. Fits all 5 modules in the narrow Documents column
+  // without wrapping.
   return (
-    <div className="flex flex-wrap gap-1">
-      {chips.map(({ slug, n }) => {
+    <div className="flex items-center gap-1 whitespace-nowrap font-mono text-[11px]" data-module-counts>
+      {chips.map(({ slug, n }, idx) => {
         const colour = MODULE_COLOURS[slug]
         const label  = MODULE_LABELS[slug]
         const mono   = MODULE_MONOGRAMS[slug]
         const isZero = n === 0
         return (
-          <button
-            key={slug}
-            type="button"
-            onClick={(e) => {
-              // stopPropagation so the parent row's onClick doesn't also
-              // fire — otherwise clicking a chip would navigate to
-              // /projects/<id> instead of the module route.
-              e.stopPropagation()
-              navigate(`/projects/${project.id}/${slug}`)
-            }}
-            title={`${n} ${label} document${n === 1 ? '' : 's'}`}
-            data-module-chip={slug}
-            data-module-count={n}
-            className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-mono font-semibold transition-opacity hover:opacity-80"
-            style={
-              isZero
-                ? { borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', color: '#94A3B8' }
-                : { borderColor: `${colour}55`, backgroundColor: `${colour}14`, color: colour }
-            }
-          >
-            <span className="tabular-nums">{n}</span>
-            <span>{mono}</span>
-          </button>
+          <span key={slug} className="inline-flex items-center gap-1">
+            {idx > 0 && <span className="text-slate-300">·</span>}
+            <button
+              type="button"
+              onClick={(e) => {
+                // stopPropagation so the parent row's onClick doesn't also
+                // fire — clicking a count would otherwise navigate to the
+                // project home instead of the module route.
+                e.stopPropagation()
+                navigate(`/projects/${project.id}/${slug}`)
+              }}
+              title={`${n} ${label} document${n === 1 ? '' : 's'}`}
+              data-module-chip={slug}
+              data-module-count={n}
+              className="inline-flex items-center gap-0.5 rounded px-1 font-semibold transition-opacity hover:bg-slate-100 hover:opacity-80"
+              style={{ color: isZero ? '#94A3B8' : colour }}
+            >
+              <span className="tabular-nums">{n}</span>
+              <span>{mono}</span>
+            </button>
+          </span>
         )
       })}
     </div>

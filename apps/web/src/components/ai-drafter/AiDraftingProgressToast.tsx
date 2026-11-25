@@ -16,6 +16,7 @@ import type { TFunction } from 'i18next'
 import type { AiDraftSummary } from '../../hooks/useAiDraftStatus'
 import { aiDrafterApi, type AiDraftState } from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
+import { useAiDebugLayoutOptional } from './AiDebugLayoutContext'
 
 interface Props {
   state:      AiDraftState | null
@@ -92,8 +93,14 @@ export function AiDraftingProgressToast({ state, summary, documentId }: Props) {
   // don't stare at a hanging progress bar when the admin hasn't pasted
   // a key. Everything else (complete, failed, cancelled, blocked) is
   // told via the confidence chip in the header.
+  // AI Debug panel is docked open → it renders an equivalent status
+  // footer inside its own body (option Z). Hide the floating toast to
+  // avoid duplicate UI + the toast getting hidden under the docked
+  // panel's position. Hook must come before any early return.
+  const aiDebug = useAiDebugLayoutOptional()
   if (!state) return null
   if (!summary.inFlight && state !== 'not_configured' && state !== 'paused') return null
+  if (aiDebug?.isOpen) return null
   if (dismissed) return null
 
   // "Not configured" renders without a spinner and offers a link to the

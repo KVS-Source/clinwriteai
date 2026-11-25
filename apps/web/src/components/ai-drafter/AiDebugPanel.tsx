@@ -14,7 +14,7 @@
 //   5. Issues to investigate — actionable summary
 //   6. Advanced: raw JSON — collapsed, Copy-to-clipboard
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -23,6 +23,12 @@ import {
   type PreflightIssue,
 } from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
+import {
+  useAiDebugLayout,
+  AI_DEBUG_COLLAPSED_PX,
+  AI_DEBUG_MIN_WIDTH,
+  AI_DEBUG_MAX_WIDTH,
+} from './AiDebugLayoutContext'
 
 interface Props {
   documentId: string
@@ -367,6 +373,32 @@ function flagLabel(flag: string): string {
 
 export function AiDebugPanel({ documentId, open, onClose }: Props) {
   const qc = useQueryClient()
+  // Shared layout context — the editor shell shifts its content left by
+  // `effectivePx` so the panel can dock without covering sections. We
+  // sync the `open` prop into the context so other consumers (toast,
+  // keyboard shortcuts) can read a single source of truth.
+  const layout = useAiDebugLayout()
+  useEffect(() => { layout.setOpen(open) }, [open, layout])
+  const { width, collapsed, setWidth, setCollapsed } = layout
+  // Drag-to-resize (option B). Pointer-events keep the drag alive even
+  // if the cursor leaves the handle. Clamped to [MIN, MAX] in context.
+  const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const onDragStart = (e: React.PointerEvent) => {
+    if (collapsed) return
+    dragStartRef.current = { startX: e.clientX, startWidth: width }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onDragMove = (e: React.PointerEvent) => {
+    const start = dragStartRef.current
+    if (!start) return
+    // Panel is anchored right — dragging LEFT widens it.
+    const nextWidth = start.startWidth + (start.startX - e.clientX)
+    setWidth(nextWidth)
+  }
+  const onDragEnd = (e: React.PointerEvent) => {
+    dragStartRef.current = null
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* no-op */ }
+  }
   const { data, isLoading, error, refetch, isFetching } = useQuery<DebugData>({
     queryKey: ['ai-debug', documentId],
     queryFn:  () => aiDrafterApi.debug(documentId) as Promise<DebugData>,
@@ -450,17 +482,65 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
   if (!open) return null
 
+  // (D) Collapsed state — render a thin vertical tab only. Writer clicks
+  // it to expand. Keeps the panel reachable without hiding the editor.
+  if (collapsed) {
+    return (
+      <aside
+        className="fixed right-0 top-0 bottom-0 z-40 flex flex-col items-center justify-center border-l border-slate-200 bg-white shadow-md"
+        style={{ width: AI_DEBUG_COLLAPSED_PX }}
+        role="complementary"
+        aria-label="AI debug panel (collapsed)"
+        data-ai-debug-panel
+        data-ai-debug-collapsed
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand AI Debug panel"
+          title="Expand AI Debug"
+          className="flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          data-action="expand-ai-debug"
+        >
+          <span aria-hidden="true" className="text-[14px]">⟨</span>
+        </button>
+        <p
+          className="mt-3 font-mono text-[9px] uppercase tracking-widest text-slate-400"
+          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+        >
+          AI Debug
+        </p>
+      </aside>
+    )
+  }
+
   // Docked to the right side of the viewport (no backdrop, no dimming
   // of the editor). Writers can keep editing the document while the
-  // panel is open; close is only via the X in the header.
+  // panel is open; close is via X in the header, collapse via ⟩,
+  // resize via the left-edge drag handle.
   return (
     <aside
-      className="fixed right-0 top-0 bottom-0 z-40 flex w-[720px] max-w-[95vw] flex-col bg-white shadow-2xl"
-      style={{ borderLeft: '1px solid #E2E8F0' }}
+      className="fixed right-0 top-0 bottom-0 z-40 flex flex-col bg-white shadow-2xl max-w-[95vw]"
+      style={{ borderLeft: '1px solid #E2E8F0', width }}
       role="complementary"
       aria-label="AI debug panel"
       data-ai-debug-panel
     >
+      {/* (B) Drag handle — thin vertical stripe on the left edge. */}
+      <div
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize select-none hover:bg-blue-300/40 active:bg-blue-500/40"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize AI Debug panel"
+        aria-valuemin={AI_DEBUG_MIN_WIDTH}
+        aria-valuemax={AI_DEBUG_MAX_WIDTH}
+        aria-valuenow={width}
+        data-ai-debug-resize
+      />
         {/* Header */}
         <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
@@ -483,6 +563,16 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               data-action="refresh-ai-debug"
             >
               {isFetching ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              data-action="collapse-ai-debug"
+              aria-label="Collapse debug panel to a tab"
+              title="Collapse to tab"
+            >
+              ⟩
             </button>
             <button
               type="button"
@@ -678,7 +768,110 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
             </div>
           )}
         </div>
+        {/* (Z) Drafting status footer — equivalent of the floating
+             "Drafting document" toast, rendered inside the panel so it
+             never gets covered by the docked panel's own position. Only
+             appears when there's something actionable (in-flight / paused). */}
+        <AiDebugDraftingFooter documentId={documentId} state={data?.document?.aiDraftState ?? null} />
     </aside>
+  )
+}
+
+/** In-panel equivalent of the floating AiDraftingProgressToast. Shown
+ *  at the bottom of the AI Debug panel when a draft is in flight or
+ *  paused, so the writer has Pause / Resume / Stop reachable without
+ *  the floating toast colliding with the docked panel. */
+function AiDebugDraftingFooter({
+  documentId, state,
+}: {
+  documentId: string
+  state:      string | null | undefined
+}) {
+  const qc = useQueryClient()
+  const inFlight = state === 'pending' || state === 'drafting' || state === 'validating'
+  const paused   = state === 'paused'
+  const pauseMut = useMutation({
+    mutationFn: () => aiDrafterApi.pauseDraft(documentId),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] }),
+  })
+  const resumeMut = useMutation({
+    mutationFn: () => aiDrafterApi.resumeDraft(documentId),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-preflight', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+    },
+  })
+  const stopMut = useMutation({
+    mutationFn: () => aiDrafterApi.stopDraft(documentId),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] }),
+  })
+
+  if (!inFlight && !paused) return null
+
+  return (
+    <div
+      className={`flex flex-none items-center justify-between gap-3 border-t px-4 py-2 text-[12px] ${
+        paused ? 'border-amber-200 bg-amber-50' : 'border-sky-200 bg-sky-50'
+      }`}
+      data-ai-debug-footer
+    >
+      <div className="flex items-center gap-2">
+        {paused
+          ? <span className="font-semibold text-amber-900">Draft paused — ready to resume.</span>
+          : <span className="flex items-center gap-2 font-semibold text-sky-900">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
+              {state === 'validating' ? 'Validating…' : 'Drafting document…'}
+            </span>
+        }
+      </div>
+      <div className="flex items-center gap-1.5">
+        {inFlight && (
+          <>
+            <button
+              type="button"
+              onClick={() => pauseMut.mutate()}
+              disabled={pauseMut.isPending}
+              className="rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+              data-action="pause-ai-draft"
+            >
+              {pauseMut.isPending ? 'Pausing…' : 'Pause'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { if (confirm('Stop the AI draft? Already-written sections stay intact.')) stopMut.mutate() }}
+              disabled={stopMut.isPending}
+              className="rounded border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              data-action="stop-ai-draft"
+            >
+              {stopMut.isPending ? 'Stopping…' : 'Stop'}
+            </button>
+          </>
+        )}
+        {paused && (
+          <>
+            <button
+              type="button"
+              onClick={() => resumeMut.mutate()}
+              disabled={resumeMut.isPending}
+              className="rounded border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              data-action="resume-ai-draft"
+            >
+              {resumeMut.isPending ? 'Resuming…' : 'Resume'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { if (confirm('Discard the paused draft? Already-written sections stay, but the chain is cancelled.')) stopMut.mutate() }}
+              disabled={stopMut.isPending}
+              className="rounded border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              data-action="stop-ai-draft"
+            >
+              Discard
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   )
 }
 

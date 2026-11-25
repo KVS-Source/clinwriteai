@@ -148,7 +148,9 @@ async function draftSection(args: {
   model:     string
   aiInstructions: string | null
   policy:    PolicyRowForAi | null
-  sectionTemplateFormatRules: string | null
+  sectionTemplateFormatRules:  string | null
+  sectionTemplateInstructions: string | null
+  sectionTemplateGuidance:     string | null
   apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
   abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
 }): Promise<{ contentHtml: string; engine: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
@@ -184,7 +186,9 @@ async function draftWithClaude(args: {
   model:      string
   aiInstructions: string | null
   policy:     PolicyRowForAi | null
-  sectionTemplateFormatRules: string | null
+  sectionTemplateFormatRules:  string | null
+  sectionTemplateInstructions: string | null
+  sectionTemplateGuidance:     string | null
   abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
 }): Promise<{ html: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
@@ -213,6 +217,26 @@ async function draftWithClaude(args: {
   const policyBlock = renderPolicyPromptBlock(args.policy, args.section.id, args.sectionTemplateFormatRules)
   const policySection = policyBlock ? `\n\n${policyBlock}\n` : ''
 
+  // Per-section template content guidance (migration 104, Package 11) —
+  // snapshotted from the template at doc-create by the API and read here
+  // from the SectionContent row. Renders into the initial-draft system
+  // prompt the same shape the /ai-suggest route uses, so the first draft
+  // and subsequent rewrites answer against identical guidance. Empty
+  // string when the template provided no explicit guidance for this
+  // section.
+  const tIns  = (args.sectionTemplateInstructions ?? '').trim()
+  const tGuid = (args.sectionTemplateGuidance     ?? '').trim()
+  const templateGuidanceBlock = tIns || tGuid
+    ? [
+        ``,
+        `TEMPLATE GUIDANCE for this section (from the template authored for ${args.docType}):`,
+        tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+        tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+        `Follow these precisely — they are the template's authored intent for this section.`,
+        ``,
+      ].filter(Boolean).join('\n')
+    : ''
+
   const system = [
     `You are drafting a single section of a regulatory clinical writing deliverable.`,
     `Document type: ${args.docType}.`,
@@ -231,6 +255,7 @@ async function draftWithClaude(args: {
     SECTION_GROUNDING_RULES,
     authorBlock,
     policySection,
+    templateGuidanceBlock,
   ].join('\n')
 
   // Build the content array: PDFs first (so Claude reads context before
@@ -563,9 +588,20 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // at document-create time (migration 91, flipped from JSON in 90).
   // When non-null the drafter injects it as a "SECTION TEMPLATE" block
   // so Claude preserves the authored styling on every pass.
+  //
+  // Migration 104 (Package 11): also pulls templateInstructions +
+  // templateGuidance snapshotted at doc-create. These are content
+  // steering ("what this section must cover" + "how to write it") the
+  // template authored, parsed by distill-template (Package 2) and
+  // snapshotted by the create service (Package 6). Without this read
+  // the initial draft would only see formatting rules, not content
+  // guidance — the exact gap the user flagged after Package 10.
   const existing = await prisma.sectionContent.findMany({
     where: { documentVersionId: versionId },
-    select: { id: true, sectionId: true, contentHtml: true, templateFormatRules: true },
+    select: {
+      id: true, sectionId: true, contentHtml: true,
+      templateFormatRules: true, templateInstructions: true, templateGuidance: true,
+    },
   })
   const existingBySection = new Map(existing.map(e => [e.sectionId, e]))
 
@@ -629,11 +665,15 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
           sectionId: sec.id,
           details:   { sectionNumber: sec.number, sectionTitle: sec.title, sourceCount: sourcePdfs.length },
         })
-      const sectionTemplateFormatRules = row.templateFormatRules ?? null
+      const sectionTemplateFormatRules  = row.templateFormatRules  ?? null
+      const sectionTemplateInstructions = row.templateInstructions ?? null
+      const sectionTemplateGuidance     = row.templateGuidance     ?? null
       const sectionStartMs = Date.now()
       const { contentHtml, engine, inputTokens, cachedTokens, outputTokens, usedSources, promptChars } = await draftSection({
         section: sec, sources, sourcePdfs, sourceBlocks, docType: type, model: resolvedModel, aiInstructions, policy,
         sectionTemplateFormatRules,
+        sectionTemplateInstructions,
+        sectionTemplateGuidance,
         apiKey,
         abortSignal: abortController.signal,
       })

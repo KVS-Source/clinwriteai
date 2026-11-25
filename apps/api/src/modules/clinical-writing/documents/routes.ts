@@ -32,6 +32,9 @@ import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonom
 import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
+import { extractManifest, renderForPrompt as renderMustPreserve } from './must-preserve.js'
+import { callWithValidation, type StepEmitter } from './ai-suggest-retry.js'
+import { scoreSection } from './ai-confidence.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
@@ -3424,6 +3427,33 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
     const policyBlock = renderPolicyPromptBlock(policy, section.sectionId, sectionTemplateFormatRules)
 
+    // --- Template content guidance (migration 104, Package 7) ------------
+    // Instructions + guidance are snapshotted on the section at doc-
+    // create (Package 6) from the template's per-section JSON. Rendered
+    // as a compact block the AI reads on every regenerate so admin edits
+    // to the template after doc-create can't flow through silently. Empty
+    // string when both fields are null — skipped in the final prompt
+    // assembly via the ternary guard below.
+    const tInstructions = ((section as { templateInstructions?: string | null }).templateInstructions ?? '').trim()
+    const tGuidance     = ((section as { templateGuidance?:     string | null }).templateGuidance     ?? '').trim()
+    const templateGuidanceBlock = tInstructions || tGuidance
+      ? [
+          `TEMPLATE GUIDANCE for this section (from the template authored for ${doc.type}):`,
+          tInstructions ? `  Content requirements:\n    ${tInstructions.replace(/\n/g, '\n    ')}` : '',
+          tGuidance     ? `  Writing guidance:\n    ${tGuidance.replace(/\n/g,     '\n    ')}` : '',
+          `Follow these precisely — they are the template's authored intent for this section.`,
+        ].filter(Boolean).join('\n')
+      : ''
+
+    // --- Must-preserve manifest (migration 104, Package 7) ---------------
+    // Extracted fresh from the current body so the manifest matches what
+    // the model is about to rewrite (the cached section.mustPreserveManifest
+    // snapshot can lag behind body edits; the extractor is cheap). The
+    // retry wrapper uses the SAME manifest downstream to diff the model's
+    // output and catch dropped refs / invented citations.
+    const manifestBefore = extractManifest(currentContent)
+    const mustPreserveBlock = renderMustPreserve(manifestBefore)
+
     // ----- Carry-prompt opt-in (step B of sPM-carry-prompt) -------------
     // When FEATURE_CARRY_PROMPT allowlists this doc type, replace the
     // intent-templated prompt with the Document Brief + compact invariants
@@ -3437,9 +3467,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // model to single-section rewriting, and preserves reference
     // markers. Admins see this in the AI Prompts preview panel.
     const scaffold = SECTION_GROUNDING_RULES
-    let promptWithScope = policyBlock
-      ? `${scaffold}\n\n${policyBlock}\n\n${legacyPromptWithScope}`
-      : `${scaffold}\n\n${legacyPromptWithScope}`
+    // Prompt assembly order (oldest → newest):
+    //   scaffold (SECTION_GROUNDING_RULES)
+    //   policyBlock               — doc-type / AI prompt sectionRules + templateFormatRules
+    //   templateGuidanceBlock     — new (Package 7): template instructions + guidance
+    //   mustPreserveBlock         — new (Package 7): extracted markers / refs / numbers that MUST survive
+    //   legacyPromptWithScope     — intent-templated prompt + current content + attachments context
+    const promptLayers = [scaffold, policyBlock, templateGuidanceBlock, mustPreserveBlock, legacyPromptWithScope]
+      .map(s => s?.trim())
+      .filter((s): s is string => !!s && s.length > 0)
+    let promptWithScope = promptLayers.join('\n\n')
     let carryPromptUsed = false
     if (carryPromptEnabledFor(hyphenate(doc.type))) {
       try {
@@ -3463,9 +3500,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             selectionText: parsed.data.selectionText,
           }),
         })
-        const systemWithPolicy = policyBlock
-          ? `${scaffold}\n\n${carry.systemPrompt}\n\n${policyBlock}`
-          : `${scaffold}\n\n${carry.systemPrompt}`
+        // Carry-prompt path (Package 7): same migration-104 blocks layered
+        // into the system prompt so the model gets the full template
+        // guidance + must-preserve manifest even when carry mode is on.
+        const carrySystemLayers = [scaffold, carry.systemPrompt, policyBlock, templateGuidanceBlock, mustPreserveBlock]
+          .map(s => s?.trim())
+          .filter((s): s is string => !!s && s.length > 0)
+        const systemWithPolicy = carrySystemLayers.join('\n\n')
         promptWithScope = `${systemWithPolicy}\n\n---\n\n${carry.userPrompt}`
         carryPromptUsed = true
       } catch (err) {
@@ -3523,38 +3564,96 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      const result = await app.aiGateway.chat({
-        tenantId: request.user!.tenantId,
-        projectId: doc.projectId,
-        actorId: request.user!.id,
-        module: 'A',
-        intent: parsed.data.intent,
-        model,
-        prompt: promptWithScope,
-        maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
-        // Image attachments (source files whose contentType is image/*).
-        // Empty for text-only prompts — zero overhead when unused.
-        images: imageAttachments.length > 0 ? imageAttachments : undefined,
-        // PDF document attachments — scanned / image-only PDFs that
-        // couldn't be text-extracted get promoted here so the model
-        // reads them natively.
-        documents: documentAttachments.length > 0 ? documentAttachments : undefined,
-        // Prompt-history + Undo context (sPM-history). Scopes the AiCallRecord
-        // to the section and snapshots pre-call HTML so the UI can later Undo
-        // the last AI change on this section in place.
-        documentId,
-        sectionId:         section.sectionId,
-        documentVersionId: doc.currentVersionId ?? undefined,
-        preCallSectionHtml: currentContent,
-        promptText:        promptTextForHistory,
+      // --- Retry wrapper (migration 104, Package 7) ----------------------
+      // One AI call + (optional) one retry when deterministic validators
+      // catch a dropped ref / invented citation. Attempt 2 prepends a
+      // structured feedback block to the SAME prompt we built above. The
+      // caller (this handler) stays in charge of the ai-gateway record
+      // shape; the wrapper just orchestrates and returns final HTML +
+      // accumulated flags + a per-attempt trace.
+      // Step-log emitter — writes to the SAME ai_draft_steps table the
+      // worker uses (migration 103). AiDebugPanel's "Worker activity"
+      // timeline reads from this table keyed by documentId, so emissions
+      // here surface in the author's AI Debug panel without any UI
+      // changes. Inline rather than importing the worker helper so we
+      // don't pull apps/worker into the API package.
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId,
+              versionId:  doc.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
+      let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
+      const validation = await callWithValidation({
+        manifestBefore,
+        attachedSources: {
+          // Conservative defaults: no author surnames / allowed tokens
+          // supplied, so ANY new author-year citation the AI introduces
+          // trips 'invented_citation'. Future workstream could mine
+          // SourceUpload metadata (first author, PMID) to populate these.
+        },
+        steps:     stepsEmitter,
+        sectionId: section.sectionId,
+        call: async ({ prependPrompt, attempt }) => {
+          const effectivePrompt = prependPrompt
+            ? `${prependPrompt}\n\n----\n\n${promptWithScope}`
+            : promptWithScope
+          const r = await app.aiGateway.chat({
+            tenantId: request.user!.tenantId,
+            projectId: doc.projectId,
+            actorId: request.user!.id,
+            module: 'A',
+            intent: parsed.data.intent,
+            model,
+            prompt: effectivePrompt,
+            maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
+            images: imageAttachments.length > 0 ? imageAttachments : undefined,
+            documents: documentAttachments.length > 0 ? documentAttachments : undefined,
+            documentId,
+            sectionId:          section.sectionId,
+            documentVersionId:  doc.currentVersionId ?? undefined,
+            preCallSectionHtml: currentContent,
+            promptText:         attempt === 2 ? `${promptTextForHistory} · retry:validator_feedback` : promptTextForHistory,
+          })
+          lastGatewayResult = r
+          return { html: parsed.data.intent === 'edit' ? stripCodeFence(r.responseText) : r.responseText }
+        },
       })
+      // lastGatewayResult is populated by at least one wrapper call above.
+      // Non-null for any successful path — null would mean the wrapper
+      // threw before invoking `call`, which propagates up to the outer
+      // try/catch as an AI failure.
+      const result = lastGatewayResult!
+      // Score + persist aiConfidence / aiFlags on the section row so the
+      // existing confidence badge + report panel surface the retry
+      // outcome without any UI changes. Non-fatal on write failure.
+      try {
+        const score = scoreSection(validation.flags)
+        await app.prisma.sectionContent.update({
+          where: { id: section.id },
+          data:  { aiConfidence: score, aiFlags: validation.flags },
+        })
+      } catch (err) {
+        app.log.warn({ err, documentId, sectionId: section.sectionId }, 'section confidence update failed (non-fatal)')
+      }
 
       // --- Write the exchange to the user's conversation thread -----------
       // Two rows: the user's turn + the assistant's turn. The dock + the
       // chat panel both read from here so every AI interaction is visible
       // regardless of where it was initiated.
       const kind = parsed.data.intent === 'explain' ? 'explain' : 'suggest'
-      const responseText = parsed.data.intent === 'edit' ? stripCodeFence(result.responseText) : result.responseText
+      // validation.html already has stripCodeFence applied inside the wrapper
+      // call for 'edit' intent; everything else matches r.responseText verbatim.
+      const responseText = validation.html
       try {
         await app.prisma.aiConversationMessage.create({
           data: {
@@ -3620,6 +3719,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         aiCallRecordId: result.recordId,
         flagsSummary,
         flagsPersisted,
+        // Post-generation validator outcome (migration 104, Package 7).
+        // Surfaces retry + validator flag history in the audit chain so
+        // investigations can see when AI output was auto-corrected.
+        validatorFlags:   validation.flags,
+        validatorRetried: validation.retried,
+        validatorTrace:   validation.trace.map(t => ({
+          attempt: t.attempt,
+          flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),
+          retriedBecause: t.retriedBecause,
+        })),
       })
 
       // Models sometimes wrap HTML in a code fence despite being asked not to.

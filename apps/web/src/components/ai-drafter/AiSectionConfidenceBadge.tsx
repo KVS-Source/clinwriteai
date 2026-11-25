@@ -22,6 +22,11 @@ const FLAG_KEY: Record<string, string> = {
   'ai:template_mismatch':   'flag_off_template',
   'ai:coherence_issue':     'flag_coherence',
   'ai:unsupported_claim':   'flag_unsupported_claim',
+  // Post-generation validator flags (migration 104, Package 5).
+  'dropped_cross_ref':      'flag_dropped_cross_ref',
+  'invented_citation':      'flag_invented_citation',
+  'number_drift':           'flag_number_drift',
+  'undefined_acronym':      'flag_undefined_acronym',
 }
 
 function friendlyFlag(code: string, t: TFunction): string {

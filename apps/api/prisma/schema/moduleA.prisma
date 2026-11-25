@@ -242,6 +242,28 @@ model SectionContent {
   // documents because the snapshot is pinned on the section.
   templateFormatRules     String?    @map("template_format_rules")
 
+  // Per-section content guidance snapshot (migration 104). Extracted from
+  // DocumentTemplate.sections[].instructions / .guidance by the distill-
+  // template worker and copied here at doc-create, same lifecycle as
+  // templateFormatRules. The AI regenerate path reads from these fields
+  // (not from the live template) so an admin editing the template later
+  // can't silently change what in-flight documents are drafted against.
+  templateInstructions    String?    @map("template_instructions")
+  templateGuidance        String?    @map("template_guidance")
+
+  // Snapshot of AiPromptRecord.sectionRules[sectionId] taken at doc-
+  // create from the pinned AiPromptRecord (migration 104). Closes the
+  // Part-11 audit gap where in-place edits to a pinned record would
+  // silently flow through to in-flight regenerate calls.
+  aiPromptSectionRules    Json?      @map("ai_prompt_section_rules")
+
+  // Cached "must preserve" manifest (migration 104): citation markers,
+  // cross-ref anchors (§x.y.z, Table N, Figure N), numeric values with
+  // units, study identifiers, acronyms. Rebuilt on every body save; the
+  // AI regenerate retry wrapper diffs this against the model output to
+  // catch dropped refs / invented citations before the author sees them.
+  mustPreserveManifest    Json?      @map("must_preserve_manifest")
+
   version            DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
 
   @@map("section_contents")

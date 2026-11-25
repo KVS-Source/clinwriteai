@@ -55,20 +55,23 @@ export async function initialiseRegulatoryDocumentVersion(
     },
   })
   if (args.sections.length > 0) {
-    // Per-section formatRules snapshot is populated by the clinical
-    // distill-template worker only (migration 94). Non-clinical modules
-    // leave templateFormatRules null until each module's template
-    // distiller is extended to merge formatRules into its own
-    // sections[] JSON.
+    // Per-section snapshot fields (templateFormatRules / templateInstructions
+    // / templateGuidance / aiPromptSectionRules / mustPreserveManifest —
+    // migrations 94 + 104) are populated by the clinical distill-template
+    // worker only. Regulatory Writing has no ai-suggest endpoint today,
+    // so these stay null; they wire in when the regulatory distiller and
+    // ai-suggest endpoint ship.
     await tx.regulatoryDocumentSection.createMany({
       data: args.sections.map(s => ({
         regulatoryDocumentVersionId: version.id,
-        sectionId:     s.sectionId,
-        sectionNumber: s.sectionNumber,
-        sectionTitle:  s.sectionTitle,
-        contentHtml:   s.contentHtml ?? '',
-        wordCount:     wordsIn(s.contentHtml ?? ''),
-        templateFormatRules: null,
+        sectionId:            s.sectionId,
+        sectionNumber:        s.sectionNumber,
+        sectionTitle:         s.sectionTitle,
+        contentHtml:          s.contentHtml ?? '',
+        wordCount:            wordsIn(s.contentHtml ?? ''),
+        templateFormatRules:  null,
+        templateInstructions: null,
+        templateGuidance:     null,
       })),
     })
   }

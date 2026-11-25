@@ -73,8 +73,15 @@ const CROSS_REF_PATTERNS: readonly RegExp[] = [
 // Alternative order matters: more specific patterns MUST come first,
 // otherwise the generic percent-unit branch eats "95%" before the
 // "95% CI" branch can see it.
+//
+// Migration 105 Package B-3: added publication-style parenthesised CI
+// patterns ("(95% CI 0.48-0.77)", "(95% CI, 1.1 to 1.7)") and
+// effect-size-plus-range forms ("HR 0.61 (0.48-0.77)",
+// "OR 2.3 (1.5 to 3.5)") that publications use heavily. Also covers
+// comma-separated range notation. Extensions are additive — no
+// existing Clinical match changes.
 const NUMBER_RE =
-  /\b95%\s?CI\b|\b(?:p|P|r|R|n|N|OR|HR|RR|CI)\s*[=<>≤≥]\s*\d+(?:[.,]\d+)?(?:\s*%)?|(?<!\w)[-−]?\d+(?:[.,]\d+)?\s*(?:%|mg\/kg|mg\/m²|µg\/kg|mg|µg|g\b|kg\b|mL\b|L\b|mmol\b|mol\b|IU\b|U\b|units?|ng\/mL|µmol\/L|mmHg|kPa|°C|hours?|hr\b|h\b|min\b|days?|weeks?|months?|years?)|±\s?\d+(?:[.,]\d+)?/g
+  /\b95%\s?CI[,:]?\s*\d+(?:[.,]\d+)?\s*(?:[-–—]|to)\s*\d+(?:[.,]\d+)?|\(\s*95%\s?CI[,:]?\s*\d+(?:[.,]\d+)?\s*(?:[-–—]|to)\s*\d+(?:[.,]\d+)?\s*\)|\b95%\s?CI\b|\b(?:HR|OR|RR|aHR|aOR|aRR)\s+\d+(?:[.,]\d+)?\s*\(\s*\d+(?:[.,]\d+)?\s*(?:[-–—]|to|,)\s*\d+(?:[.,]\d+)?\s*\)|\b(?:p|P|r|R|n|N|OR|HR|RR|CI)\s*[=<>≤≥]\s*\d+(?:[.,]\d+)?(?:\s*%)?|(?<!\w)[-−]?\d+(?:[.,]\d+)?\s*(?:%|mg\/kg|mg\/m²|µg\/kg|mg|µg|g\b|kg\b|mL\b|L\b|mmol\b|mol\b|IU\b|U\b|units?|ng\/mL|µmol\/L|mmHg|kPa|°C|hours?|hr\b|h\b|min\b|days?|weeks?|months?|years?)|±\s?\d+(?:[.,]\d+)?/g
 
 // Common clinical / regulatory identifier formats. Order matters — the
 // more specific patterns run first to avoid them being eaten by the

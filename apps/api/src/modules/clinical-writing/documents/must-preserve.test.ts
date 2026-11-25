@@ -50,6 +50,46 @@ describe('extractManifest — numeric values', () => {
     const m = extractManifest(html)
     expect(m.numbers).toEqual([])
   })
+
+  // Package B-3: publications tend to report effect size + CI together
+  // in parenthesised form. The regex was previously catching "HR 0.61"
+  // via the generic unit-adjacent branch but missing the paired CI
+  // range right after it. These assertions pin the extended patterns.
+  it('captures parenthesised CI with its range: "(95% CI 0.48-0.77)"', () => {
+    const html = `<p>The primary endpoint showed a strong effect (95% CI 0.48-0.77).</p>`
+    const m = extractManifest(html)
+    const raws = m.numbers.map(n => n.raw)
+    // The paren-form branch wins (captures the whole "(95% CI 0.48-0.77)");
+    // the bare-form branch also produces a bare "95% CI". Either way, a
+    // human reading the manifest sees the upper and lower bounds.
+    const ci = raws.find(r => /95%\s?CI/i.test(r) && /0\.48.*0\.77/.test(r))
+    expect(ci).toBeTruthy()
+  })
+
+  it('captures CI with comma + "to" range syntax', () => {
+    const html = `<p>Risk ratio dropped meaningfully (95% CI, 1.1 to 1.7).</p>`
+    const m = extractManifest(html)
+    expect(m.numbers.some(n => /1\.1.*1\.7/.test(n.raw))).toBe(true)
+  })
+
+  it('captures standalone effect-size-plus-CI combos: "HR 0.61 (0.48-0.77)"', () => {
+    const html = `<p>Adjusted analysis: HR 0.61 (0.48-0.77) and OR 2.3 (1.5 to 3.5).</p>`
+    const m = extractManifest(html)
+    const raws = m.numbers.map(n => n.raw)
+    expect(raws.some(r => r.startsWith('HR 0.61'))).toBe(true)
+    expect(raws.some(r => r.startsWith('OR 2.3'))).toBe(true)
+  })
+
+  it('still catches n=120 + p<0.001 + the CI range in a mixed publication sentence', () => {
+    const html = `<p>In the cohort (n=120), the adjusted HR 0.61 (95% CI 0.48-0.77; p<0.001) favoured treatment.</p>`
+    const m = extractManifest(html)
+    const raws = m.numbers.map(n => n.raw)
+    expect(raws.some(r => r === 'n=120')).toBe(true)
+    expect(raws.some(r => r === 'p<0.001')).toBe(true)
+    // The CI range is captured (HR 0.61 reads alongside "95% CI 0.48-0.77";
+    // the shared extractor folds the CI into a single range match).
+    expect(raws.some(r => /95%\s?CI.*0\.48.*0\.77/.test(r))).toBe(true)
+  })
 })
 
 describe('extractManifest — study identifiers', () => {

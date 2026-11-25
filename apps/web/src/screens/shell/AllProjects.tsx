@@ -50,18 +50,18 @@ function FolderIcon() {
   )
 }
 
-// Row columns: project · TA · phase · start date · submission countries · documents · AI spend · status · gear · chevron
-const ROW_GRID = 'minmax(220px,2fr) minmax(120px,1fr) 100px 120px minmax(120px,1fr) 120px 100px 120px 28px 14px'
+// Row columns: project · documents · TA · phase · start date · submission countries · AI spend · status · gear · chevron
+const ROW_GRID = 'minmax(220px,2fr) 120px minmax(120px,1fr) 100px 120px minmax(120px,1fr) 100px 120px 28px 14px'
 type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'ai' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
 const COLUMN_HEADERS: Array<{ labelKey: string; key: SortKey | null }> = [
   { labelKey: 'page.all_projects.col_project',   key: 'project' },
+  { labelKey: 'page.all_projects.col_documents', key: 'documents' },
   { labelKey: 'page.all_projects.col_ta',        key: 'ta' },
   { labelKey: 'page.all_projects.col_phase',     key: 'phase' },
   { labelKey: 'page.all_projects.col_start',     key: 'start' },
   { labelKey: 'page.all_projects.col_countries', key: null },
-  { labelKey: 'page.all_projects.col_documents', key: 'documents' },
   { labelKey: 'page.all_projects.col_ai_spend',  key: 'ai' },
   { labelKey: 'page.all_projects.col_status',    key: 'status' },
 ]
@@ -388,6 +388,7 @@ export function AllProjects() {
                           <p className="mt-0.5 truncate text-xs text-slate-500" title={project.name}>{project.name}</p>
                         )}
                       </div>
+                      <div><DocumentCountChips project={project} /></div>
                       <div className="min-w-0 truncate pr-2 text-slate-900" title={project.therapeuticArea ?? undefined}>
                         {project.therapeuticArea || <span className="text-slate-400">—</span>}
                       </div>
@@ -400,7 +401,6 @@ export function AllProjects() {
                             ))
                           : <span className="text-slate-400">—</span>}
                       </div>
-                      <div><DocumentCountChips project={project} /></div>
                       <div className="font-mono text-[12px] text-slate-700 tabular-nums" data-ai-spend={project.aiSpendUsd ?? 0}
                         title={project.aiSpendUsd != null ? `$${project.aiSpendUsd.toFixed(6)} across all AI calls on this project` : 'No AI usage recorded'}>
                         {formatUsd(project.aiSpendUsd ?? 0)}

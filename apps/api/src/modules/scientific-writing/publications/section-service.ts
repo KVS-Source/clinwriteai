@@ -94,12 +94,13 @@ export async function initialisePublicationVersion(
   })
 
   if (args.sections.length > 0) {
-    // Per-section formatRules snapshot is populated by the clinical
-    // distill-template worker today (migration 94). The publications
-    // distiller doesn't write into PublicationTemplate.sections[] yet,
-    // so templateFormatRules stays null here — AI calls just fall back
-    // to the module's default styling. Future workstream: extend the
-    // template distiller to run per-module.
+    // Per-section snapshot fields (templateFormatRules / templateInstructions
+    // / templateGuidance / aiPromptSectionRules / mustPreserveManifest —
+    // migrations 94 + 104) are populated by the clinical distill-template
+    // worker today. The publications distiller doesn't write into
+    // PublicationTemplate.sections[] yet, so these stay null here. The
+    // Scientific Writing ai-suggest path (not yet implemented) will
+    // consume them once the per-module distiller catches up.
     await tx.publicationSectionContent.createMany({
       data: args.sections.map(s => ({
         publicationVersionId: version.id,
@@ -109,6 +110,8 @@ export async function initialisePublicationVersion(
         contentHtml:          s.contentHtml ?? '',
         wordCount:            wordsIn(s.contentHtml ?? ''),
         templateFormatRules:  null,
+        templateInstructions: null,
+        templateGuidance:     null,
       })),
     })
   }

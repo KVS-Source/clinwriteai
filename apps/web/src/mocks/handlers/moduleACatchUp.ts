@@ -74,7 +74,7 @@ export const pmDirectoryHandlers = [
 export const moduleACatchUpHandlers = [
   // --- AI drafting status (never AI-drafted in mock mode)
   http.get(`${BASE}/documents/:documentId/ai-draft-status`, async () => {
-    const body: AiDraftStatusResponse = { aiStubMode: false, state: null, confidenceOverall: null, lastPassNumber: null, lastPassAt: null, sections: [], passes: [] }
+    const body: AiDraftStatusResponse = { aiStubMode: false, state: null, confidenceOverall: null, lastPassNumber: null, lastPassAt: null, draftedSections: 0, totalSections: 0, sections: [], passes: [] }
     return json(body)
   }),
 

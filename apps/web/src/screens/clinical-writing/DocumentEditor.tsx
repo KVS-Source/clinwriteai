@@ -30,6 +30,7 @@ import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
 import { AiConfidenceChip } from '../../components/ai-drafter/AiConfidenceChip'
 import { AiDraftingProgressToast } from '../../components/ai-drafter/AiDraftingProgressToast'
 import { AiDebugPanel } from '../../components/ai-drafter/AiDebugPanel'
+import { AiDebugLayoutProvider, useAiDebugLayout } from '../../components/ai-drafter/AiDebugLayoutContext'
 import { PresenceStack, avatarColor } from './PresenceStack'
 import { MyRaciRole, documentRaciKey } from './MyRaciRole'
 import { EditorToolbar }    from './EditorToolbar'
@@ -88,6 +89,14 @@ const VIEW_ONLY_LOCK_KEYS = { shortKey: 'lock_short_view_only', noteKey: 'lock_n
 const PART_SUBMITTED_LOCK_KEYS = { shortKey: 'lock_short_part_submitted', noteKey: 'lock_note_part_submitted' }
 
 export function DocumentEditor() {
+  return (
+    <AiDebugLayoutProvider>
+      <DocumentEditorInner />
+    </AiDebugLayoutProvider>
+  )
+}
+
+function DocumentEditorInner() {
   const { t } = useTranslation()
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
@@ -111,7 +120,11 @@ export function DocumentEditor() {
   // once state is complete / failed. Feeds the header chip, the section
   // badges, and the floating progress toast. See useAiDraftStatus.
   const aiDraft = useAiDraftStatus(documentId)
-  const [aiDebugOpen, setAiDebugOpen] = useState(false)
+  // AI Debug panel open state lives in the shared layout context so the
+  // editor shell can shift its main content left (the panel docks on
+  // the right) and the drafting toast can hide itself (the panel
+  // renders its own status footer when open).
+  const { isOpen: aiDebugOpen, setOpen: setAiDebugOpen } = useAiDebugLayout()
   const aiState = aiDraft.data?.state ?? null
 
   // Auto-open the AI Debug panel the first time we see a 'blocked' state
@@ -770,7 +783,19 @@ export function DocumentEditor() {
   }
 
   return (
-    <div className="flex h-full flex-col" data-screen="document-editor">
+    <div
+      className="flex h-full flex-col"
+      data-screen="document-editor"
+      style={{
+        // AI Debug docks on the right (fixed, outside normal flow).
+        // Paying right-side padding equal to its effective width shifts
+        // the whole editor left so sections remain clickable. CSS var is
+        // kept in sync by AiDebugLayoutProvider; falls back to 0 when
+        // the panel is closed.
+        paddingRight: 'var(--ai-debug-px, 0px)',
+        transition:   'padding-right 120ms ease-out',
+      }}
+    >
 
       {/* ============ Document header (56px) ============ */}
       <div

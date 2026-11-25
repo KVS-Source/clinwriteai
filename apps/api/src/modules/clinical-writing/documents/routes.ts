@@ -90,6 +90,7 @@ import { buildCarryPrompt } from '../carry-prompt/build.js'
 import { carryPromptEnabledFor } from '../carry-prompt/decide.js'
 import { intentToAsk, type CarrySuggestIntent } from '../carry-prompt/intent-to-ask.js'
 import { parseFlagTokens, summariseFlagTokens } from '../carry-prompt/parse.js'
+import { draftProgress } from './ai-draft-progress.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -1402,7 +1403,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           where:  { documentVersionId: doc.currentVersionId },
           select: {
             sectionId: true, sectionNumber: true, sectionTitle: true,
-            aiConfidence: true, aiFlags: true,
+            aiConfidence: true, aiFlags: true, aiSpanCount: true,
           },
         })
       : []
@@ -1428,6 +1429,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       confidenceOverall:  doc.aiConfidenceOverall,
       lastPassNumber:     doc.aiLastPassNumber,
       lastPassAt:         doc.aiLastPassAt?.toISOString() ?? null,
+      // How far the draft has got: sections written so far, out of all of them (the toast's "23 of 67").
+      ...draftProgress(sectionRows),
       sections: sectionRows.map(s => ({
         sectionId:     s.sectionId,
         sectionNumber: s.sectionNumber,
@@ -2243,6 +2246,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         model:            t.model,
         sourceIds:        t.sourceIds,
         sourceTitles:     t.sourceTitles,
+        // True: sourceIds are the sources this section used. False (drafts made before usage was recorded, or the
+        // drafter didn't say; promptCharCount is 0): sourceIds are everything attached, not what was used.
+        sourceUsageRecorded: t.promptCharCount > 0,
         promptCharCount:  t.promptCharCount,
         outputCharCount:  t.outputCharCount,
         draftedAt:        t.draftedAt.toISOString(),

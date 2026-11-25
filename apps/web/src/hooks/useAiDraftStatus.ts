@@ -27,7 +27,12 @@ export interface AiDraftSummary {
   hasConfidence:    boolean
   /** 'green' at ≥85, 'amber' 60–84, 'rose' <60. Null when hasConfidence is false. */
   tone:             'green' | 'amber' | 'rose' | null
+  /** All sections of the document. */
   totalSections:    number
+  /** Sections the drafter has written into so far (0 until the first one is committed). */
+  draftedSections:  number
+  /** 0-100: draftedSections out of totalSections. */
+  draftedPercent:   number
   flaggedSections:  number
   /** 1-5 while running, final iteration number once settled. 0 before anything runs. */
   currentPass:      number
@@ -59,14 +64,15 @@ export function useAiDraftStatus(documentId: string | undefined): UseQueryResult
   // body all key off that query, so writers watching the drafter work see
   // sections stream in without clicking Refresh. Detected via:
   //   - any transition into a settled state (complete/failed/cancelled)
-  //   - a change in the number of sections the status endpoint reports
-  //     the drafter has touched (`sections.length` grows as the worker
-  //     commits each one)
+  //   - a change in the number of sections the drafter has written so far
+  //     (`draftedSections` grows as the worker commits each one; the
+  //     section list itself is the same length from the start, since every
+  //     section row exists when the document is created)
   // Debounced to once per unique signal so we don't re-render on every poll.
   const lastSignalRef = useRef<string | null>(null)
   useEffect(() => {
     if (!documentId || !data) return
-    const signal = `${data.state}:${data.sections.length}:${data.lastPassNumber ?? 0}`
+    const signal = `${data.state}:${data.draftedSections ?? data.sections.length}:${data.lastPassNumber ?? 0}`
     if (signal === lastSignalRef.current) return
     lastSignalRef.current = signal
     void qc.invalidateQueries({ queryKey: ['document', documentId] })
@@ -78,13 +84,16 @@ export function useAiDraftStatus(documentId: string | undefined): UseQueryResult
   const tone: AiDraftSummary['tone'] = hasConfidence
     ? (confidence >= 85 ? 'green' : confidence >= 60 ? 'amber' : 'rose')
     : null
-  const totalSections = data?.sections.length ?? 0
+  // The server's own count of all sections; older servers only send the list, whose length is the same number.
+  const totalSections = data?.totalSections ?? data?.sections.length ?? 0
+  const draftedSections = Math.min(data?.draftedSections ?? 0, totalSections)
+  const draftedPercent = totalSections > 0 ? Math.round((draftedSections / totalSections) * 100) : 0
   const flaggedSections = data?.sections.filter(s => (s.flags?.length ?? 0) > 0).length ?? 0
   const currentPass = data?.lastPassNumber ?? 0
 
   const summary: AiDraftSummary = {
     inFlight, confidence, hasConfidence, tone,
-    totalSections, flaggedSections, currentPass,
+    totalSections, draftedSections, draftedPercent, flaggedSections, currentPass,
   }
 
   return { ...result, summary }

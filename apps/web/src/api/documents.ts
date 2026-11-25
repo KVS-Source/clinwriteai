@@ -194,7 +194,7 @@ export const documentsApi = {
   create: (projectId: string, body: CreateDocumentBody) =>
     api.post<Document>(`/projects/${projectId}/documents`, body),
   upload: (projectId: string, formData: FormData) =>
-    fetch(`${import.meta.env.VITE_API_URL}/projects/${projectId}/documents/upload`, { method: 'POST', body: formData }).then(r => r.json()),
+    api.upload(`/projects/${projectId}/documents/upload`, formData),
   // Throw away an upload the user never saved to the library (cancelled the upload form).
   discardSource: (projectId: string, uploadId: string) =>
     api.delete<void>(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}`),

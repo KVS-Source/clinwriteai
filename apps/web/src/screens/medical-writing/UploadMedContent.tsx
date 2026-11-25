@@ -14,7 +14,7 @@ import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MedContentType } from '@platform/types'
-import { ApiError } from '../../api/client'
+import { ApiError, identityHeaders } from '../../api/client'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { assignableUsersApi } from '../../api/raci'
 
@@ -129,6 +129,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
     const url = `${import.meta.env.VITE_API_URL}/projects/${projectId}/med-content/upload`
     xhr.open('POST', url)
     xhr.withCredentials = true
+    for (const [name, value] of Object.entries(identityHeaders())) xhr.setRequestHeader(name, value)
     xhr.upload.addEventListener('progress', e => {
       if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
     })

@@ -78,24 +78,42 @@ class S3BlobReader implements BlobReader {
   }
 }
 
+/** True when the store answered "there is no such file" (as opposed to being down or refusing access). */
+function isMissingBlob(err: unknown): boolean {
+  const e = err as { code?: string; name?: string } | null
+  return e?.code === 'ENOENT' || e?.name === 'NoSuchKey' || e?.name === 'NotFound'
+}
+
 /**
- * Build the reader from env, matching plugin.ts's provider selection:
- *   BLOB_PROVIDER=local → LocalBlobReader (dev)
- *   BLOB_PROVIDER=s3    → S3BlobReader   (prod)
- * Falls back to 's3' in production when the env var isn't set, 'local'
- * otherwise — same default as the API plugin.
+ * A database can hold uploads made by APIs with different BLOB_PROVIDERs (the server's on disk, a developer's
+ * machine in S3), and the row doesn't say which. A file missing from the first store is looked up in the second.
  */
-export function createBlobReaderFromEnv(): BlobReader {
-  const provider = (process.env.BLOB_PROVIDER ?? (process.env.NODE_ENV === 'production' ? 's3' : 'local')).toLowerCase()
-  if (provider === 'local') {
-    const rootDir = resolve(process.env.BLOB_LOCAL_ROOT_DIR ?? './var/blob')
-    return new LocalBlobReader(rootDir)
+export class FallbackBlobReader implements BlobReader {
+  constructor(private readonly primary: BlobReader, private readonly other: BlobReader) {}
+
+  async read(bucket: BlobBucket, key: string): Promise<BlobReadResult> {
+    try {
+      return await this.primary.read(bucket, key)
+    } catch (err) {
+      if (!isMissingBlob(err)) throw err
+      try {
+        return await this.other.read(bucket, key)
+      } catch (otherErr) {
+        throw isMissingBlob(otherErr) ? err : otherErr
+      }
+    }
   }
+}
+
+function localReaderFromEnv(): BlobReader {
+  return new LocalBlobReader(resolve(process.env.BLOB_LOCAL_ROOT_DIR ?? './var/blob'))
+}
+
+/** The S3 reader, or null when its credentials aren't set. */
+function s3ReaderFromEnv(): BlobReader | null {
   const accessKeyId     = process.env.S3_ACCESS_KEY_ID
   const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY
-  if (!accessKeyId || !secretAccessKey) {
-    throw new Error('S3 blob reader requires S3_ACCESS_KEY_ID + S3_SECRET_ACCESS_KEY')
-  }
+  if (!accessKeyId || !secretAccessKey) return null
   return new S3BlobReader({
     endpoint:        process.env.S3_ENDPOINT,
     region:          process.env.S3_REGION ?? 'us-east-1',
@@ -109,4 +127,23 @@ export function createBlobReaderFromEnv(): BlobReader {
       ectd:      process.env.S3_ECTD_BUCKET      ?? 'platform-ectd',
     },
   })
+}
+
+/**
+ * Build the reader from env, matching plugin.ts's provider selection:
+ *   BLOB_PROVIDER=local → LocalBlobReader (dev)
+ *   BLOB_PROVIDER=s3    → S3BlobReader   (prod)
+ * Falls back to 's3' in production when the env var isn't set, 'local'
+ * otherwise — same default as the API plugin. When the other store is
+ * configured too (S3_* keys / BLOB_LOCAL_ROOT_DIR), it is the fallback.
+ */
+export function createBlobReaderFromEnv(): BlobReader {
+  const provider = (process.env.BLOB_PROVIDER ?? (process.env.NODE_ENV === 'production' ? 's3' : 'local')).toLowerCase()
+  const s3 = s3ReaderFromEnv()
+  if (provider === 'local') {
+    const local = localReaderFromEnv()
+    return s3 ? new FallbackBlobReader(local, s3) : local
+  }
+  if (!s3) throw new Error('S3 blob reader requires S3_ACCESS_KEY_ID + S3_SECRET_ACCESS_KEY')
+  return process.env.BLOB_LOCAL_ROOT_DIR ? new FallbackBlobReader(s3, localReaderFromEnv()) : s3
 }

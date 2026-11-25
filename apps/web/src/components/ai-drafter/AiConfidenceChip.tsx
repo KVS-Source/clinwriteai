@@ -58,20 +58,39 @@ export function AiConfidenceChip({ state, summary, onClick }: Props) {
   // Resume button in the AI Debug / toast surface.
   if (state === 'paused') {
     const sty = { bg: '#FFFBEB', border: '#FDE68A', fg: '#92400E', dot: '#D97706' }
-    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_paused')} sub={t('component.ai_confidence_chip.paused_sub')} testid="ai-chip-paused" onClick={onClick} />
+    const sub = summary.draftedSections > 0 && summary.totalSections > 0
+      ? t('component.ai_confidence_chip.paused_progress_sub', { done: summary.draftedSections, total: summary.totalSections })
+      : t('component.ai_confidence_chip.paused_sub')
+    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_paused')} sub={sub} testid="ai-chip-paused" onClick={onClick} />
   }
 
   // Settled 'failed' is its own tone — not green/amber/rose confidence.
   if (state === 'failed') {
     const sty = { bg: '#FFF1F2', border: '#FECDD3', fg: '#BE123C', dot: '#E11D48' }
-    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_failed')} sub={t('component.ai_confidence_chip.failed_sub')} testid="ai-chip-failed" onClick={onClick} />
+    const sub = summary.draftedSections > 0 && summary.totalSections > 0
+      ? t('component.ai_confidence_chip.failed_progress_sub', { done: summary.draftedSections, total: summary.totalSections })
+      : t('component.ai_confidence_chip.failed_sub')
+    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_failed')} sub={sub} testid="ai-chip-failed" onClick={onClick} />
+  }
+
+  // The writer stopped the draft: say how much was written and kept (it used to fall through to the confidence
+  // chip, or to no chip at all when no validation pass had run yet).
+  if (state === 'cancelled') {
+    const sty = { bg: '#F8FAFC', border: '#E2E8F0', fg: '#475569', dot: '#94A3B8' }
+    const sub = summary.draftedSections > 0 && summary.totalSections > 0
+      ? t('component.ai_confidence_chip.cancelled_progress_sub', { done: summary.draftedSections, total: summary.totalSections })
+      : t('component.ai_confidence_chip.cancelled_sub')
+    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_cancelled')} sub={sub} testid="ai-chip-cancelled" onClick={onClick} />
   }
 
   // In-flight: show the live pass label.
   if (summary.inFlight) {
     const sty = IN_FLIGHT_STYLE
     const label = t(`component.ai_confidence_chip.${STATE_KEY[state]}`)
-    const sub = summary.currentPass > 0
+    // While sections are being written the chip counts them; once validation starts it shows the pass.
+    const sub = state === 'drafting' && summary.totalSections > 0
+      ? t('component.ai_confidence_chip.in_flight_drafted_sub', { done: summary.draftedSections, total: summary.totalSections })
+      : summary.currentPass > 0
       ? t('component.ai_confidence_chip.in_flight_pass_sub', { number: summary.currentPass })
       : t('component.ai_confidence_chip.in_flight_sections_sub', { count: summary.totalSections || 0 })
     return <ChipShell style={sty} label={label} sub={sub} testid="ai-chip-inflight" spinning onClick={onClick} />

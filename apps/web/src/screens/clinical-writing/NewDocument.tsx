@@ -69,7 +69,7 @@ interface Props {
   // the user returns to step 2 with their picks + the new source visible.
   onRequestUpload?: () => void
   // Id of the source just saved from that upload drawer — selected automatically.
-  uploadedSourceId?: string | null
+  uploadedSourceIds?: readonly string[]
   onCreated?: (documentId: string) => void
   onCancel?:  () => void
 }
@@ -91,7 +91,7 @@ export function NewDocumentForm({
   projectTherapeuticArea,
   projectShortTitle,
   onRequestUpload,
-  uploadedSourceId,
+  uploadedSourceIds,
   onCreated,
   onCancel,
 }: Props) {
@@ -165,13 +165,14 @@ export function NewDocumentForm({
   }, [dbTemplates, type])
   const recommendedSet = useMemo(() => new Set(recommendedCategories ?? []), [recommendedCategories])
 
-  // A source uploaded from this wizard is picked for the document straight away.
+  // Sources uploaded from this wizard are picked for the document straight away.
   useEffect(() => {
-    if (!uploadedSourceId) return
-    setSourceIds(cur => (cur.includes(uploadedSourceId) ? cur : [...cur, uploadedSourceId]))
-    setUploadedHere(cur => (cur.includes(uploadedSourceId) ? cur : [...cur, uploadedSourceId]))
+    if (!uploadedSourceIds?.length) return
+    const add = (cur: string[]) => [...new Set([...cur, ...uploadedSourceIds])]
+    setSourceIds(add)
+    setUploadedHere(add)
     setShowAllCategories(false)
-  }, [uploadedSourceId])
+  }, [uploadedSourceIds])
 
   // After an upload from this wizard the list shows the source(s) uploaded here
   // plus everything selected; otherwise the recommended categories plus

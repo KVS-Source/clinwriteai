@@ -14,7 +14,7 @@
 //   5. Issues to investigate — actionable summary
 //   6. Advanced: raw JSON — collapsed, Copy-to-clipboard
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -23,6 +23,13 @@ import {
   type PreflightIssue,
 } from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
+import {
+  useAiDebugLayout,
+  AI_DEBUG_COLLAPSED_PX,
+  AI_DEBUG_MIN_WIDTH,
+  AI_DEBUG_MAX_WIDTH,
+} from './AiDebugLayoutContext'
+import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
 
 interface Props {
   documentId: string
@@ -121,6 +128,8 @@ interface DebugSectionTrace {
   model:           string
   sourceIds:       string[]
   sourceTitles:    string[]
+  /** False/absent: sourceTitles is everything attached; which of them the section used is unknown. */
+  sourceUsageRecorded?: boolean
   promptCharCount: number
   outputCharCount: number
   draftedAt:       string
@@ -365,6 +374,32 @@ function flagLabel(flag: string): string {
 
 export function AiDebugPanel({ documentId, open, onClose }: Props) {
   const qc = useQueryClient()
+  // Shared layout context — the editor shell shifts its content left by
+  // `effectivePx` so the panel can dock without covering sections. We
+  // sync the `open` prop into the context so other consumers (toast,
+  // keyboard shortcuts) can read a single source of truth.
+  const layout = useAiDebugLayout()
+  useEffect(() => { layout.setOpen(open) }, [open, layout])
+  const { width, collapsed, setWidth, setCollapsed } = layout
+  // Drag-to-resize (option B). Pointer-events keep the drag alive even
+  // if the cursor leaves the handle. Clamped to [MIN, MAX] in context.
+  const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null)
+  const onDragStart = (e: React.PointerEvent) => {
+    if (collapsed) return
+    dragStartRef.current = { startX: e.clientX, startWidth: width }
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+  const onDragMove = (e: React.PointerEvent) => {
+    const start = dragStartRef.current
+    if (!start) return
+    // Panel is anchored right — dragging LEFT widens it.
+    const nextWidth = start.startWidth + (start.startX - e.clientX)
+    setWidth(nextWidth)
+  }
+  const onDragEnd = (e: React.PointerEvent) => {
+    dragStartRef.current = null
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* no-op */ }
+  }
   const { data, isLoading, error, refetch, isFetching } = useQuery<DebugData>({
     queryKey: ['ai-debug', documentId],
     queryFn:  () => aiDrafterApi.debug(documentId) as Promise<DebugData>,
@@ -448,18 +483,65 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
   if (!open) return null
 
+  // (D) Collapsed state — render a thin vertical tab only. Writer clicks
+  // it to expand. Keeps the panel reachable without hiding the editor.
+  if (collapsed) {
+    return (
+      <aside
+        className="fixed right-0 top-0 bottom-0 z-40 flex flex-col items-center justify-center border-l border-slate-200 bg-white shadow-md"
+        style={{ width: AI_DEBUG_COLLAPSED_PX }}
+        role="complementary"
+        aria-label="AI debug panel (collapsed)"
+        data-ai-debug-panel
+        data-ai-debug-collapsed
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand AI Debug panel"
+          title="Expand AI Debug"
+          className="flex h-8 w-8 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          data-action="expand-ai-debug"
+        >
+          <span aria-hidden="true" className="text-[14px]">⟨</span>
+        </button>
+        <p
+          className="mt-3 font-mono text-[9px] uppercase tracking-widest text-slate-400"
+          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+        >
+          AI Debug
+        </p>
+      </aside>
+    )
+  }
+
+  // Docked to the right side of the viewport (no backdrop, no dimming
+  // of the editor). Writers can keep editing the document while the
+  // panel is open; close is via X in the header, collapse via ⟩,
+  // resize via the left-edge drag handle.
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end"
-      role="dialog"
+    <aside
+      className="fixed right-0 top-0 bottom-0 z-40 flex flex-col bg-white shadow-2xl max-w-[95vw]"
+      style={{ borderLeft: '1px solid #E2E8F0', width }}
+      role="complementary"
       aria-label="AI debug panel"
       data-ai-debug-panel
     >
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} data-ai-debug-backdrop />
-      <aside
-        className="relative flex h-full w-[720px] max-w-[95vw] flex-col bg-white shadow-2xl"
-        style={{ borderLeft: '1px solid #E2E8F0' }}
-      >
+      {/* (B) Drag handle — thin vertical stripe on the left edge. */}
+      <div
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize select-none hover:bg-blue-300/40 active:bg-blue-500/40"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize AI Debug panel"
+        aria-valuemin={AI_DEBUG_MIN_WIDTH}
+        aria-valuemax={AI_DEBUG_MAX_WIDTH}
+        aria-valuenow={width}
+        data-ai-debug-resize
+      />
         {/* Header */}
         <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
@@ -482,6 +564,16 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               data-action="refresh-ai-debug"
             >
               {isFetching ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              data-action="collapse-ai-debug"
+              aria-label="Collapse debug panel to a tab"
+              title="Collapse to tab"
+            >
+              ⟩
             </button>
             <button
               type="button"
@@ -634,7 +726,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               {(data.sectionDraftTraces?.length ?? 0) > 0 && (
                 <Section title={`Per-section drafting trace (${data.sectionDraftTraces!.length} commits)`}>
                   <p className="mb-3 text-[11px] text-slate-500">
-                    What the drafter was looking at each time it committed a section. Expand a section to see every commit, which source documents were in the model&rsquo;s context, and how big the prompt + output were.
+                    What the drafter was looking at each time it committed a section. Expand a section to see every commit, which source documents that section used, and how big the prompt + output were.
                   </p>
                   <SectionDraftTraceList traces={data.sectionDraftTraces!} />
                 </Section>
@@ -677,7 +769,161 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
             </div>
           )}
         </div>
-      </aside>
+        {/* (Z) Drafting status footer — equivalent of the floating
+             "Drafting document" toast, rendered inside the panel so it
+             never gets covered by the docked panel's own position. Only
+             appears when there's something actionable (in-flight / paused). */}
+        <AiDebugDraftingFooter documentId={documentId} state={data?.document?.aiDraftState ?? null} />
+    </aside>
+  )
+}
+
+/** In-panel equivalent of the floating AiDraftingProgressToast. Shown
+ *  at the bottom of the AI Debug panel when a draft is in flight or
+ *  paused, so the writer has Pause / Resume / Stop reachable without
+ *  the floating toast colliding with the docked panel. Mirrors the
+ *  toast's section-count + progress bar so no info is lost on the
+ *  swap. */
+function AiDebugDraftingFooter({
+  documentId, state,
+}: {
+  documentId: string
+  state:      string | null | undefined
+}) {
+  const qc = useQueryClient()
+  const { summary } = useAiDraftStatus(documentId)
+  const inFlight = state === 'pending' || state === 'drafting' || state === 'validating'
+  const paused   = state === 'paused'
+  const pauseMut = useMutation({
+    mutationFn: () => aiDrafterApi.pauseDraft(documentId),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] }),
+  })
+  const resumeMut = useMutation({
+    mutationFn: () => aiDrafterApi.resumeDraft(documentId),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-preflight', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+    },
+  })
+  const stopMut = useMutation({
+    mutationFn: () => aiDrafterApi.stopDraft(documentId),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] }),
+  })
+
+  if (!inFlight && !paused) return null
+
+  // Build a section-count sub-line that matches the floating toast:
+  //   drafting   → "Drafted X of Y sections · N%"
+  //   validating → "Validation pass P · N% overall"
+  //   paused     → "Paused after X of Y sections"
+  const total   = summary.totalSections
+  const drafted = summary.draftedSections
+  const percent = summary.draftedPercent
+  const subLine = paused
+    ? (total > 0 ? `Paused after ${drafted} of ${total} sections` : 'Paused — ready to resume')
+    : state === 'validating'
+      ? (summary.currentPass > 0
+          ? `Validation pass ${summary.currentPass}${summary.hasConfidence ? ` · ${summary.confidence}% overall` : ''}`
+          : 'Validation running…')
+      : (total > 0 ? `Drafted ${drafted} of ${total} sections · ${percent}%` : 'Waiting for the worker…')
+
+  // Progress bar — drafting shows draftedPercent; validating shows the
+  // overall confidence once a pass has completed. Paused freezes at
+  // whatever drafted% reached before the pause.
+  const barPercent = state === 'validating' && summary.hasConfidence ? summary.confidence : percent
+  const barColor   = paused ? '#D97706' : state === 'validating' ? '#15803D' : '#2563EB'
+
+  return (
+    <div
+      className={`flex flex-none flex-col gap-1.5 border-t px-4 py-2 text-[12px] ${
+        paused ? 'border-amber-200 bg-amber-50' : 'border-sky-200 bg-sky-50'
+      }`}
+      data-ai-debug-footer
+    >
+      {/* Row 1 — headline + action buttons */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex items-center gap-2">
+          {paused
+            ? <span className="inline-block h-2 w-2 flex-none rounded-full bg-amber-500" />
+            : <span className="inline-block h-2 w-2 flex-none animate-pulse rounded-full bg-sky-500" />
+          }
+          <span className={`font-semibold ${paused ? 'text-amber-900' : 'text-sky-900'}`}>
+            {paused ? 'Draft paused' : state === 'validating' ? 'Validating' : 'Drafting document'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+        {inFlight && (
+          <>
+            <button
+              type="button"
+              onClick={() => pauseMut.mutate()}
+              disabled={pauseMut.isPending}
+              className="rounded border border-amber-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+              data-action="pause-ai-draft"
+            >
+              {pauseMut.isPending ? 'Pausing…' : 'Pause'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { if (confirm('Stop the AI draft? Already-written sections stay intact.')) stopMut.mutate() }}
+              disabled={stopMut.isPending}
+              className="rounded border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              data-action="stop-ai-draft"
+            >
+              {stopMut.isPending ? 'Stopping…' : 'Stop'}
+            </button>
+          </>
+        )}
+        {paused && (
+          <>
+            <button
+              type="button"
+              onClick={() => resumeMut.mutate()}
+              disabled={resumeMut.isPending}
+              className="rounded border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              data-action="resume-ai-draft"
+            >
+              {resumeMut.isPending ? 'Resuming…' : 'Resume'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { if (confirm('Discard the paused draft? Already-written sections stay, but the chain is cancelled.')) stopMut.mutate() }}
+              disabled={stopMut.isPending}
+              className="rounded border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              data-action="stop-ai-draft"
+            >
+              Discard
+            </button>
+          </>
+        )}
+        </div>
+      </div>
+
+      {/* Row 2 — section-count sub-line, same text the floating toast shows */}
+      <p className={`ml-4 text-[11px] ${paused ? 'text-amber-800' : 'text-sky-800'}`}>
+        {subLine}
+      </p>
+
+      {/* Row 3 — progress bar. Matches the toast's bar: fills as the
+          worker commits sections (drafting) or jumps to overall
+          confidence (validating). Hidden when there's no meaningful
+          progress to show (no sections known yet). */}
+      {total > 0 && (
+        <div className="ml-4 flex items-center gap-2">
+          <span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
+            <span
+              className="block h-full"
+              style={{
+                width: `${barPercent}%`,
+                backgroundColor: barColor,
+                transition: 'width 300ms ease-out',
+              }}
+            />
+          </span>
+          <span className="font-mono text-[10px] text-slate-600 tabular-nums">{barPercent}%</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -1154,14 +1400,18 @@ function SectionDraftTraceList({ traces }: { traces: DebugSectionTrace[] }) {
                       </span>
                     </div>
                     <div className="mt-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                      Sources in context ({t.sourceTitles.length})
+                      {t.sourceUsageRecorded ? `Sources in context (${t.sourceTitles.length})` : 'Sources in context'}
                     </div>
-                    {t.sourceTitles.length === 0 ? (
+                    {!t.sourceUsageRecorded && t.sourceTitles.length > 0 ? (
+                      <p className="mt-0.5 text-[11px] italic text-slate-500" data-trace-usage-unknown>
+                        Not recorded for this draft: {t.sourceTitles.length} source{t.sourceTitles.length === 1 ? ' was' : 's were'} attached, but which of them this section used is unknown. Re-draft the section to see it.
+                      </p>
+                    ) : t.sourceTitles.length === 0 ? (
                       <p className="mt-0.5 text-[11px] italic text-slate-500">
-                        No source documents were attached to this call.
+                        {t.sourceUsageRecorded ? 'This section used none of the attached source documents.' : 'No source documents were attached to this call.'}
                       </p>
                     ) : (
-                      <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-1 flex flex-wrap gap-1" data-trace-sources>
                         {t.sourceTitles.map((title, i) => (
                           <span
                             key={`${t.id}-${i}`}

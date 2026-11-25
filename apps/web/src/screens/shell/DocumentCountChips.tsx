@@ -1,14 +1,16 @@
-// Documents column chips for the Projects list — one chip per module that
-// has at least one document on this project, colour-coded with the module
-// accent + short monogram (CW / SW / MW / RW / IP).
+// Documents column chips for the Projects list — one chip per module
+// enabled on this install, colour-coded with the module accent + short
+// monogram (CW / SW / MW / RW / IP). Zero-count chips render muted so
+// the customer always sees every module they're licensed for, even
+// before any docs have been created in it.
 //
 // Clicking a chip navigates the user straight to that module's home for
 // this project (e.g. /projects/<id>/clinical-writing), bypassing the
 // project landing page. stopPropagation on the click keeps the parent row
 // navigation (which goes to /projects/<id>) from also firing.
 //
-// Empty state — a project with zero docs across every module renders a
-// subtle "—" so the column stays aligned with the rest of the grid.
+// Empty state — if the install has no modules enabled at all, renders
+// a subtle "—" so the column stays aligned with the rest of the grid.
 
 import { useNavigate } from 'react-router-dom'
 import type { Project } from '@platform/types'
@@ -58,51 +60,54 @@ export function DocumentCountChips({ project }: Props) {
     )
   }
 
+  // Always render a chip for every enabled module — zero-count chips
+  // surface what the customer is licensed for (and where to click to
+  // start using it) even before any docs exist.
   const chips = MODULE_ORDER
+    .filter(slug => isModuleEnabled(MODULE_SLUG_TO_KEY[slug]))
     .map(slug => ({ slug, n: counts[COUNT_KEY_FOR_SLUG[slug]] ?? 0 }))
-    .filter(({ n }) => n > 0)
 
   if (chips.length === 0) {
     return <span className="text-slate-400">—</span>
   }
 
+  // Compact inline layout — no boxes, no borders, just coloured
+  // "count + monogram" per module separated by thin dots. Each cluster
+  // is a click target so writers still drill into a module by clicking
+  // its count. Fits all 5 modules in the narrow Documents column
+  // without wrapping.
   return (
-    <div className="flex flex-wrap gap-1">
-      {chips.map(({ slug, n }) => {
+    <div className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[11px]" data-module-counts>
+      {chips.map(({ slug, n }, idx) => {
         const colour = MODULE_COLOURS[slug]
         const label  = MODULE_LABELS[slug]
         const mono   = MODULE_MONOGRAMS[slug]
-        const enabled = isModuleEnabled(MODULE_SLUG_TO_KEY[slug])
-        // Disable navigation when the install has that module turned off
-        // (licence doesn't enable it) — the route would just land on
-        // ModuleDisabledScreen anyway. Chip still renders so the count is
-        // visible even when the writer can't click through.
+        const isZero = n === 0
         return (
-          <button
-            key={slug}
-            type="button"
-            disabled={!enabled}
-            onClick={(e) => {
-              // stopPropagation so the parent row's onClick doesn't also
-              // fire — otherwise clicking a chip would navigate to
-              // /projects/<id> instead of the module route.
-              e.stopPropagation()
-              if (!enabled) return
-              navigate(`/projects/${project.id}/${slug}`)
-            }}
-            title={`${n} ${label} document${n === 1 ? '' : 's'}${enabled ? '' : ' — module disabled'}`}
-            data-module-chip={slug}
-            data-module-count={n}
-            className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-mono font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-50 hover:opacity-80"
-            style={{
-              borderColor:     `${colour}55`,
-              backgroundColor: `${colour}14`,
-              color:           colour,
-            }}
-          >
-            <span className="tabular-nums">{n}</span>
-            <span>{mono}</span>
-          </button>
+          <span key={slug} className="inline-flex items-center gap-1">
+            {idx > 0 && <span className="text-slate-300">·</span>}
+            <button
+              type="button"
+              onClick={(e) => {
+                // stopPropagation so the parent row's onClick doesn't also
+                // fire — clicking a count would otherwise navigate to the
+                // project home instead of the module route.
+                e.stopPropagation()
+                navigate(`/projects/${project.id}/${slug}`)
+              }}
+              title={`${n} ${label} document${n === 1 ? '' : 's'}`}
+              data-module-chip={slug}
+              data-module-count={n}
+              // Always render in the module's brand colour (zero-count
+              // chips just drop to 55% opacity so they recede visually
+              // but keep the colour code that identifies the module).
+              className="inline-flex items-center gap-0.5 rounded px-1 font-semibold transition-opacity hover:bg-slate-100 hover:opacity-80"
+              style={{ color: colour, opacity: isZero ? 0.55 : 1 }}
+            >
+              <span className="tabular-nums">{n}</span>
+              <span>{mono}</span>
+            </button>
+          </span>
         )
       })}
     </div>

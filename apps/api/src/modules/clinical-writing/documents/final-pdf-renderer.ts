@@ -1,6 +1,7 @@
 // The Final Document as a PDF, built on the server so every copy has the same layout, rules and
 // traceability whichever browser asked for it. In order: title page, contents, the sections,
-// Appendix (Compliance Summary), signature page. Every page carries the document's identity and
+// Appendix (Compliance Summary). The signatures go in the template's own signature block; only a document
+// without one gets a signature page at the end, so a signed copy always shows them. Every page carries the document's identity and
 // the export id that links the file to its audit entry.
 //
 // A draft (anything not signed) is watermarked on every page and says it isn't signed. Whether
@@ -16,6 +17,7 @@ import { dirname, join } from 'node:path'
 import PDFDocument from 'pdfkit'
 import type { ComplianceSummary } from '../checklist/compliance-summary.js'
 import { htmlToBlocks, type Block, type InlineRun, type TableCell } from './final-pdf-html.js'
+import { fillSignatureBlock, hasSignatureBlock } from './signature-block.js'
 
 export const DRAFT_WATERMARK = 'DRAFT — NOT SIGNED'
 
@@ -479,11 +481,15 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
     // --- Contents --------------------------------------------------------
 
     const sections = orderSections(input.sections)
+    const sectionBlocks = sections.map(s => htmlToBlocks(s.contentHtml))
+    // Where the template's own signature block is; -1 when it has none.
+    const blockSection = sectionBlocks.findIndex(hasSignatureBlock)
+    const orderedSignatures = [...input.signatures].sort((a, b) => a.step - b.step)
     const sectionLabel = (s: { number: string; title: string }) => `${s.number}. ${s.title}`
     const entries = [
       ...sections.map((s, i) => ({ label: sectionLabel(s), key: `section:${i}` })),
       { label: 'Appendix — Compliance Summary', key: 'appendix' },
-      { label: 'Signature Page', key: 'signatures' },
+      ...(blockSection < 0 ? [{ label: 'Signature Page', key: 'signatures' }] : []),
     ]
     startPage()
     heading('Contents', 16)
@@ -498,6 +504,21 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       doc.y = after + 3
     }
 
+    // How the signatures were made and what they are bound to (21 CFR Part 11).
+    const signatureRecord = () => {
+      const distinct = (values: Array<string | null>) => [...new Set(values.filter((v): v is string => !!v))].join('; ')
+      const atSigning = distinct(orderedSignatures.map(s => s.versionAtSigning))
+      const auth = distinct(orderedSignatures.map(s => s.authMethod))
+      const clock = distinct(orderedSignatures.map(s => s.timeSource))
+      if (atSigning) para(`Version when signed: ${atSigning}`, { size: 9, after: 2 })
+      if (auth) para(`How each signer was authenticated: ${auth}`, { size: 9, after: 2 })
+      if (clock) para(`Time source: ${clock}`, { size: 9, after: 10 })
+      para('Document hash (SHA-256) bound to these signatures:', { size: 9, after: 2 })
+      para(input.documentHash ?? '—', { size: 8.5, after: 6 })
+      para("Checked when this file was generated: the document's current content matches this hash.", { size: 9, colour: '#15803D', bold: true })
+    }
+    const SIGNED_NOTE = 'Each person below signed this document electronically. Their name, the meaning of the signature and its date and time are the record of that signature (21 CFR Part 11 §11.50).'
+
     // --- Sections --------------------------------------------------------
 
     startPage()
@@ -505,8 +526,22 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
     sections.forEach((s, i) => {
       if (i > 0) gap(10)
       heading(sectionLabel(s), 15, { label: `section:${i}`, outline: true })
-      const blocks = htmlToBlocks(s.contentHtml)
-      if (blocks.length === 0) para('No content recorded for this section.', { italic: true, colour: MUTED })
+      const blocks = sectionBlocks[i]!
+      const filled = signed && i === blockSection
+        ? fillSignatureBlock(blocks, orderedSignatures.map(x => ({
+            role: x.signerRole,
+            name: x.signerName,
+            signature: `${MEANING[x.meaning] ?? x.meaning} — electronically signed\n${formatUtc(x.timestampUtc)}\n${x.id}`,
+          })))
+        : null
+      if (filled) {
+        drawBlocks(filled.blocks.slice(0, filled.index), left)
+        para(SIGNED_NOTE, { size: 9, after: 6 })
+        drawBlocks(filled.blocks.slice(filled.index, filled.index + 1), left)
+        para('The signatures were added to this block when this file was generated, in place of its unfilled rows. The signed text itself is unchanged.', { size: 9, colour: MUTED, after: 4 })
+        signatureRecord()
+        drawBlocks(filled.blocks.slice(filled.index + 1), left)
+      } else if (blocks.length === 0) para('No content recorded for this section.', { italic: true, colour: MUTED })
       else drawBlocks(blocks, left)
     })
 
@@ -541,29 +576,21 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       r.text, r.framework, `${r.removedBy ?? '—'}${r.removedAt ? `\n${formatUtc(r.removedAt)}` : ''}`, r.reason ?? '—',
     ]))
 
-    // --- Signature page ---------------------------------------------------
+    // --- Signature page (only for a document whose template has no signature block) ---
 
-    startPage()
-    heading('Signature Page', 15, { label: 'signatures', outline: true })
-    if (signed) {
-      para(`${input.document.title} · ${input.document.version}`, { bold: true, after: 4 })
-      para('Each person below signed this document electronically. Their name, the meaning of the signature and its date and time are the record of that signature (21 CFR Part 11 §11.50).', { after: 10 })
-      const ordered = [...input.signatures].sort((a, b) => a.step - b.step)
-      simpleTable(['Signed by', 'Role', 'Meaning', 'Signed', 'Signature ID'], ordered.map(s => [
-        s.signerName, s.signerRole, MEANING[s.meaning] ?? s.meaning, formatUtc(s.timestampUtc), s.id,
-      ]))
-      const distinct = (values: Array<string | null>) => [...new Set(values.filter((v): v is string => !!v))].join('; ')
-      const atSigning = distinct(ordered.map(s => s.versionAtSigning))
-      const auth = distinct(ordered.map(s => s.authMethod))
-      const clock = distinct(ordered.map(s => s.timeSource))
-      if (atSigning) para(`Version when signed: ${atSigning}`, { size: 9, after: 2 })
-      if (auth) para(`How each signer was authenticated: ${auth}`, { size: 9, after: 2 })
-      if (clock) para(`Time source: ${clock}`, { size: 9, after: 10 })
-      para('Document hash (SHA-256) bound to these signatures:', { size: 9, after: 2 })
-      para(input.documentHash ?? '—', { size: 8.5, after: 6 })
-      para("Checked when this file was generated: the document's current content matches this hash.", { size: 9, colour: '#15803D', bold: true })
-    } else {
-      para('This document has not been signed, so this copy carries no signatures.', { bold: true, colour: '#B45309' })
+    if (blockSection < 0) {
+      startPage()
+      heading('Signature Page', 15, { label: 'signatures', outline: true })
+      if (signed) {
+        para(`${input.document.title} · ${input.document.version}`, { bold: true, after: 4 })
+        para(SIGNED_NOTE, { after: 10 })
+        simpleTable(['Signed by', 'Role', 'Meaning', 'Signed', 'Signature ID'], orderedSignatures.map(s => [
+          s.signerName, s.signerRole, MEANING[s.meaning] ?? s.meaning, formatUtc(s.timestampUtc), s.id,
+        ]))
+        signatureRecord()
+      } else {
+        para('This document has not been signed, so this copy carries no signatures.', { bold: true, colour: '#B45309' })
+      }
     }
 
     // --- Every page: header, footer, watermark ------------------------------

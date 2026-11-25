@@ -328,4 +328,33 @@ export const regulatoryDocumentRoutes: FastifyPluginAsync = async (app) => {
 
     return reply.code(202).send({ jobId, regulatoryDocumentId, state: 'enqueued' })
   })
+
+  // GET /regulatory-documents/:id/ai-debug-steps (migration 105 Package R-7)
+  //
+  // Returns the per-document step log the ai-suggest retry wrapper
+  // (Package R-4) + initial-draft + validation-pass workers write via
+  // their step emitters. Scoped subset of Clinical's /ai-debug — only
+  // the draftSteps field. Any future RegulatoryAiDebugPanel consumes
+  // this endpoint (Package R-8).
+  app.get('/:id/ai-debug-steps', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const doc = await app.prisma.regulatoryDocument.findUnique({
+      where:  { id },
+      select: { id: true, projectId: true, status: true, archivedAt: true },
+    })
+    if (!doc || doc.archivedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const steps = await app.prisma.aiDraftStep.findMany({
+      where:   { documentId: id },
+      orderBy: { timestamp: 'asc' },
+      select:  { id: true, kind: true, message: true, sectionId: true, details: true, elapsedMs: true, timestamp: true },
+      take:    500,
+    })
+    // BigInt id doesn't serialise through JSON.stringify — stringify so
+    // the client can hold the shape without BigInt errors.
+    return {
+      regulatoryDocumentId: id,
+      draftSteps:           steps.map(s => ({ ...s, id: String(s.id) })),
+    }
+  })
 }

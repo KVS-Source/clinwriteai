@@ -305,6 +305,25 @@ export const regulatoryWritingApi = {
       `/regulatory-documents/${id}/comments/${commentId}/resolve`,
       body,
     ),
+
+  // AI debug step log — migration 105 Package R-7. Returns the per-call
+  // step emissions the ai-suggest retry wrapper + initial-draft worker
+  // write (manifest_extracted, validator_check_result, validator_retry,
+  // plus the initial-draft section_* events). Clinical has a richer
+  // ai-debug endpoint; Module D returns only the steps for now.
+  aiDebugSteps: (regulatoryDocumentId: string) =>
+    api.get<{
+      regulatoryDocumentId: string
+      draftSteps: Array<{
+        id:         string
+        kind:       string
+        message:    string
+        sectionId:  string | null
+        details:    Record<string, unknown>
+        elapsedMs:  number | null
+        timestamp:  string
+      }>
+    }>(`/regulatory-documents/${regulatoryDocumentId}/ai-debug-steps`),
 }
 
 // --- Regulatory document shapes (Phase M-D.2/3/4) -----------------------

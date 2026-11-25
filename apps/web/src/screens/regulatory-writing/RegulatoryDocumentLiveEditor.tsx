@@ -16,6 +16,7 @@ import {
   type RegDocSectionLockHolder,
   type RegDocCommentRow,
 } from '../../modules/regulatory-writing/api/regulatoryWriting'
+import { RegulatoryAiDebugButton } from '../../components/ai-drafter/RegulatoryAiDebugPanel'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -142,7 +143,10 @@ export function RegulatoryDocumentLiveEditor() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <AiDraftStateBadge state={aiDraftState} />
+          <div className="flex items-center gap-2">
+            <AiDraftStateBadge state={aiDraftState} />
+            {regulatoryDocumentId && <RegulatoryAiDebugButton regulatoryDocumentId={regulatoryDocumentId} />}
+          </div>
           <button
             type="button"
             onClick={() => startDraft.mutate()}

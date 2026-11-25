@@ -78,6 +78,8 @@ async function draftWithClaude(args: {
   apiKey:         string
   aiInstructions: string | null
   policy:         MedPolicyRowForAi | null
+  sectionTemplateInstructions: string | null
+  sectionTemplateGuidance:     string | null
 }): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY set but @anthropic-ai/sdk is not installed in apps/worker.')
@@ -95,6 +97,25 @@ async function draftWithClaude(args: {
     ? `Compliance track: ${args.policy.complianceTrack}. Draft content so it can pass the matching review path (promotional → MLR ad review; non_promotional → scientific review; cme → ACCME; advisory → KOL board summary).`
     : ''
 
+  // Per-section template content guidance (migration 105 Package C-6)
+  // — snapshotted from MedContentTemplate at content-create by the API
+  // (Package C-3) and read here from the MedContentSection row.
+  // Identical block shape Clinical P11 + Publication B-6 use so the
+  // first draft and subsequent rewrites answer against the same
+  // authored intent.
+  const tIns  = (args.sectionTemplateInstructions ?? '').trim()
+  const tGuid = (args.sectionTemplateGuidance     ?? '').trim()
+  const templateGuidanceBlock = tIns || tGuid
+    ? [
+        ``,
+        `TEMPLATE GUIDANCE for this section (from the template authored for ${args.docType}):`,
+        tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+        tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+        `Follow these precisely — they are the template's authored intent for this section.`,
+        ``,
+      ].filter(Boolean).join('\n')
+    : ''
+
   const system = [
     `You are drafting a single section of a medical-communications deliverable.`,
     `Document type: ${args.docType}.`,
@@ -108,6 +129,7 @@ async function draftWithClaude(args: {
     SECTION_GROUNDING_RULES,
     authorBlock,
     policySection,
+    templateGuidanceBlock,
   ].filter(Boolean).join('\n')
 
   const pdfBlocks = args.sourcePdfs.map(p => ({
@@ -153,6 +175,8 @@ async function draftSection(args: {
   model:          string
   aiInstructions: string | null
   policy:         MedPolicyRowForAi | null
+  sectionTemplateInstructions: string | null
+  sectionTemplateGuidance:     string | null
 }): Promise<{ contentHtml: string; engine: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) {
@@ -256,7 +280,13 @@ export const handleAiInitialDraftMedContent: JobHandler<MedAiInitialDraftPayload
 
   const existing = await prisma.medContentSection.findMany({
     where: { medContentVersionId: item.currentVersionId },
-    select: { id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
+    // Package C-6 (migration 105): pull the templateInstructions +
+    // templateGuidance snapshotted at content-create (Package C-3)
+    // so the drafter prompt gets the authored intent on first pass.
+    select: {
+      id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true,
+      templateInstructions: true, templateGuidance: true,
+    },
   })
   const targetSet = targetSectionIds && targetSectionIds.length > 0 ? new Set(targetSectionIds) : null
   const sections = targetSet ? existing.filter(s => targetSet.has(s.sectionId)) : existing
@@ -277,6 +307,8 @@ export const handleAiInitialDraftMedContent: JobHandler<MedAiInitialDraftPayload
         model:          resolvedModel,
         aiInstructions: item.aiInstructions?.trim() || null,
         policy,
+        sectionTemplateInstructions: sec.templateInstructions ?? null,
+        sectionTemplateGuidance:     sec.templateGuidance     ?? null,
       })
       await prisma.medContentSection.update({
         where: { id: sec.id },

@@ -32,6 +32,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
+import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 import { createStepLogger } from './ai-draft-step.js'
@@ -69,6 +70,7 @@ interface SourceSummary {
 }
 
 interface SourcePdfPayload {
+  id:       string
   title:    string
   category: string | null
   bytes:    Buffer
@@ -145,16 +147,16 @@ async function draftSection(args: {
   sectionTemplateFormatRules: string | null
   apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
   abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
-}): Promise<{ contentHtml: string; engine: string; inputTokens: number; outputTokens: number }> {
+}): Promise<{ contentHtml: string; engine: string; inputTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
   if (!args.apiKey) {
     // The caller checks aiConfigured() first, so this is only reached with the dev/CI flag on.
     if (!stubAllowed()) throw new Error('AI not configured')
-    return { contentHtml: buildStubDraftHtml(args), engine: 'stub', inputTokens: 0, outputTokens: 0 }
+    return { contentHtml: buildStubDraftHtml(args), engine: 'stub', inputTokens: 0, outputTokens: 0, usedSources: null, promptChars: 0 }
   }
   // A failed Claude call throws: the section is left empty and reported as errored. Placeholder
   // text is never written into a document as if it were a draft.
   const result = await draftWithClaude(args)
-  return { contentHtml: result.html, engine: args.model, inputTokens: result.inputTokens, outputTokens: result.outputTokens }
+  return { contentHtml: result.html, engine: args.model, inputTokens: result.inputTokens, outputTokens: result.outputTokens, usedSources: result.usedSources, promptChars: result.promptChars }
 }
 
 /** Dev/CI only: AI_ALLOW_STUB=1 lets the placeholder drafter run. Off by default. */
@@ -179,7 +181,7 @@ async function draftWithClaude(args: {
   policy:     PolicyRowForAi | null
   sectionTemplateFormatRules: string | null
   abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
-}): Promise<{ html: string; inputTokens: number; outputTokens: number }> {
+}): Promise<{ html: string; inputTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
   })
@@ -242,12 +244,17 @@ async function draftWithClaude(args: {
 
   const sourceList = args.sources.length === 0
     ? '(No source documents attached.)'
-    : args.sources.map(s => `- ${s.title || s.fileName}${s.category ? ` [${s.category}]` : ''}`).join('\n')
+    : args.sources.map(s => {
+        // Numbered as attached, so the model can name the ones it used; a source that could not be attached has no number.
+        const n = args.sourcePdfs.findIndex(p => p.id === s.id) + 1
+        return `${n > 0 ? `${n}.` : '- (not attached)'} ${s.title || s.fileName}${s.category ? ` [${s.category}]` : ''}`
+      }).join('\n')
+  const usageInstruction = sourceUsageInstruction(args.sourcePdfs.length)
 
   const userPrompt =
     `Draft section ${args.section.number} "${args.section.title}" of a ${args.docType}.\n\n` +
     `Attached sources:\n${sourceList}\n\n` +
-    `Return HTML only.`
+    (usageInstruction ? `${usageInstruction}\n\nApart from that comment, return HTML only.` : `Return HTML only.`)
 
   const message = await client.messages.create({
     model:      args.model,
@@ -280,7 +287,15 @@ async function draftWithClaude(args: {
   // tokens + estimated cost per document.
   const inputTokens  = typeof (message.usage?.input_tokens)  === 'number' ? message.usage.input_tokens  : 0
   const outputTokens = typeof (message.usage?.output_tokens) === 'number' ? message.usage.output_tokens : 0
-  return { html: stripCodeFence(text), inputTokens, outputTokens }
+  // The marker may sit before, inside or after a code fence, so it comes out first.
+  const { html: withoutMarker, used } = extractSourceUsage(text, args.sourcePdfs.length)
+  const html = stripCodeFence(withoutMarker)
+  if (!html) throw new Error('Claude returned no section text')
+  return {
+    html, inputTokens, outputTokens,
+    usedSources: used ? used.map(i => args.sourcePdfs[i]!) : null,
+    promptChars: system.length + userPrompt.length,
+  }
 }
 
 /** "```html\n…\n```" → "…" (Claude occasionally wraps despite the system prompt). */
@@ -489,7 +504,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
             })
           continue
         }
-        sourcePdfs.push({ title, category: src.category, bytes })
+        sourcePdfs.push({ id: src.id, title, category: src.category, bytes })
         await steps.emit('source_loaded',
           `Loaded "${title}" (${(bytes.length / 1024).toFixed(0)}KB) — attached to every section call.`, {
             details: { sourceId: src.id, bytes: bytes.length, category: src.category },
@@ -578,7 +593,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         })
       const sectionTemplateFormatRules = row.templateFormatRules ?? null
       const sectionStartMs = Date.now()
-      const { contentHtml, engine, inputTokens, outputTokens } = await draftSection({
+      const { contentHtml, engine, inputTokens, outputTokens, usedSources, promptChars } = await draftSection({
         section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
         sectionTemplateFormatRules,
         apiKey,
@@ -612,15 +627,13 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         : placeholderCount === 0 ? 'complete' : 'in_progress'
 
       // Per-section trace of what the drafter was looking at for this
-      // section (migration 98). One row per commit — includes model, source
-      // doc titles+ids attached to the Claude call, prompt + output sizes.
+      // section (migration 98). One row per commit — includes model, the
+      // sources this section used (all attached ones when the drafter didn't
+      // say, with promptCharCount 0 = "usage not recorded"), and sizes.
       // Rendered by the AI Debug panel so writers can validate the draft
       // against the right source references. Fire-and-forget: a trace
       // failure must never block the actual section write.
-      const tracedSources = sourcePdfs.map((pdf, i) => ({
-        id:    sources.find(s => s.title === pdf.title)?.id ?? `pdf-${i}`,
-        title: pdf.title,
-      }))
+      const tracedSources = (usedSources ?? sourcePdfs).map(pdf => ({ id: pdf.id, title: pdf.title }))
 
       await prisma.$transaction(async (tx) => {
         await tx.sectionContent.update({
@@ -671,7 +684,8 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
           model:             engine === 'stub' ? 'stub' : resolvedModel,
           sourceIds:         tracedSources.map(s => s.id),
           sourceTitles:      tracedSources.map(s => s.title),
-          promptCharCount:   0,     // populated by draftWithClaude (prompt chars sent to the model)
+          // Text of the prompt (PDFs not counted). 0 also says the usage is unknown — see sourceUsageRecorded in /ai-debug.
+          promptCharCount:   usedSources ? promptChars : 0,
           outputCharCount:   contentHtml.length,
         },
       }).catch((err: unknown) => {

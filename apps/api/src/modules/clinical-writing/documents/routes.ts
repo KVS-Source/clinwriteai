@@ -2243,6 +2243,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         model:            t.model,
         sourceIds:        t.sourceIds,
         sourceTitles:     t.sourceTitles,
+        // True: sourceIds are the sources this section used. False (drafts made before usage was recorded, or the
+        // drafter didn't say; promptCharCount is 0): sourceIds are everything attached, not what was used.
+        sourceUsageRecorded: t.promptCharCount > 0,
         promptCharCount:  t.promptCharCount,
         outputCharCount:  t.outputCharCount,
         draftedAt:        t.draftedAt.toISOString(),

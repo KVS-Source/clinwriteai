@@ -121,6 +121,8 @@ interface DebugSectionTrace {
   model:           string
   sourceIds:       string[]
   sourceTitles:    string[]
+  /** False/absent: sourceTitles is everything attached; which of them the section used is unknown. */
+  sourceUsageRecorded?: boolean
   promptCharCount: number
   outputCharCount: number
   draftedAt:       string
@@ -634,7 +636,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               {(data.sectionDraftTraces?.length ?? 0) > 0 && (
                 <Section title={`Per-section drafting trace (${data.sectionDraftTraces!.length} commits)`}>
                   <p className="mb-3 text-[11px] text-slate-500">
-                    What the drafter was looking at each time it committed a section. Expand a section to see every commit, which source documents were in the model&rsquo;s context, and how big the prompt + output were.
+                    What the drafter was looking at each time it committed a section. Expand a section to see every commit, which source documents that section used, and how big the prompt + output were.
                   </p>
                   <SectionDraftTraceList traces={data.sectionDraftTraces!} />
                 </Section>
@@ -1154,14 +1156,18 @@ function SectionDraftTraceList({ traces }: { traces: DebugSectionTrace[] }) {
                       </span>
                     </div>
                     <div className="mt-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                      Sources in context ({t.sourceTitles.length})
+                      {t.sourceUsageRecorded ? `Sources in context (${t.sourceTitles.length})` : 'Sources in context'}
                     </div>
-                    {t.sourceTitles.length === 0 ? (
+                    {!t.sourceUsageRecorded && t.sourceTitles.length > 0 ? (
+                      <p className="mt-0.5 text-[11px] italic text-slate-500" data-trace-usage-unknown>
+                        Not recorded for this draft: {t.sourceTitles.length} source{t.sourceTitles.length === 1 ? ' was' : 's were'} attached, but which of them this section used is unknown. Re-draft the section to see it.
+                      </p>
+                    ) : t.sourceTitles.length === 0 ? (
                       <p className="mt-0.5 text-[11px] italic text-slate-500">
-                        No source documents were attached to this call.
+                        {t.sourceUsageRecorded ? 'This section used none of the attached source documents.' : 'No source documents were attached to this call.'}
                       </p>
                     ) : (
-                      <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-1 flex flex-wrap gap-1" data-trace-sources>
                         {t.sourceTitles.map((title, i) => (
                           <span
                             key={`${t.id}-${i}`}

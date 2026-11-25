@@ -35,6 +35,7 @@ import {
 import { extractManifest, renderForPrompt as renderMustPreserve } from '../../clinical-writing/documents/must-preserve.js'
 import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
 import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
+import { loadMedContentDocuments } from './content-sources.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -832,10 +833,51 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       // wrapper to catch dropped refs / invented citations.
       const manifestBefore = extractManifest(body.currentContent ?? '')
       const mustPreserveBlock = renderMustPreserve(manifestBefore)
-      const systemPromptWithPreserve = mustPreserveBlock
-        ? `${systemPrompt}\n\n${mustPreserveBlock}`
-        : systemPrompt
-      const basePrompt = `${systemPromptWithPreserve}\n\n---\n\n${userPrompt}`
+
+      // Template content guidance (migration 105, Package C-4). Read the
+      // snapshotted instructions + guidance from the matching
+      // MedContentSection row. Only fires for structured content types —
+      // single-body types (mi_letter, eu_ctr_pls) where sectionId='body'
+      // still get the snapshot when the template authors it. Empty when
+      // both fields are null.
+      let templateGuidanceBlock = ''
+      if (body.sectionId && item.currentVersionId) {
+        try {
+          const sectionRow = await app.prisma.medContentSection.findUnique({
+            where:  { medContentVersionId_sectionId: { medContentVersionId: item.currentVersionId, sectionId: body.sectionId } },
+            select: { templateInstructions: true, templateGuidance: true },
+          })
+          const tIns  = (sectionRow?.templateInstructions ?? '').trim()
+          const tGuid = (sectionRow?.templateGuidance     ?? '').trim()
+          if (tIns || tGuid) {
+            templateGuidanceBlock = [
+              ``,
+              `TEMPLATE GUIDANCE for this section (from the template authored for ${item.type}):`,
+              tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+              tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+              `Follow these precisely — they are the template's authored intent for this section.`,
+              ``,
+            ].filter(Boolean).join('\n')
+          }
+        } catch { /* missing row / test mock — skip guidance block */ }
+      }
+
+      // Auto-attach ContentUploads (Package C-4). Mirrors the clinical
+      // SourceReference auto-attach + publication sourceDocumentId
+      // auto-attach — a "Rewrite" call gets the same PDF context the
+      // initial-draft worker reads.
+      const { documents: attachedDocs, attachedUploadIds } = await loadMedContentDocuments(
+        app.prisma,
+        app.blob as unknown as import('./content-sources.js').BlobReader,
+        contentId,
+        app.log,
+      )
+
+      const systemPromptWithExtras = [systemPrompt, templateGuidanceBlock, mustPreserveBlock]
+        .map(s => s?.trim())
+        .filter((s): s is string => !!s && s.length > 0)
+        .join('\n\n')
+      const basePrompt = `${systemPromptWithExtras}\n\n---\n\n${userPrompt}`
 
       // Step-log emitter — writes to ai_draft_steps (migration 103)
       // keyed by contentId. Package 9 surfaces the validator trace in
@@ -878,6 +920,10 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
             model,
             prompt:    effectivePrompt,
             maxOutputTokens: 1024,
+            // Package C-4: PDFs from the content item's attached
+            // ContentUploads. aiGateway.chat accepts these as native
+            // document inputs so Claude reads them natively.
+            documents: attachedDocs.length > 0 ? attachedDocs : undefined,
           })
           lastGatewayResult = r
           return { html: r.responseText }
@@ -911,6 +957,9 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
           sectionId:        body.sectionId ?? null,
           model:            result.model,
           aiCallRecordId:   result.recordId,
+          // Package C-4: auto-attached sources audit shape.
+          autoAttachedUploadIds: attachedUploadIds,
+          documentCount:         attachedDocs.length,
           validatorFlags:   validation.flags,
           validatorRetried: validation.retried,
           validatorTrace:   validation.trace.map(t => ({

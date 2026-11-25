@@ -53,22 +53,68 @@ export interface RetryResult {
   trace:   RetryTraceEntry[]
 }
 
+/** Optional step-log emitter. Shape-compatible with the worker's
+ *  createStepLogger (apps/worker/.../ai-draft-step.ts) so the ai-suggest
+ *  route can pass in a real logger without creating a cross-package
+ *  import. The wrapper emits best-effort — failures never break the
+ *  rewrite. */
+export interface StepEmitter {
+  emit: (
+    kind:    'manifest_extracted' | 'validator_check_result' | 'validator_retry',
+    message: string,
+    opts?:   { sectionId?: string | null; details?: Record<string, unknown> },
+  ) => Promise<void>
+}
+
 /** Run attempt 1 → validators → (if hard fail) attempt 2 → validators.
  *  Returns the final HTML + accumulated flags + a trace the caller can
- *  thread into the step log. Pure orchestration. */
+ *  thread into the step log. Pure orchestration.
+ *
+ *  Pass an optional `steps` emitter to also fire step-log rows (visible
+ *  in the AiDebugPanel "Worker activity" timeline). Safe to omit. */
 export async function callWithValidation(args: {
   call:              AiSuggestCall
   manifestBefore:    MustPreserveManifest
   attachedSources:   AttachedSourceContext
+  steps?:            StepEmitter
+  sectionId?:        string
 }): Promise<RetryResult> {
-  const { call, manifestBefore, attachedSources } = args
+  const { call, manifestBefore, attachedSources, steps, sectionId } = args
   const trace: RetryTraceEntry[] = []
+
+  const emit = async (
+    kind:    'manifest_extracted' | 'validator_check_result' | 'validator_retry',
+    message: string,
+    details: Record<string, unknown>,
+  ) => {
+    if (!steps) return
+    try {
+      await steps.emit(kind, message, { sectionId: sectionId ?? null, details })
+    } catch { /* step log is side-channel — never let it break the rewrite */ }
+  }
+
+  await emit(
+    'manifest_extracted',
+    `Extracted must-preserve manifest: ${manifestBefore.citationMarkers.length} citation(s), ${manifestBefore.crossRefs.length} cross-ref(s), ${manifestBefore.numbers.length} number(s), ${manifestBefore.studyIds.length} study-id(s), ${manifestBefore.acronyms.length} acronym(s)`,
+    {
+      markerCount:   manifestBefore.citationMarkers.length,
+      crossRefCount: manifestBefore.crossRefs.length,
+      numberCount:   manifestBefore.numbers.length,
+      studyIdCount:  manifestBefore.studyIds.length,
+      acronymCount:  manifestBefore.acronyms.length,
+    },
+  )
 
   // Attempt 1.
   const first = await call({ attempt: 1 })
   const firstFlags = runAllValidators({
     before: manifestBefore, afterHtml: first.html, attached: attachedSources,
   })
+  await emit(
+    'validator_check_result',
+    `Attempt 1 validators: ${firstFlags.length === 0 ? 'clean' : flagCodes(firstFlags).join(', ')}`,
+    { attempt: 1, flags: firstFlags.map(f => ({ code: f.code, severity: f.severity })) },
+  )
 
   if (!hasHardFailure(firstFlags)) {
     trace.push({ attempt: 1, flags: firstFlags })
@@ -79,12 +125,22 @@ export async function callWithValidation(args: {
   const feedback = renderRetryFeedback(firstFlags)
   const retryReason = summariseHardFailure(firstFlags)
   trace.push({ attempt: 1, flags: firstFlags, retriedBecause: retryReason })
+  await emit(
+    'validator_retry',
+    `Retrying with validator feedback: ${retryReason}`,
+    { retriedBecause: retryReason, feedbackChars: feedback.length },
+  )
 
   const second = await call({ prependPrompt: feedback, attempt: 2 })
   const secondFlags = runAllValidators({
     before: manifestBefore, afterHtml: second.html, attached: attachedSources,
   })
   trace.push({ attempt: 2, flags: secondFlags })
+  await emit(
+    'validator_check_result',
+    `Attempt 2 validators: ${secondFlags.length === 0 ? 'clean' : flagCodes(secondFlags).join(', ')}`,
+    { attempt: 2, flags: secondFlags.map(f => ({ code: f.code, severity: f.severity })) },
+  )
 
   return {
     html:    second.html,

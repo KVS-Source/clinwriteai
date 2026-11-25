@@ -33,7 +33,7 @@ import {
 // firewall. See apps/api/src/modules/clinical-writing/documents/... for
 // the module-level rationale and unit tests.
 import { extractManifest, renderForPrompt as renderMustPreserve } from '../../clinical-writing/documents/must-preserve.js'
-import { callWithValidation } from '../../clinical-writing/documents/ai-suggest-retry.js'
+import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
 import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
@@ -832,12 +832,34 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
         : systemPrompt
       const basePrompt = `${systemPromptWithPreserve}\n\n---\n\n${userPrompt}`
 
+      // Step-log emitter — writes to ai_draft_steps (migration 103)
+      // keyed by contentId. Package 9 surfaces the validator trace in
+      // AiDebugPanel's "Worker activity" timeline the same way the CW
+      // path does. AiDraftStep.documentId is a plain String (no FK),
+      // so Medical content ids are safe here.
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId: contentId,
+              versionId:  item.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
       // Retry wrapper (Package 8) — one AI call + optional single retry
       // on hard validator failures. Shared with CW.
       let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
       const validation = await callWithValidation({
         manifestBefore,
         attachedSources: {},   // Medical doesn't attach source library docs on this route yet
+        steps:     stepsEmitter,
+        sectionId: body.sectionId ?? undefined,
         call: async ({ prependPrompt }) => {
           const effectivePrompt = prependPrompt
             ? `${prependPrompt}\n\n----\n\n${basePrompt}`

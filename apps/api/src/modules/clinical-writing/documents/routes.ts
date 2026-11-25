@@ -33,7 +33,7 @@ import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES 
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { extractManifest, renderForPrompt as renderMustPreserve } from './must-preserve.js'
-import { callWithValidation } from './ai-suggest-retry.js'
+import { callWithValidation, type StepEmitter } from './ai-suggest-retry.js'
 import { scoreSection } from './ai-confidence.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
@@ -3559,6 +3559,27 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       // caller (this handler) stays in charge of the ai-gateway record
       // shape; the wrapper just orchestrates and returns final HTML +
       // accumulated flags + a per-attempt trace.
+      // Step-log emitter — writes to the SAME ai_draft_steps table the
+      // worker uses (migration 103). AiDebugPanel's "Worker activity"
+      // timeline reads from this table keyed by documentId, so emissions
+      // here surface in the author's AI Debug panel without any UI
+      // changes. Inline rather than importing the worker helper so we
+      // don't pull apps/worker into the API package.
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId,
+              versionId:  doc.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
       let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
       const validation = await callWithValidation({
         manifestBefore,
@@ -3568,6 +3589,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           // trips 'invented_citation'. Future workstream could mine
           // SourceUpload metadata (first author, PMID) to populate these.
         },
+        steps:     stepsEmitter,
+        sectionId: section.sectionId,
         call: async ({ prependPrompt, attempt }) => {
           const effectivePrompt = prependPrompt
             ? `${prependPrompt}\n\n----\n\n${promptWithScope}`

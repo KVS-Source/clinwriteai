@@ -94,6 +94,7 @@ import { carryPromptEnabledFor } from '../carry-prompt/decide.js'
 import { intentToAsk, type CarrySuggestIntent } from '../carry-prompt/intent-to-ask.js'
 import { parseFlagTokens, summariseFlagTokens } from '../carry-prompt/parse.js'
 import { draftProgress } from './ai-draft-progress.js'
+import { draftRollup } from './ai-draft-rollup.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -1940,11 +1941,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     let draftingCalls = 0
     let validationCalls = 0
     let autofillCalls = 0
-    let sectionsDrafted = 0
-    let sectionsErrored = 0
-    let sectionsSkipped = 0
-    let jobStartedAt: Date | null = null
     let lastStepAt:   Date | null = null
+    const rollup = draftRollup(draftStepRows)   // oldest first: reversed in place above
 
     // Source document read stats — fed from source_loaded / source_skipped
     // steps. One row per source (loaded or skipped) with its reason,
@@ -1981,10 +1979,6 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       if (s.kind === 'section_response')    draftingCalls   += 1
       if (s.kind === 'section_ai_call')     validationCalls += 1
       if (s.kind === 'tbd_autofill_run' && (inTok > 0 || outTok > 0)) autofillCalls += 1
-      if (s.kind === 'section_committed')   sectionsDrafted += 1
-      if (s.kind === 'section_errored')     sectionsErrored += 1
-      if (s.kind === 'section_skipped')     sectionsSkipped += 1
-      if (s.kind === 'job_started') jobStartedAt = s.timestamp
       if (!lastStepAt || s.timestamp > lastStepAt) lastStepAt = s.timestamp
 
       if (s.kind === 'source_loaded' || s.kind === 'source_skipped') {
@@ -2043,11 +2037,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       draftingCalls,
       validationCalls,
       autofillCalls,
-      sectionsDrafted,
-      sectionsErrored,
-      sectionsSkipped,
-      elapsedMs:     (jobStartedAt && lastStepAt) ? (lastStepAt.getTime() - jobStartedAt.getTime()) : null,
-      startedAt:     jobStartedAt?.toISOString() ?? null,
+      sectionsDrafted: rollup.sectionsDrafted,
+      sectionsErrored: rollup.sectionsErrored,
+      sectionsSkipped: rollup.sectionsSkipped,
+      runs:          rollup.runs,
+      elapsedMs:     rollup.elapsedMs,
+      startedAt:     rollup.startedAt?.toISOString() ?? null,
       lastStepAt:    lastStepAt?.toISOString() ?? null,
       rateCardVersion: activeRateCard.version,
       perModel,

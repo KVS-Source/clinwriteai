@@ -30,6 +30,7 @@ import {
   AI_DEBUG_MAX_WIDTH,
 } from './AiDebugLayoutContext'
 import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
+import { isAtLimit, keptSectionNotes, sectionsAtLimit, validationCutOff } from './aiDebugSteps'
 
 interface Props {
   documentId: string
@@ -161,6 +162,7 @@ interface DebugBuildSummary {
   sectionsDrafted:    number
   sectionsErrored:    number
   sectionsSkipped:    number
+  runs?:              number
   elapsedMs:          number | null
   startedAt:          string | null
   lastStepAt:         string | null
@@ -405,10 +407,16 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
     dragStartRef.current = null
     try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* no-op */ }
   }
+  // The snapshot follows a running draft; it stops refreshing once the draft settles.
+  const { summary: draftStatus } = useAiDraftStatus(open ? documentId : undefined)
   const { data, isLoading, error, refetch, isFetching } = useQuery<DebugData>({
     queryKey: ['ai-debug', documentId],
     queryFn:  () => aiDrafterApi.debug(documentId) as Promise<DebugData>,
     enabled:  open,
+    refetchInterval: query => {
+      const state = query.state.data?.document?.aiDraftState
+      return draftStatus.inFlight || state === 'pending' || state === 'drafting' || state === 'validating' ? 15_000 : false
+    },
   })
   // Preflight blockers — drives the top "Blockers" section + Continue
   // button. Refetched by the panel so it stays in sync as the writer
@@ -484,6 +492,11 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
     [sections],
   )
   const droppedSources = useMemo(() => sources.filter(s => s.willDrop), [sources])
+  // Skipped when the worker ran, beyond those Setup already lists as dropped.
+  const unreadSources = useMemo(() => {
+    const dropped = new Set(droppedSources.map(s => s.uploadId))
+    return (data?.buildSummary?.sources?.items ?? []).filter(s => s.status === 'skipped' && !dropped.has(s.sourceId ?? ''))
+  }, [data, droppedSources])
   const sectionsWithFlags = useMemo(() => sections.filter(s => (s.aiFlags?.length ?? 0) > 0), [sections])
 
   if (!open) return null
@@ -677,7 +690,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                   <p className="mb-2 text-[11px] text-slate-500">
                     Every step the drafter took, oldest first — use this to see where a hung draft got stuck or why a section came out wrong.
                   </p>
-                  <WorkerActivityList steps={data.draftSteps!} />
+                  <WorkerActivityList steps={data.draftSteps!} sections={sections} />
                 </Section>
               )}
 
@@ -744,6 +757,10 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                 sectionsBelow={sectionsBelow.length}
                 sectionsWithFlags={sectionsWithFlags.length}
                 sectionsTotal={sections.length}
+                unreadSources={unreadSources}
+                sourcesTried={data.buildSummary?.sources?.attached ?? 0}
+                cutOffSections={sectionsAtLimit(data.draftSteps ?? [])}
+                validationCutOff={validationCutOff(data.draftSteps ?? [])}
               />
 
               {/* ADVANCED — RAW JSON */}
@@ -1042,7 +1059,7 @@ function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
     ? '—'
     : summary.elapsedMs < 60_000
       ? `${(summary.elapsedMs / 1000).toFixed(1)}s`
-      : `${Math.floor(summary.elapsedMs / 60_000)}m ${Math.round((summary.elapsedMs % 60_000) / 1000)}s`
+      : `${Math.floor(summary.elapsedMs / 60_000)}m ${Math.floor((summary.elapsedMs % 60_000) / 1000)}s`
   const srcTotalMB = (summary.sources?.totalBytes ?? 0) / (1024 * 1024)
   return (
     <section
@@ -1068,7 +1085,7 @@ function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
         <SummaryCell label="Sections"    value={`${summary.sectionsDrafted}`}
                      sub={`${summary.sectionsErrored} errored · ${summary.sectionsSkipped} skipped`} />
         <SummaryCell label="Elapsed"     value={elapsedDisplay}
-                     sub={`${summary.draftingCalls} draft · ${summary.validationCalls} validate · ${summary.autofillCalls} TBD-fill`} />
+                     sub={`${(summary.runs ?? 0) > 1 ? `${summary.runs} runs · ` : ''}${summary.draftingCalls} draft · ${summary.validationCalls} validate · ${summary.autofillCalls} TBD-fill`} />
       </div>
 
       {summary.sources && summary.sources.attached > 0 && (
@@ -1167,6 +1184,11 @@ function StatusCard({ data, sectionsBelow }: { data: DebugData; sectionsBelow: n
         {sectionsBelow > 0 && <> · <strong>{sectionsBelow}</strong> still below 85%</>}
         {data.aiStubMode && <> · <span className="font-semibold">stub mode (no API key)</span></>}
       </p>
+      {typeof overall === 'number' && validationCutOff(data.draftSteps ?? []) && (
+        <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[12px] font-semibold text-amber-900" data-ai-debug-validation-cut-off>
+          Validation may be incomplete: its answer reached the length limit. Don’t rely on this score.
+        </p>
+      )}
     </section>
   )
 }
@@ -1183,6 +1205,8 @@ function SetupList({ data, droppedSources }: { data: DebugData; droppedSources: 
   const totalSources   = data.sources?.totalLinked ?? data.sources?.items?.length ?? 0
   const usableSources  = data.sources?.usableByDrafter ?? 0
   const droppedCount   = data.sources?.droppedByDrafter ?? droppedSources.length
+  // What the worker really read, once it has run; "usable" only says the records look fine.
+  const readSources    = data.buildSummary?.sources && data.buildSummary.sources.attached > 0 ? data.buildSummary.sources : null
   return (
     <ul className="flex flex-col gap-1.5 text-[12px] text-slate-700">
       {policyVersion !== undefined && (
@@ -1212,7 +1236,9 @@ function SetupList({ data, droppedSources }: { data: DebugData; droppedSources: 
       )}
       <li>
         <span className="text-slate-500">Sources:</span> {totalSources} attached
-        {usableSources > 0 && <> · {usableSources} usable</>}
+        {readSources
+          ? <> · <span className={readSources.loaded < readSources.attached ? 'text-amber-700' : undefined}>{readSources.loaded} of {readSources.attached} read by the drafter</span></>
+          : usableSources > 0 && <> · {usableSources} usable</>}
         {droppedCount > 0 && <> · <span className="text-amber-700">{droppedCount} dropped</span></>}
       </li>
       {droppedSources.length > 0 && (
@@ -1238,11 +1264,26 @@ function IssuesPanel(props: {
   sectionsBelow: number
   sectionsWithFlags: number
   sectionsTotal: number
+  unreadSources: ReadonlyArray<{ title: string | null; sourceId: string | null }>
+  sourcesTried: number
+  cutOffSections: number
+  validationCutOff: boolean
 }) {
   const issues: Array<{ severity: 'high' | 'med'; text: string }> = []
   if (props.stubMode)        issues.push({ severity: 'high', text: 'Stub mode is active — no ANTHROPIC_API_KEY set. AI drafts are placeholder text, not real model output.' })
   if (props.droppedSources.length > 0) {
     issues.push({ severity: 'high', text: `${props.droppedSources.length} source${props.droppedSources.length === 1 ? ' was' : 's were'} dropped. The AI never saw their content (see Setup for reasons).` })
+  }
+  if (props.unreadSources.length > 0) {
+    const names = props.unreadSources.slice(0, 5).map(s => s.title ?? s.sourceId ?? 'untitled').join(', ')
+    const more = props.unreadSources.length - 5
+    issues.push({ severity: 'high', text: `${props.unreadSources.length} of ${props.sourcesTried} sources could not be read when the drafter ran: ${names}${more > 0 ? ` and ${more} more` : ''}.` })
+  }
+  if (props.validationCutOff) {
+    issues.push({ severity: 'high', text: 'The validation answer reached the length limit and gave no flags, so its list was probably cut off. Don’t rely on the confidence score.' })
+  }
+  if (props.cutOffSections > 0) {
+    issues.push({ severity: 'med', text: `${props.cutOffSections} section${props.cutOffSections === 1 ? '’s answer' : 's’ answers'} reached the length limit and may be cut off. Check how these sections end (marked in Worker activity).` })
   }
   if (props.sectionsBelow > 0) {
     issues.push({
@@ -1278,7 +1319,9 @@ function IssuesPanel(props: {
 // warning, rose = error) so skimming the list highlights trouble.
 // Rows with a details object expand to a monospace JSON pane for
 // bug-report capture.
-function WorkerActivityList({ steps }: { steps: DebugDraftStep[] }) {
+function WorkerActivityList({ steps, sections }: { steps: DebugDraftStep[]; sections: DebugSection[] }) {
+  // Sections left alone because they already had text: nothing is wrong, so they aren't amber.
+  const kept = useMemo(() => keptSectionNotes(steps, sections), [steps, sections])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const toneForKind = (kind: string): { bg: string; dot: string; fg: string } => {
     switch (kind) {
@@ -1314,7 +1357,8 @@ function WorkerActivityList({ steps }: { steps: DebugDraftStep[] }) {
   return (
     <ol className="flex flex-col divide-y divide-slate-100 rounded border border-slate-200 bg-white" data-worker-activity>
       {steps.map(s => {
-        const tone = toneForKind(s.kind)
+        const keptNote = kept.get(s.id)
+        const tone = keptNote ? { bg: 'bg-slate-50', dot: 'bg-slate-400', fg: 'text-slate-600' } : toneForKind(s.kind)
         const hasDetails = s.details && Object.keys(s.details).length > 0
         const isOpen = expandedId === s.id
         const elapsed = s.elapsedMs !== null && s.elapsedMs !== undefined
@@ -1333,9 +1377,12 @@ function WorkerActivityList({ steps }: { steps: DebugDraftStep[] }) {
                 {elapsed}
               </span>
               <span className="flex-none font-mono text-[10px] uppercase tracking-wider text-slate-500 w-[140px] truncate" title={s.kind}>
-                {s.kind.replace(/_/g, ' ')}
+                {keptNote ? 'section kept' : s.kind.replace(/_/g, ' ')}
               </span>
-              <span className={`min-w-0 flex-1 ${tone.fg}`}>{s.message}</span>
+              <span className={`min-w-0 flex-1 ${tone.fg}`}>
+                {keptNote ?? s.message}
+                {isAtLimit(s) && <span className="ml-1 font-semibold text-amber-800" data-step-at-limit>Reached the length limit, may be cut off.</span>}
+              </span>
               {hasDetails && (
                 <span
                   aria-hidden="true"

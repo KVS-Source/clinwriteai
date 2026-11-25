@@ -32,6 +32,7 @@ import { handleAiInitialDraftIdeationArtefact }     from './jobs/ideation-ai-ini
 import { handleAiValidationPassIdeationArtefact }   from './jobs/ideation-ai-validation-pass.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleDistillPubTemplate } from './jobs/distill-pub-template.js'
+import { handleDistillMedTemplate } from './jobs/distill-med-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
@@ -140,6 +141,9 @@ const handlers = {
   // Module B — same as platform.distill_template but for the publication
   // template library (migration 105 Package B-2).
   'publications.distill_template': handleDistillPubTemplate,
+  // Module C — same but for the medical-communications template library
+  // (migration 105 Package C-2).
+  'med_content.distill_template':  handleDistillMedTemplate,
   // Module C — one slide inserted into a MedSlideDeckJob via Claude.
   // Enqueued from the Content Editor's "+ New slide with AI" button.
   'med_content.ai_slide_draft': handleGenerateMedSlide,
@@ -188,6 +192,7 @@ const concurrency: Record<JobName, number> = {
   // provider pressure predictable.
   'platform.distill_template':     1,
   'publications.distill_template': 1,
+  'med_content.distill_template':  1,
   // Slide generation: serial to keep provider pressure predictable — users
   // click "+ New slide with AI" one slide at a time anyway. Bump when
   // full-deck generation (20 slides at a time) lands.

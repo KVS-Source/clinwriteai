@@ -330,6 +330,11 @@ async function buildServer() {
   await app.register(medContentAiPromptRoutes,      { prefix: '/med-content-ai-prompts' })
   await app.register(medContentBestPracticeRoutes,  { prefix: '/med-content-best-practice-records' })
 
+  // Migration 105 Package C-2 — medical template PDF distiller endpoint.
+  const { medContentTemplateParseRoutes } =
+    await import('./modules/medical-writing/templates/template-parse-routes.js')
+  await app.register(medContentTemplateParseRoutes, { prefix: '/med-content-templates' })
+
   // Regulatory-Writing Policy admin (Phase M-D.1, migration 84) — mirror
   // of the medical-content policy stack scoped to regulatory doctypes
   // (ctd_m2_3_qos, ctd_m2_4_nonclin_overview, ctd_m2_5_clinical_overview,

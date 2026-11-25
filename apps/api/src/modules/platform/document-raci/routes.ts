@@ -204,6 +204,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
             error: 'role_cannot_author',
             message: 'An admin cannot be assigned as an author (R) of a document.',
           })
+        case 'pm_not_contributor':
+          return reply.code(422).send({
+            error: 'pm_not_contributor',
+            message: 'A project manager can be assigned in the RACI only if they are also a Contributor.',
+          })
         case 'duplicate_letter_on_section':
           return reply.code(409).send({
             error: 'duplicate_letter_on_section',

@@ -182,7 +182,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
 
   // Signers must be real accounts — the API only lets the record's signerId sign. The people offered are
   // the ones assigned to THIS project (its members and team), so the list differs from project to project.
-  const assignable = useQuery({ queryKey: ['assignable-users', projectId, 'raci'], queryFn: () => assignableUsersApi.listForRaci(projectId), enabled: !!projectId, retry: false })
+  const assignable = useQuery({ queryKey: ['assignable-users', projectId, 'signer'], queryFn: () => assignableUsersApi.listForSigners(projectId), enabled: !!projectId, retry: false })
   const members = useQuery({ queryKey: ['project-members', projectId], queryFn: () => projectMembersApi.list(projectId), enabled: !!projectId, retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId, retry: false })
 

@@ -138,9 +138,12 @@ export const assignableUsersApi = {
     api.get<AssignableUser[]>(
       `/projects/${projectId}/assignable-users${capability ? `?capability=${capability}` : ''}`,
     ),
-  /** RACI picker candidates — every active or invited non-admin, whatever their capabilities. */
+  /** RACI picker candidates — every active or invited non-admin, whatever their capabilities; a PM only if also a Contributor. */
   listForRaci: (projectId: string) =>
     api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=raci`),
+  /** Signature chain candidates — as listForRaci, with every PM. */
+  listForSigners: (projectId: string) =>
+    api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=signer`),
   /** Everyone on the project, whatever their status: names to display, not a list to pick from. */
   listPeople: (projectId: string) =>
     api.get<ProjectPerson[]>(`/projects/${projectId}/assignable-users?scope=people`),

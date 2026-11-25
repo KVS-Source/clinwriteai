@@ -13,6 +13,7 @@
 
 import type { PrismaClient } from '@prisma/client'
 import { hasAnyRole, onlyRolesIn, type AuthenticatedUser } from '../../../auth/rbac.js'
+import { canonicalRole } from '../../../auth/role-combos.js'
 // Multiple roles: a grant applies if any role grants it (hasAnyRole); a role restriction only if
 // every role the actor holds is restricted (onlyRolesIn). See auth/rbac.ts.
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
@@ -362,6 +363,12 @@ export const NEVER_AUTHOR_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 
 
 // Nor can an auditor (read-only everywhere) or a guest be a document's assignee (CW-081).
 export const NEVER_ASSIGNEE_ROLES: ReadonlySet<string> = new Set([...NEVER_AUTHOR_ROLES, 'auditor', 'read-only', 'qc', 'guest'])
+
+/** A project manager runs the project: they go in a document's RACI only if they also hold Contributor. */
+export function isPmWithoutContributor(user: { role: string; additionalRoles?: readonly string[] | null }): boolean {
+  const roles = [user.role, ...(user.additionalRoles ?? [])].map(canonicalRole)
+  return roles.includes('pm') && !roles.includes('contributor')
+}
 
 // An unknown id passes here and fails on the Document's foreign key as it always has.
 export async function userCanBeAssignee(prisma: PrismaClient, userId: string): Promise<boolean> {

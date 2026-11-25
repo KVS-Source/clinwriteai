@@ -12,7 +12,8 @@
 //   capability (optional) — can-author | can-review | can-approve |
 //                           can-qc | can-publish
 //   scope=raci (optional) — active + invited non-admins, capability filter
-//                           off (POST …/raci grants a missing capability)
+//                           off (POST …/raci grants a missing capability); a PM only if also a Contributor
+//   scope=signer (optional) — as scope=raci, but with every PM (signature chain)
 //   scope=assignee (optional) — active users, without admins, auditors or guests
 //   scope=people (optional) — names for showing who did what: everyone on the project, whatever
 //                           their status or role, as { id, name, initials, status }. Only for
@@ -33,7 +34,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Capability } from '../../../auth/rbac.js'
-import { NEVER_ASSIGNEE_ROLES } from '../document-raci/access.js'
+import { NEVER_ASSIGNEE_ROLES, isPmWithoutContributor } from '../document-raci/access.js'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 
 const CAPABILITY_VALUES = ['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish'] as const
@@ -41,9 +42,10 @@ const querySchema = z.object({
   capability: z.enum(CAPABILITY_VALUES).optional(),
   // scope=raci — the RACI picker: every active or invited non-admin candidate,
   // whatever their capabilities (assigning a letter grants the missing one).
+  // scope=signer — the same for a signature chain, where any PM may sign.
   // scope=assignee — the New Document assignee: active users, without admins.
   // scope=people — names to display: see the header.
-  scope: z.enum(['raci', 'assignee', 'people']).optional(),
+  scope: z.enum(['raci', 'signer', 'assignee', 'people']).optional(),
 })
 const ADMIN_ROLES = ['admin', 'tenant-admin', 'super-admin']
 // The New Document assignee becomes the Author (R): never an admin, an auditor (read-only) or a guest.
@@ -111,7 +113,7 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
       return reply.send(people)
     }
 
-    const forRaci = parsed.data.scope === 'raci'
+    const forRaci = parsed.data.scope === 'raci' || parsed.data.scope === 'signer'
     const forAssignee = parsed.data.scope === 'assignee'
     const users = await app.prisma.user.findMany({
       where: {
@@ -126,14 +128,14 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
           },
         ],
       },
-      select: { id: true, name: true, email: true, initials: true, capabilities: true },
+      select: { id: true, name: true, email: true, initials: true, capabilities: true, role: true, additionalRoles: true },
       orderBy: { name: 'asc' },
     })
 
     const cap = parsed.data.capability as Capability | undefined
     const filtered = cap && !forRaci
       ? users.filter(u => (u.capabilities as string[]).includes(cap))
-      : users
+      : parsed.data.scope === 'raci' ? users.filter(u => !isPmWithoutContributor(u)) : users
 
     return reply.send(filtered.map(u => ({
       id: u.id,

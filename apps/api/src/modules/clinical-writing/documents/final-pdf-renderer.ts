@@ -25,6 +25,9 @@ export interface FinalPdfSignature {
   id: string
   signerName: string
   signerRole: string
+  /** The signer's current profile, read when the file is made (so an edit shows in the next export). */
+  signerDepartment?: string | null
+  signerTitle?: string | null
   meaning: string
   step: number
   timestampUtc: Date | string | null
@@ -517,7 +520,11 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       para(input.documentHash ?? '—', { size: 8.5, after: 6 })
       para("Checked when this file was generated: the document's current content matches this hash.", { size: 9, colour: '#15803D', bold: true })
     }
-    const SIGNED_NOTE = 'Each person below signed this document electronically. Their name, the meaning of the signature and its date and time are the record of that signature (21 CFR Part 11 §11.50).'
+    // How a signer is printed: the function is their department (the role label when they have none); the name
+    // carries their job title underneath.
+    const signerFunction = (s: FinalPdfSignature) => s.signerDepartment?.trim() || s.signerRole
+    const signerNameTitle = (s: FinalPdfSignature) => (s.signerTitle?.trim() ? `${s.signerName}\n${s.signerTitle.trim()}` : s.signerName)
+    const SIGNED_NOTE ='Each person below signed this document electronically. Their name, the meaning of the signature and its date and time are the record of that signature (21 CFR Part 11 §11.50).'
 
     // --- Sections --------------------------------------------------------
 
@@ -529,8 +536,8 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       const blocks = sectionBlocks[i]!
       const filled = signed && i === blockSection
         ? fillSignatureBlock(blocks, orderedSignatures.map(x => ({
-            role: x.signerRole,
-            name: x.signerName,
+            role: signerFunction(x),
+            name: signerNameTitle(x),
             signature: `${MEANING[x.meaning] ?? x.meaning} — electronically signed\n${formatUtc(x.timestampUtc)}\n${x.id}`,
           })))
         : null
@@ -585,7 +592,7 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
         para(`${input.document.title} · ${input.document.version}`, { bold: true, after: 4 })
         para(SIGNED_NOTE, { after: 10 })
         simpleTable(['Signed by', 'Role', 'Meaning', 'Signed', 'Signature ID'], orderedSignatures.map(s => [
-          s.signerName, s.signerRole, MEANING[s.meaning] ?? s.meaning, formatUtc(s.timestampUtc), s.id,
+          signerNameTitle(s), signerFunction(s), MEANING[s.meaning] ?? s.meaning, formatUtc(s.timestampUtc), s.id,
         ]))
         signatureRecord()
       } else {

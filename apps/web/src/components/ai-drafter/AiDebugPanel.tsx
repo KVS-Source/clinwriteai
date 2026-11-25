@@ -240,6 +240,8 @@ const FLAG_LABELS: Record<string, string> = {
   // Module C MCQ + expiry (Packages D-3 + D-4).
   'mcq_structure_invalid':    'CME assessment section is missing a correct-answer marker or has fewer than 4 options per question',
   'content_past_expiry':      'Content item is past its expiry date — re-approve before the next MLR submission',
+  // Module D HA response structure (Package R-5).
+  'ha_response_structure_invalid': 'HA response is missing conventional labels (Question / Response / Rationale / Dossier Impact / References)',
 }
 
 const DROP_REASON_LABELS: Record<string, string> = {

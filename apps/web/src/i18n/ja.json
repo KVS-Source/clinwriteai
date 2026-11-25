@@ -796,7 +796,8 @@
       "flag_undefined_acronym":  "未定義の略語",
       "flag_fk_score_raised":    "読みやすさ指標が目標値を超過",
       "flag_mcq_structure_invalid": "MCQ 構造の不備",
-      "flag_content_past_expiry":   "有効期限切れコンテンツ"
+      "flag_content_past_expiry":   "有効期限切れコンテンツ",
+      "flag_ha_response_structure_invalid": "HA 応答のラベル不足"
     },
 
     "audit_trail_panel": {
@@ -4675,7 +4676,8 @@
       "flag_undefined_acronym": "未定義の略語",
       "flag_fk_score_raised": "読みやすさ指標が目標値を超過",
       "flag_mcq_structure_invalid": "MCQ 構造の不備",
-      "flag_content_past_expiry": "有効期限切れコンテンツ"
+      "flag_content_past_expiry": "有効期限切れコンテンツ",
+      "flag_ha_response_structure_invalid": "HA 応答のラベル不足"
     },
 
     "checklist_item_badge": {

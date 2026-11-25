@@ -76,6 +76,8 @@ const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   // Module C — CME MCQ structure (D-3) + expiry gate (D-4), both soft.
   'mcq_structure_invalid':  15,
   'content_past_expiry':    10,
+  // Module D — HA response structural check (R-5), soft.
+  'ha_response_structure_invalid': 15,
 }
 const AI_UNKNOWN_WEIGHT = 15
 

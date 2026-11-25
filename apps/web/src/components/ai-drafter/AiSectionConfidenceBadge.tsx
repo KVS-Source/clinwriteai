@@ -32,6 +32,8 @@ const FLAG_KEY: Record<string, string> = {
   // Module C MCQ + expiry (Packages D-3 + D-4).
   'mcq_structure_invalid':  'flag_mcq_structure_invalid',
   'content_past_expiry':    'flag_content_past_expiry',
+  // Module D HA structure (Package R-5).
+  'ha_response_structure_invalid': 'flag_ha_response_structure_invalid',
 }
 
 function friendlyFlag(code: string, t: TFunction): string {

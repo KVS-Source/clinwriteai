@@ -28,6 +28,7 @@ import { buildRegulatoryAttachedContext } from './must-preserve-reg.js'
 // loader below already covers this route's needs (same upload-filter +
 // cap logic the helper encapsulates).
 import { checkModule5Gate, MODULE_5_READONLY_FORBIDDEN } from './ectd-gate.js'
+import { validateHaResponseStructure, isHaGatedType } from './ha-structure-validator.js'
 
 const writeGate = requireAuth({ modules: ['D'] })
 
@@ -307,14 +308,28 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
       })
       const result = lastGatewayResult!
 
+      // Package R-5: HA response structural soft validator. Fires on
+      // ha_response_narrative content when the rewrite dropped too
+      // many of the conventional labels (Question / Response /
+      // Rationale / Dossier Impact / References).
+      const flagsWithExtra = [...validation.flags]
+      let haStructureTrace: ReturnType<typeof validateHaResponseStructure> | null = null
+      if (isHaGatedType(doc.docType)) {
+        haStructureTrace = validateHaResponseStructure(validation.html)
+        if (haStructureTrace.looksLikeHaResponse && !haStructureTrace.structurallyValid
+            && !flagsWithExtra.includes('ha_response_structure_invalid')) {
+          flagsWithExtra.push('ha_response_structure_invalid')
+        }
+      }
+
       // Package R-4: persist aiConfidence + aiFlags on the section row
       // so the existing RegulatoryDocumentLiveEditor badge + flag
-      // chips reflect the retry outcome.
+      // chips reflect the retry outcome + the HA soft flag.
       try {
-        const score = scoreSection(validation.flags)
+        const score = scoreSection(flagsWithExtra)
         await app.prisma.regulatoryDocumentSection.update({
           where: { id: section.id },
-          data:  { aiConfidence: score, aiFlags: validation.flags },
+          data:  { aiConfidence: score, aiFlags: flagsWithExtra },
         })
       } catch (err) {
         app.log.warn({ err, regulatoryDocumentId: id, sectionId: section.sectionId }, 'reg section confidence update failed (non-fatal)')
@@ -345,8 +360,10 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
           outcome:               'completed',
           // Package R-4: CSR grounding + validator outcome audit.
           canonicalTokensCount: attachedSources.allowedTokens?.length ?? 0,
-          validatorFlags:       validation.flags,
+          validatorFlags:       flagsWithExtra,
           validatorRetried:     validation.retried,
+          // Package R-5: HA structure trace (null for non-HA types).
+          haStructureTrace:     haStructureTrace,
           validatorTrace:       validation.trace.map(t => ({
             attempt: t.attempt,
             flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),

@@ -65,6 +65,8 @@ const FLAG_LABEL_KEYS: Record<string, string> = {
   // Module C MCQ + expiry (Packages D-3 + D-4).
   'mcq_structure_invalid':  'page.ai_drafting_report_panel.flag_mcq_structure_invalid',
   'content_past_expiry':    'page.ai_drafting_report_panel.flag_content_past_expiry',
+  // Module D HA structure (Package R-5).
+  'ha_response_structure_invalid': 'page.ai_drafting_report_panel.flag_ha_response_structure_invalid',
 }
 
 interface Props {

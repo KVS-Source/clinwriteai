@@ -53,6 +53,12 @@ export const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   // forbidden; the flag signals it's time to re-approve before the
   // next MLR submission.
   'content_past_expiry':    10,
+  // Module D HA response structural check (Package R-5). Fired on
+  // ha_response_narrative content when the rewrite drops too many of
+  // the conventional labels (Question / Response / Rationale /
+  // Dossier Impact / References). Soft — HA responses are
+  // heterogeneous and retry loops don't reliably converge.
+  'ha_response_structure_invalid': 15,
 }
 
 const AI_UNKNOWN_WEIGHT = 15

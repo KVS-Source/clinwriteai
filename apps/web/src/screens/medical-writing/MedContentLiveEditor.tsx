@@ -17,6 +17,7 @@ import {
   type MedSectionLockHolder,
   type MedContentSectionCommentRow,
 } from '../../modules/medical-writing/api/medContent'
+import { MedContentAiDebugButton } from '../../components/ai-drafter/MedContentAiDebugPanel'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -143,7 +144,10 @@ export function MedContentLiveEditor() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <AiDraftStateBadge state={aiDraftState} />
+          <div className="flex items-center gap-2">
+            <AiDraftStateBadge state={aiDraftState} />
+            {contentId && <MedContentAiDebugButton contentItemId={contentId} />}
+          </div>
           <button
             type="button"
             onClick={() => startDraft.mutate()}

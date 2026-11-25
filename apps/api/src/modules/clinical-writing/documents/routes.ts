@@ -94,6 +94,7 @@ import { carryPromptEnabledFor } from '../carry-prompt/decide.js'
 import { intentToAsk, type CarrySuggestIntent } from '../carry-prompt/intent-to-ask.js'
 import { parseFlagTokens, summariseFlagTokens } from '../carry-prompt/parse.js'
 import { draftProgress } from './ai-draft-progress.js'
+import { draftRollup } from './ai-draft-rollup.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -889,11 +890,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    const [project, generatedBy, compliance] = await Promise.all([
+    const [project, generatedBy, compliance, signerProfiles] = await Promise.all([
       app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { shortTitle: true, name: true, therapeuticArea: true, phase: true } }),
       app.prisma.user.findUnique({ where: { id: actor.id }, select: { name: true } }),
       buildComplianceSummary(app.prisma, doc),
+      // Each signer's department and job title as they are now, so an edit shows in the next export.
+      signatures.length === 0 ? Promise.resolve([]) : app.prisma.user.findMany({
+        where:  { id: { in: [...new Set(signatures.map(s => s.signerId))] } },
+        select: { id: true, title: true, department: true },
+      }),
     ])
+    const profileOf = new Map(signerProfiles.map(u => [u.id, u]))
+    const printedSignatures = signatures.map(s => ({
+      ...s,
+      signerDepartment: profileOf.get(s.signerId)?.department ?? null,
+      signerTitle:      profileOf.get(s.signerId)?.title ?? null,
+    }))
     const version = doc.currentVersion?.versionNumber ?? 'v0.0'
     const mode = signed ? 'signed' as const : 'draft' as const
     const exportId = randomUUID()
@@ -906,7 +918,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       project,
       sections: sections.map(s => ({ number: s.sectionNumber, title: s.sectionTitle, contentHtml: s.contentHtml })),
       compliance,
-      signatures,
+      signatures: printedSignatures,
       documentHash,
     })
 
@@ -1940,11 +1952,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     let draftingCalls = 0
     let validationCalls = 0
     let autofillCalls = 0
-    let sectionsDrafted = 0
-    let sectionsErrored = 0
-    let sectionsSkipped = 0
-    let jobStartedAt: Date | null = null
     let lastStepAt:   Date | null = null
+    const rollup = draftRollup(draftStepRows)   // oldest first: reversed in place above
 
     // Source document read stats — fed from source_loaded / source_skipped
     // steps. One row per source (loaded or skipped) with its reason,
@@ -1981,10 +1990,6 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       if (s.kind === 'section_response')    draftingCalls   += 1
       if (s.kind === 'section_ai_call')     validationCalls += 1
       if (s.kind === 'tbd_autofill_run' && (inTok > 0 || outTok > 0)) autofillCalls += 1
-      if (s.kind === 'section_committed')   sectionsDrafted += 1
-      if (s.kind === 'section_errored')     sectionsErrored += 1
-      if (s.kind === 'section_skipped')     sectionsSkipped += 1
-      if (s.kind === 'job_started') jobStartedAt = s.timestamp
       if (!lastStepAt || s.timestamp > lastStepAt) lastStepAt = s.timestamp
 
       if (s.kind === 'source_loaded' || s.kind === 'source_skipped') {
@@ -2043,11 +2048,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       draftingCalls,
       validationCalls,
       autofillCalls,
-      sectionsDrafted,
-      sectionsErrored,
-      sectionsSkipped,
-      elapsedMs:     (jobStartedAt && lastStepAt) ? (lastStepAt.getTime() - jobStartedAt.getTime()) : null,
-      startedAt:     jobStartedAt?.toISOString() ?? null,
+      sectionsDrafted: rollup.sectionsDrafted,
+      sectionsErrored: rollup.sectionsErrored,
+      sectionsSkipped: rollup.sectionsSkipped,
+      runs:          rollup.runs,
+      elapsedMs:     rollup.elapsedMs,
+      startedAt:     rollup.startedAt?.toISOString() ?? null,
       lastStepAt:    lastStepAt?.toISOString() ?? null,
       rateCardVersion: activeRateCard.version,
       perModel,

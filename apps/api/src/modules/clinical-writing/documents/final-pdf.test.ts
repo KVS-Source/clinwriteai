@@ -106,6 +106,19 @@ describe('renderFinalDocumentPdf', () => {
     expect(text.indexOf('SIG-0001-02')).toBeLessThan(text.indexOf('After the block.'))
   })
 
+  it("prints each signer's department as the function and their title under the name; the role label stands in when there is no department", async () => {
+    const signatures = [
+      { ...SIGNATURES[1]!, signerDepartment: 'Biostatistics', signerTitle: 'Senior Biostatistician' },
+      { ...SIGNATURES[0]!, signerDepartment: null, signerTitle: null },
+    ]
+    const text = await textOf((await renderFinalDocumentPdf(input({ sections: withBlock, signatures }))).pdf)
+    for (const part of ['Biostatistics', 'Asha Rao', 'Senior Biostatistician', 'Sam Lee', 'Approver']) expect(text).toContain(part)
+    expect(text.indexOf('Asha Rao')).toBeLessThan(text.indexOf('Senior Biostatistician'))
+    // The same on the fallback signature page of a template that has no block.
+    const page = await textOf((await renderFinalDocumentPdf(input({ signatures }))).pdf)
+    for (const part of ['Biostatistics', 'Senior Biostatistician']) expect(page).toContain(part)
+  })
+
   it('a draft leaves the block as written, with no signatures and no signature page', async () => {
     const text = await textOf((await renderFinalDocumentPdf(input({ mode: 'draft', signatures: [], documentHash: null, sections: withBlock }))).pdf)
     expect(text).toContain('[Pending]')

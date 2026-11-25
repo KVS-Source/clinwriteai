@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { assignableUsersRoutes } from './routes.js'
 
-type U = { id: string; name: string; email: string; initials: string | null; capabilities: string[]; modules: string[]; status: string; role: string; tenantId: string | null }
+type U = { id: string; name: string; email: string; initials: string | null; capabilities: string[]; modules: string[]; status: string; role: string; additionalRoles?: string[]; tenantId: string | null }
 const u = (id: string, over: Partial<U> = {}): U => ({
   id, name: id, email: `${id}@x.io`, initials: null, capabilities: ['can-author'], modules: ['A'], status: 'active', role: 'contributor', tenantId: 'T1', ...over,
 })
@@ -89,9 +89,13 @@ describe('assignable users', () => {
     await app.close()
   })
 
-  it('scope=raci: offers a PM but no admin', async () => {
-    const app = await build([u('author'), u('pm', { role: 'pm' }), u('admin', { role: 'tenant-admin' })])
-    expect(await names(app, '?scope=raci')).toEqual(['author', 'pm'])
+  it('scope=raci: a PM only if also a Contributor, and no admin; scope=signer keeps every PM', async () => {
+    const app = await build([
+      u('author'), u('admin', { role: 'tenant-admin' }), u('pm', { role: 'pm' }), u('pm-qc', { role: 'pm', additionalRoles: ['qc'] }),
+      u('pm-writer', { role: 'pm', additionalRoles: ['contributor'] }), u('writer-pm', { additionalRoles: ['pm'] }),
+    ])
+    expect(await names(app, '?scope=raci')).toEqual(['author', 'pm-writer', 'writer-pm'])
+    expect(await names(app, '?scope=signer')).toEqual(['author', 'pm', 'pm-qc', 'pm-writer', 'writer-pm'])
     await app.close()
   })
 

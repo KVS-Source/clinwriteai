@@ -25,6 +25,9 @@ export interface FinalPdfSignature {
   id: string
   signerName: string
   signerRole: string
+  /** The signer's current profile, read when the file is made (so an edit shows in the next export). */
+  signerDepartment?: string | null
+  signerTitle?: string | null
   meaning: string
   step: number
   timestampUtc: Date | string | null
@@ -38,12 +41,16 @@ export interface FinalPdfInput {
   generatedAt: Date
   generatedBy: string
   mode: 'signed' | 'draft'
+  /** 'library' = a Master Library copy: the title and the sections only (no title page, contents, compliance appendix,
+   *  signature page, page headers/footers or DRAFT watermark). The library stamps its own per-reader watermark. */
+  layout?: 'final' | 'library'
   document: { id: string; title: string; version: string; statusLabel: string; signedAt: Date | string | null }
   project: { shortTitle: string | null; name: string | null; therapeuticArea: string | null; phase: string | null } | null
   sections: Array<{ number: string; title: string; contentHtml: string | null }>
-  compliance: ComplianceSummary
-  signatures: FinalPdfSignature[]
-  documentHash: string | null
+  /** Not needed for the 'library' layout. */
+  compliance?: ComplianceSummary
+  signatures?: FinalPdfSignature[]
+  documentHash?: string | null
 }
 
 export interface FinalPdfResult { pdf: Buffer; pageCount: number; undrawableCharacters: string[] }
@@ -201,6 +208,7 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
     const missing = new Set<string>()
     const t = (s: string | null | undefined) => drawable(s ?? '', missing)
     const signed = input.mode === 'signed'
+    const lib = input.layout === 'library'
     const statusLine = signed ? 'Final · Signed' : 'Draft · Not signed'
 
     const doc: Doc = new PDFDocument({
@@ -447,61 +455,70 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
     // --- Title page ------------------------------------------------------
 
     startPage()
-    gap(72)
-    const programme = [input.project?.shortTitle, input.project?.name].filter(Boolean).join(' · ')
-    if (programme) para(programme.toUpperCase(), { size: 9, colour: MUTED, bold: true, after: 10 })
-    doc.font(FONT.bold).fontSize(24).fillColor(INK).text(t(input.document.title), { width: contentWidth() })
-    gap(26)
-
-    const titleRows: Array<[string, string]> = [
-      ['Version', signed ? `${input.document.version} · Final` : input.document.version],
-      ['Status', signed ? 'Signed' : `${input.document.statusLabel} — not signed`],
-      ...(signed ? [['Signed', formatUtc(input.document.signedAt)] as [string, string]] : []),
-      ...(input.project?.therapeuticArea ? [['Therapeutic area', input.project.therapeuticArea] as [string, string]] : []),
-      ...(input.project?.phase ? [['Phase', input.project.phase] as [string, string]] : []),
-      ...(input.documentHash ? [['Document hash (SHA-256)', input.documentHash] as [string, string]] : []),
-      ['Document ID', input.document.id],
-      ['Generated', `${formatUtc(input.generatedAt)} by ${input.generatedBy}`],
-      ['Export ID', input.exportId],
-    ]
-    for (const [label, value] of titleRows) {
-      const y = doc.y
-      doc.font(FONT.body).fontSize(9.5).fillColor(MUTED).text(label, left, y, { width: 130 })
-      doc.font(label === 'Version' || label === 'Status' ? FONT.bold : FONT.body).fontSize(label.startsWith('Document hash') ? 8.5 : 9.5).fillColor(INK)
-        .text(t(value), left + 136, y, { width: contentWidth() - 136 })
-      doc.x = left
-      gap(6)
-    }
-    if (!signed) {
+    let noticeAt = { page: -1, y: 0 }
+    if (lib) {
+      doc.font(FONT.bold).fontSize(18).fillColor(INK).text(t(input.document.title), { width: contentWidth() })
       gap(14)
-      para('This copy is not a signed record. Its content can still change.', { bold: true, colour: '#B45309' })
+    } else {
+      gap(72)
+      const programme = [input.project?.shortTitle, input.project?.name].filter(Boolean).join(' · ')
+      if (programme) para(programme.toUpperCase(), { size: 9, colour: MUTED, bold: true, after: 10 })
+      doc.font(FONT.bold).fontSize(24).fillColor(INK).text(t(input.document.title), { width: contentWidth() })
+      gap(26)
+
+      const titleRows: Array<[string, string]> = [
+        ['Version', signed ? `${input.document.version} · Final` : input.document.version],
+        ['Status', signed ? 'Signed' : `${input.document.statusLabel} — not signed`],
+        ...(signed ? [['Signed', formatUtc(input.document.signedAt)] as [string, string]] : []),
+        ...(input.project?.therapeuticArea ? [['Therapeutic area', input.project.therapeuticArea] as [string, string]] : []),
+        ...(input.project?.phase ? [['Phase', input.project.phase] as [string, string]] : []),
+        ...(input.documentHash ? [['Document hash (SHA-256)', input.documentHash] as [string, string]] : []),
+        ['Document ID', input.document.id],
+        ['Generated', `${formatUtc(input.generatedAt)} by ${input.generatedBy}`],
+        ['Export ID', input.exportId],
+      ]
+      for (const [label, value] of titleRows) {
+        const y = doc.y
+        doc.font(FONT.body).fontSize(9.5).fillColor(MUTED).text(label, left, y, { width: 130 })
+        doc.font(label === 'Version' || label === 'Status' ? FONT.bold : FONT.body).fontSize(label.startsWith('Document hash') ? 8.5 : 9.5).fillColor(INK)
+          .text(t(value), left + 136, y, { width: contentWidth() - 136 })
+        doc.x = left
+        gap(6)
+      }
+      if (!signed) {
+        gap(14)
+        para('This copy is not a signed record. Its content can still change.', { bold: true, colour: '#B45309' })
+      }
+      noticeAt = { page: currentPage() - 1, y: doc.y + 14 }
     }
-    const noticeAt = { page: currentPage() - 1, y: doc.y + 14 }
 
     // --- Contents --------------------------------------------------------
 
     const sections = orderSections(input.sections)
     const sectionBlocks = sections.map(s => htmlToBlocks(s.contentHtml))
     // Where the template's own signature block is; -1 when it has none.
-    const blockSection = sectionBlocks.findIndex(hasSignatureBlock)
-    const orderedSignatures = [...input.signatures].sort((a, b) => a.step - b.step)
+    const blockSection = lib ? -1 : sectionBlocks.findIndex(hasSignatureBlock)
+    const orderedSignatures = [...(input.signatures ?? [])].sort((a, b) => a.step - b.step)
     const sectionLabel = (s: { number: string; title: string }) => `${s.number}. ${s.title}`
     const entries = [
       ...sections.map((s, i) => ({ label: sectionLabel(s), key: `section:${i}` })),
       { label: 'Appendix — Compliance Summary', key: 'appendix' },
       ...(blockSection < 0 ? [{ label: 'Signature Page', key: 'signatures' }] : []),
     ]
-    startPage()
-    heading('Contents', 16)
-    for (const e of entries) {
-      ensureRoom(18)
-      const y = doc.y
-      doc.font(FONT.body).fontSize(10).fillColor(INK).text(t(e.label), left, y, { width: contentWidth() - 40 })
-      const after = doc.y
-      const page = labels.get(e.key)
-      if (page) doc.text(String(page), left + contentWidth() - 34, y, { width: 34, align: 'right' })
-      doc.x = left
-      doc.y = after + 3
+    if (!lib) {
+      startPage()
+      heading('Contents', 16)
+      for (const e of entries) {
+        ensureRoom(18)
+        const y = doc.y
+        doc.font(FONT.body).fontSize(10).fillColor(INK).text(t(e.label), left, y, { width: contentWidth() - 40 })
+        const after = doc.y
+        const page = labels.get(e.key)
+        if (page) doc.text(String(page), left + contentWidth() - 34, y, { width: 34, align: 'right' })
+        doc.x = left
+        doc.y = after + 3
+      }
+
     }
 
     // How the signatures were made and what they are bound to (21 CFR Part 11).
@@ -517,11 +534,15 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       para(input.documentHash ?? '—', { size: 8.5, after: 6 })
       para("Checked when this file was generated: the document's current content matches this hash.", { size: 9, colour: '#15803D', bold: true })
     }
-    const SIGNED_NOTE = 'Each person below signed this document electronically. Their name, the meaning of the signature and its date and time are the record of that signature (21 CFR Part 11 §11.50).'
+    // How a signer is printed: the function is their department (the role label when they have none); the name
+    // carries their job title underneath.
+    const signerFunction = (s: FinalPdfSignature) => s.signerDepartment?.trim() || s.signerRole
+    const signerNameTitle = (s: FinalPdfSignature) => (s.signerTitle?.trim() ? `${s.signerName}\n${s.signerTitle.trim()}` : s.signerName)
+    const SIGNED_NOTE ='Each person below signed this document electronically. Their name, the meaning of the signature and its date and time are the record of that signature (21 CFR Part 11 §11.50).'
 
     // --- Sections --------------------------------------------------------
 
-    startPage()
+    if (!lib) startPage()
     if (sections.length === 0) para('This document has no sections.', { italic: true, colour: MUTED })
     sections.forEach((s, i) => {
       if (i > 0) gap(10)
@@ -529,8 +550,8 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       const blocks = sectionBlocks[i]!
       const filled = signed && i === blockSection
         ? fillSignatureBlock(blocks, orderedSignatures.map(x => ({
-            role: x.signerRole,
-            name: x.signerName,
+            role: signerFunction(x),
+            name: signerNameTitle(x),
             signature: `${MEANING[x.meaning] ?? x.meaning} — electronically signed\n${formatUtc(x.timestampUtc)}\n${x.id}`,
           })))
         : null
@@ -546,51 +567,54 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
     })
 
     // --- Appendix: Compliance Summary -------------------------------------
+    if (!lib && input.compliance) {
 
-    startPage()
-    const c = input.compliance
-    heading('Appendix — Compliance Summary', 15, { label: 'appendix', outline: true })
-    para(`Generated from this document's input checklist${c.checklistTemplateVersion != null ? ` (template v${c.checklistTemplateVersion})` : ''}.`, { colour: MUTED })
-
-    heading('Applicable regulatory frameworks', 12)
-    if (c.frameworks.length === 0) para("No frameworks are recorded on this document's checklist.", { italic: true, colour: MUTED })
-    else simpleTable(['Framework', 'Version', 'Jurisdiction', 'Reference'], c.frameworks.map(f => [
-      f.name, f.version ?? '—', f.jurisdiction ?? '—', f.sourceUrl ?? (f.inRegistry ? '—' : 'Not in the framework registry'),
-    ]))
-
-    if (c.frameworks.length > 0) heading('Rules applied', 12)
-    for (const f of c.frameworks) {
-      heading(f.name, 10.5)
-      simpleTable(['Rule', 'Outcome'], f.rules.map(r => [`${r.text}${r.mandatory ? '' : ' (recommended)'}`, RULE_OUTCOME[r.status] ?? r.status]))
-    }
-
-    heading('Waived Framework Mandatory items', 12)
-    if (c.waivedMandatory.length === 0) para('None — no Framework Mandatory item (checklist item or ICH E3 section) was waived.', { colour: MUTED })
-    else simpleTable(['Item', 'Framework', 'Waived by', 'Reason'], c.waivedMandatory.map(w => [
-      w.text, w.framework, `${w.waivedBy ?? '—'}${w.waivedAt ? `\n${formatUtc(w.waivedAt)}` : ''}`, w.reason ?? '—',
-    ]))
-
-    heading('Removed Framework Mandatory items', 12)
-    if (c.removedMandatory.length === 0) para('None — no Framework Mandatory checklist item was removed.', { colour: MUTED })
-    else simpleTable(['Item', 'Framework', 'Removed by', 'Reason'], c.removedMandatory.map(r => [
-      r.text, r.framework, `${r.removedBy ?? '—'}${r.removedAt ? `\n${formatUtc(r.removedAt)}` : ''}`, r.reason ?? '—',
-    ]))
-
-    // --- Signature page (only for a document whose template has no signature block) ---
-
-    if (blockSection < 0) {
       startPage()
-      heading('Signature Page', 15, { label: 'signatures', outline: true })
-      if (signed) {
-        para(`${input.document.title} · ${input.document.version}`, { bold: true, after: 4 })
-        para(SIGNED_NOTE, { after: 10 })
-        simpleTable(['Signed by', 'Role', 'Meaning', 'Signed', 'Signature ID'], orderedSignatures.map(s => [
-          s.signerName, s.signerRole, MEANING[s.meaning] ?? s.meaning, formatUtc(s.timestampUtc), s.id,
-        ]))
-        signatureRecord()
-      } else {
-        para('This document has not been signed, so this copy carries no signatures.', { bold: true, colour: '#B45309' })
+      const c = input.compliance
+      heading('Appendix — Compliance Summary', 15, { label: 'appendix', outline: true })
+      para(`Generated from this document's input checklist${c.checklistTemplateVersion != null ? ` (template v${c.checklistTemplateVersion})` : ''}.`, { colour: MUTED })
+
+      heading('Applicable regulatory frameworks', 12)
+      if (c.frameworks.length === 0) para("No frameworks are recorded on this document's checklist.", { italic: true, colour: MUTED })
+      else simpleTable(['Framework', 'Version', 'Jurisdiction', 'Reference'], c.frameworks.map(f => [
+        f.name, f.version ?? '—', f.jurisdiction ?? '—', f.sourceUrl ?? (f.inRegistry ? '—' : 'Not in the framework registry'),
+      ]))
+
+      if (c.frameworks.length > 0) heading('Rules applied', 12)
+      for (const f of c.frameworks) {
+        heading(f.name, 10.5)
+        simpleTable(['Rule', 'Outcome'], f.rules.map(r => [`${r.text}${r.mandatory ? '' : ' (recommended)'}`, RULE_OUTCOME[r.status] ?? r.status]))
       }
+
+      heading('Waived Framework Mandatory items', 12)
+      if (c.waivedMandatory.length === 0) para('None — no Framework Mandatory item (checklist item or ICH E3 section) was waived.', { colour: MUTED })
+      else simpleTable(['Item', 'Framework', 'Waived by', 'Reason'], c.waivedMandatory.map(w => [
+        w.text, w.framework, `${w.waivedBy ?? '—'}${w.waivedAt ? `\n${formatUtc(w.waivedAt)}` : ''}`, w.reason ?? '—',
+      ]))
+
+      heading('Removed Framework Mandatory items', 12)
+      if (c.removedMandatory.length === 0) para('None — no Framework Mandatory checklist item was removed.', { colour: MUTED })
+      else simpleTable(['Item', 'Framework', 'Removed by', 'Reason'], c.removedMandatory.map(r => [
+        r.text, r.framework, `${r.removedBy ?? '—'}${r.removedAt ? `\n${formatUtc(r.removedAt)}` : ''}`, r.reason ?? '—',
+      ]))
+
+      // --- Signature page (only for a document whose template has no signature block) ---
+
+      if (blockSection < 0) {
+        startPage()
+        heading('Signature Page', 15, { label: 'signatures', outline: true })
+        if (signed) {
+          para(`${input.document.title} · ${input.document.version}`, { bold: true, after: 4 })
+          para(SIGNED_NOTE, { after: 10 })
+          simpleTable(['Signed by', 'Role', 'Meaning', 'Signed', 'Signature ID'], orderedSignatures.map(s => [
+            signerNameTitle(s), signerFunction(s), MEANING[s.meaning] ?? s.meaning, formatUtc(s.timestampUtc), s.id,
+          ]))
+          signatureRecord()
+        } else {
+          para('This document has not been signed, so this copy carries no signatures.', { bold: true, colour: '#B45309' })
+        }
+      }
+
     }
 
     // --- Every page: header, footer, watermark ------------------------------
@@ -604,45 +628,48 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
       while (cut.length > 1 && doc.widthOfString(`${cut}…`) > width) cut = cut.slice(0, -1)
       return `${cut}…`
     }
-    for (let i = 0; i < range.count; i++) {
-      doc.switchToPage(i)
-      const margins = doc.page.margins
-      doc.page.margins = { top: 0, bottom: 0, left: margins.left, right: margins.right }
-      const w = doc.page.width - PAGE.left - PAGE.right
+    if (!lib) {
+      for (let i = 0; i < range.count; i++) {
+        doc.switchToPage(i)
+        const margins = doc.page.margins
+        doc.page.margins = { top: 0, bottom: 0, left: margins.left, right: margins.right }
+        const w = doc.page.width - PAGE.left - PAGE.right
 
-      // The title page is its own header.
-      if (i > 0) {
+        // The title page is its own header.
+        if (i > 0) {
+          doc.font(FONT.body).fontSize(8).fillColor(MUTED)
+          const project = t(input.project?.shortTitle)
+          const projectWidth = project ? Math.min(doc.widthOfString(project), w * 0.3) : 0
+          doc.text(fitLine(`${t(input.document.title)} · ${input.document.version} · ${statusLine}`, w - projectWidth - 12), PAGE.left, 34, { lineBreak: false })
+          if (project) doc.text(fitLine(project, projectWidth + 1), PAGE.left + w - projectWidth, 34, { lineBreak: false })
+          doc.save().moveTo(PAGE.left, 47).lineTo(PAGE.left + w, 47).lineWidth(0.5).strokeColor(LINE).stroke().restore()
+        }
+
+        const footerY = doc.page.height - 40
+        doc.font(FONT.body).fontSize(7.5).fillColor(FAINT)
+          .text(`Generated ${formatUtc(input.generatedAt)} · Export ${input.exportId}`, PAGE.left, footerY, { lineBreak: false })
         doc.font(FONT.body).fontSize(8).fillColor(MUTED)
-        const project = t(input.project?.shortTitle)
-        const projectWidth = project ? Math.min(doc.widthOfString(project), w * 0.3) : 0
-        doc.text(fitLine(`${t(input.document.title)} · ${input.document.version} · ${statusLine}`, w - projectWidth - 12), PAGE.left, 34, { lineBreak: false })
-        if (project) doc.text(fitLine(project, projectWidth + 1), PAGE.left + w - projectWidth, 34, { lineBreak: false })
-        doc.save().moveTo(PAGE.left, 47).lineTo(PAGE.left + w, 47).lineWidth(0.5).strokeColor(LINE).stroke().restore()
+          .text(`Page ${i + 1} of ${range.count}`, PAGE.left, footerY, { width: w, align: 'right', lineBreak: false })
+
+        // Listed last, once every character in the document has been seen.
+        if (i === noticeAt.page && missing.size > 0) {
+          // By code, since these are the very characters the font can't show.
+          const shown = [...missing].slice(0, 12).map(c => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(', ')
+          const more = missing.size > 12 ? ` and ${missing.size - 12} more` : ''
+          doc.font(FONT.bold).fontSize(9).fillColor('#B45309')
+            .text(`Some characters in this document can't be drawn in this PDF and appear as ${MISSING_MARK} (${shown}${more}). The Final Document screen shows them correctly.`, PAGE.left, noticeAt.y, { width: w, lineGap: 2 })
+        }
+
+        if (!signed) {
+          const cx = doc.page.width / 2
+          const cy = doc.page.height / 2
+          doc.save().rotate(-42, { origin: [cx, cy] }).opacity(0.13).font(FONT.bold).fontSize(52).fillColor('#475569')
+          doc.text(DRAFT_WATERMARK, cx - doc.widthOfString(DRAFT_WATERMARK) / 2, cy - 26, { lineBreak: false })
+          doc.restore()
+        }
+        doc.page.margins = margins
       }
 
-      const footerY = doc.page.height - 40
-      doc.font(FONT.body).fontSize(7.5).fillColor(FAINT)
-        .text(`Generated ${formatUtc(input.generatedAt)} · Export ${input.exportId}`, PAGE.left, footerY, { lineBreak: false })
-      doc.font(FONT.body).fontSize(8).fillColor(MUTED)
-        .text(`Page ${i + 1} of ${range.count}`, PAGE.left, footerY, { width: w, align: 'right', lineBreak: false })
-
-      // Listed last, once every character in the document has been seen.
-      if (i === noticeAt.page && missing.size > 0) {
-        // By code, since these are the very characters the font can't show.
-        const shown = [...missing].slice(0, 12).map(c => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`).join(', ')
-        const more = missing.size > 12 ? ` and ${missing.size - 12} more` : ''
-        doc.font(FONT.bold).fontSize(9).fillColor('#B45309')
-          .text(`Some characters in this document can't be drawn in this PDF and appear as ${MISSING_MARK} (${shown}${more}). The Final Document screen shows them correctly.`, PAGE.left, noticeAt.y, { width: w, lineGap: 2 })
-      }
-
-      if (!signed) {
-        const cx = doc.page.width / 2
-        const cy = doc.page.height / 2
-        doc.save().rotate(-42, { origin: [cx, cy] }).opacity(0.13).font(FONT.bold).fontSize(52).fillColor('#475569')
-        doc.text(DRAFT_WATERMARK, cx - doc.widthOfString(DRAFT_WATERMARK) / 2, cy - 26, { lineBreak: false })
-        doc.restore()
-      }
-      doc.page.margins = margins
     }
 
     doc.flushPages()
@@ -654,5 +681,17 @@ function renderOnce(input: FinalPdfInput, labels: PageLabels): Promise<FinalPdfR
 export async function renderFinalDocumentPdf(input: FinalPdfInput): Promise<FinalPdfResult> {
   const first = await renderOnce(input, new Map())
   const { pdf, pageCount, undrawableCharacters } = await renderOnce(input, first.labels)
+  return { pdf, pageCount, undrawableCharacters }
+}
+
+/** A Master Library copy as a PDF: the document's title and every section, with tables, lists and formatting laid
+ *  out as on the Final Document screen. No title page, compliance appendix or signature page; the library adds its
+ *  own per-reader watermark afterwards. */
+export async function renderLibraryDocumentPdf(input: { title: string; sections: Array<{ number: string; title: string; contentHtml: string | null }> }): Promise<FinalPdfResult> {
+  const { pdf, pageCount, undrawableCharacters } = await renderOnce({
+    layout: 'library', exportId: 'library', generatedAt: new Date(), generatedBy: '', mode: 'signed',
+    document: { id: '', title: input.title, version: '', statusLabel: '', signedAt: null },
+    project: null, sections: input.sections,
+  }, new Map())
   return { pdf, pageCount, undrawableCharacters }
 }

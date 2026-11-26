@@ -72,7 +72,7 @@ export const buildPlanSchema = z.object({
     budgetChars:   z.number().int().min(10_000).max(400_000).default(80_000),
   }).strict().optional(),
   rules: z.object({
-    /** 0 makes drafting as repeatable as the model allows. */
+    /** Accepted so signed packages still validate, but not sent: API version 2026-10-21 rejects temperature on every model. */
     temperature: z.number().min(0).max(1).optional(),
   }).strict().default({}),
 }).strict()

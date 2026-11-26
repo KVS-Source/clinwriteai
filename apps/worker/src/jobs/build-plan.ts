@@ -18,7 +18,7 @@ export interface BuildPlanForDraft {
   stages:      Array<{ key: string; label: string; sections: PlanSectionRef[]; rules?: { exampleWording?: boolean; noNewFacts?: boolean } }>
   builtByCode: Array<PlanSectionRef & { kind: string }>
   dependsOn:   Record<string, '*' | string[]>
-  rules:       { temperature?: number }
+  rules:       { temperature?: number }   // accepted from the package but not sent: the API no longer takes it
   factSheet?:  { fields: Array<{ key: string; label: string; hint?: string }> }
   sourcePages?: { allBelowPages: number; budgetChars: number }
   finishing?:  { crossReferences?: boolean; references?: boolean; abbreviations?: boolean; factConsistency?: boolean }

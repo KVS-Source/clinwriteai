@@ -165,7 +165,6 @@ async function draftSection(args: {
   sectionTemplateGuidance:     string | null
   /** From the build plan: the earlier sections this one is given, and the stage's rules (empty without a plan). */
   planBlock?:   string
-  temperature?: number
   apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
   abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
 }): Promise<{ contentHtml: string; engine: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
@@ -195,7 +194,6 @@ async function extractFactSheet(args: {
   sourceBlocks: SourceBlocks
   fields: Array<{ key: string; label: string; hint?: string }>
   indexed: IndexedSource[]
-  temperature?: number
   abortSignal?: AbortSignal
 }): Promise<{ facts: FactSheet['facts']; inputTokens: number; cachedTokens: number; outputTokens: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk')
@@ -203,7 +201,6 @@ async function extractFactSheet(args: {
   const message = await client.messages.create({
     model: args.model,
     max_tokens: 8000,
-    ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
     system: CACHED_SYSTEM,
     messages: [{ role: 'user', content: [...args.sourceBlocks.blocks, { type: 'text', text: factSheetPrompt(args.fields, args.indexed) }] }],
   }, { signal: args.abortSignal })
@@ -243,7 +240,6 @@ async function draftWithClaude(args: {
   sectionTemplateInstructions: string | null
   sectionTemplateGuidance:     string | null
   planBlock?:   string
-  temperature?: number
   abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
 }): Promise<{ html: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
@@ -340,7 +336,8 @@ async function draftWithClaude(args: {
   const message = await client.messages.create({
     model:      args.model,
     max_tokens: MAX_SECTION_OUTPUT_TOKENS,
-    ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
+    // No temperature: the SDK sends API version 2026-10-21, which rejects temperature / top_p / top_k
+    // on every model (400 "temperature: Extra inputs are not permitted"). A build plan's rules.temperature is ignored.
     system:     cached ? CACHED_SYSTEM : system,
     messages: [
       {
@@ -701,7 +698,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       try {
         const result = await extractFactSheet({
           apiKey, model: resolvedModel, sourceBlocks, fields: buildPlan.factSheet.fields, indexed,
-          temperature: buildPlan.rules.temperature, abortSignal: abortController.signal,
+          abortSignal: abortController.signal,
         })
         costGuard?.add({ model: resolvedModel, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens })
         factSheet = { extractedAt: new Date().toISOString(), model: resolvedModel, sourceIds: sourcePdfs.map(p => p.id), facts: result.facts }
@@ -873,7 +870,6 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         planBlock: buildPlan
           ? [factSheet ? factSheetBlock(factSheet) : '', markers, planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })].filter(Boolean).join('\n\n')
           : undefined,
-        temperature: buildPlan?.rules.temperature,
         sectionTemplateFormatRules,
         sectionTemplateInstructions,
         sectionTemplateGuidance,

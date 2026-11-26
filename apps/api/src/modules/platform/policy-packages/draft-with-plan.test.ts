@@ -109,7 +109,8 @@ describe('drafting with the Protocol build plan', () => {
     expect(prompt('7.1')).toContain('[XREF: <section number>]')
     expect(prompt('7.1')).toContain('1.3 Schedule of Activities')
     expect(prompt('2.1')).toContain('[REF: <first author surname> <year>')
-    expect(state.calls.every(c => c.temperature === 0)).toBe(true)
+    // The plan sets rules.temperature 0, but the API rejects temperature on every model: never sent.
+    expect(state.calls.every(c => !('temperature' in c) || c.temperature === undefined)).toBe(true)
   })
 
   it('a document created before the plan drafts every section in the template’s order, as before', async () => {

@@ -76,3 +76,6 @@ apps/web/src/api/openapi-types.ts
 
 # Redis snapshot (created when redis-server runs in the repo folder)
 dump.rdb
+
+# Claude Code machine-local state (scheduled task lock, agent working files)
+.claude/

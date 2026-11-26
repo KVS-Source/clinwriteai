@@ -25,6 +25,8 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
 import { catalogueEntry, type CatalogueEntry } from './catalogue.js'
+import { checkPlanAgainstTemplate, parseBuildPlan } from '../../platform/policy-packages/build-plan.js'
+import { templateSectionsOf } from '../../platform/policy-packages/package.js'
 
 const MAX_TEMPLATE_PDF_BYTES = 50 * 1024 * 1024    // 50 MB
 
@@ -190,6 +192,28 @@ export const documentTemplatesRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!row) return reply.code(404).send({ error: 'not_found' })
     return toApiShape(row as TemplateRow)
+  })
+
+  // GET /:id/plan-check — how the template fits its document type's AI build plan: sections the plan expects but
+  // the template lacks (title page, abbreviations …), and template sections the plan doesn't place. Warnings only;
+  // the Template Library shows them once a parsed template has its sections.
+  app.get('/:id/plan-check', { preHandler: requireAuth() }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const row = await app.prisma.documentTemplate.findUnique({ where: { id }, select: { id: true, type: true, sections: true } })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    const docType = row.type.replace(/-/g, '_')
+    const policy = await app.prisma.documentTypePolicy.findFirst({
+      where: { docType, isCurrent: true, retiredAt: null },
+      select: { version: true, buildPlan: true },
+    })
+    const plan = policy?.buildPlan != null ? parseBuildPlan(policy.buildPlan) : null
+    const sections = templateSectionsOf(row.sections)
+    if (!plan || !plan.ok) return { docType, plan: null, warnings: [] as string[] }
+    return {
+      docType,
+      plan: { label: plan.plan.label, policyVersion: policy!.version },
+      warnings: sections.length ? checkPlanAgainstTemplate(plan.plan, sections) : [],
+    }
   })
 
   // POST / — create a brand-new template row. Fails 409 if a current

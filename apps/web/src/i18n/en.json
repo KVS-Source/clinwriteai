@@ -662,6 +662,15 @@
       "scope_section": "section"
     },
     "ai_drafting_report_panel": {
+      "resume_title_failed": "The AI draft stopped with an error",
+      "resume_title_cancelled": "The AI draft was stopped",
+      "resume_kept": "{{drafted}} of {{total}} sections are drafted and kept.",
+      "resume_body": "Resume drafting picks up from the first section without text. Sections already drafted stay as they are and are given to the sections that depend on them; the study fact sheet is reused while the sources are the same.",
+      "resume_reason": "Last problem: {{reason}}",
+      "resume_button": "Resume drafting",
+      "resume_starting": "Starting…",
+      "resume_started": "Drafting resumed.",
+      "resume_blocked": "Drafting can’t start yet:",
       "loading": "Loading AI drafting report…",
       "no_activity_title": "No AI drafting activity",
       "no_activity_body": "This document wasn't drafted with AI. Create a new document from the \"Draft with AI\" opt-in in the New Document wizard to see the drafter + validator pipeline run.",
@@ -1162,6 +1171,13 @@
       "menu_soon_badge": "soon"
     },
     "new_document": {
+      "cost_title": "Estimated AI drafting cost",
+      "cost_loading": "Working out the estimate…",
+      "cost_unavailable": "No estimate is available for this document type right now.",
+      "cost_basis": "{{sections}} sections drafted by the AI, about {{minLow}}–{{minHigh}} minutes. A rough range from the sources’ size and the current AI prices; the actual cost is shown in AI Debug.",
+      "cost_rate_missing": "Shown in US dollars: no exchange rate is set for the install’s currency (Admin → Localisation).",
+      "cost_limit_label": "Cost limit (optional) {{currency}}",
+      "cost_limit_hint": "The draft pauses before it would go over this amount. A project manager can raise it in AI Debug, then resume. Leave empty for no limit.",
       "hidden_unreadable_one": "{{count}} source is hidden because the AI can’t read it (PowerPoint, Excel, image, old .doc, or a file that failed its check). Save it as PDF to use it.",
       "hidden_unreadable_other": "{{count}} sources are hidden because the AI can’t read them (PowerPoint, Excel, images, old .doc, or files that failed their check). Save them as PDF to use them.",
       "looks_like_example": "Looks like a sample or template. {{reason}}",

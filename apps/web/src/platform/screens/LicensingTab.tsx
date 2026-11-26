@@ -14,6 +14,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { platformApi, type LicenseView, type LicenseState } from '../api/platformApi'
 import { ApiError } from '../../api/client'
+import { PolicyPackageImport } from './PolicyPackageImport'
 
 const STATE_LABEL: Record<LicenseState, string> = {
   active:               'Active',
@@ -115,6 +116,8 @@ export function LicensingTab() {
           </button>
         </div>
       </section>
+
+      <PolicyPackageImport />
 
       {licenseQ.data?.publicKeySource === 'dev_fallback' && (
         <aside className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[11px] text-amber-900">

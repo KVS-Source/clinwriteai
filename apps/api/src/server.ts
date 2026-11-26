@@ -296,6 +296,8 @@ async function buildServer() {
   // the token on every GET so a tampered DB row doesn't widen trust.
   const { licenseRoutes } = await import('./modules/platform/licensing/routes.js')
   await app.register(licenseRoutes, { prefix: '/license' })
+  const { policyPackageRoutes } = await import('./modules/platform/policy-packages/routes.js')
+  await app.register(policyPackageRoutes, { prefix: '/policy-packages' })
 
   // Platform Settings (migration 93) — install-wide Branding + Localisation
   // edited on Settings → Branding and Settings → Localisation. Single row,

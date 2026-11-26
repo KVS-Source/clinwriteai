@@ -90,6 +90,19 @@ export interface SourceFileCheck {
   duplicateOf:      { id: string; title: string } | null
 }
 
+/** The AI drafting cost estimate (POST …/documents/cost-estimate). Amounts in `currency`. */
+export type CostEstimate =
+  | { enabled: false }
+  | { enabled: true; available: false }
+  | {
+      enabled: true; available: true
+      currency: string; rateMissing: boolean
+      low: number; high: number; lowUsd: number; highUsd: number
+      minutesLow: number; minutesHigh: number
+      model: string; rateCardVersion: string | null
+      basis: { sections: number; sourceTokens: number; perSectionSourceTokens: number; cached: boolean; validationPasses: [number, number] }
+    }
+
 /** New Document source check (POST …/documents/source-check). */
 export interface SourceCheckIssue {
   code:      string
@@ -223,6 +236,12 @@ export const documentsApi = {
     api.download(`/documents/${documentId}/final/pdf`),
   create: (projectId: string, body: CreateDocumentBody) =>
     api.post<Document>(`/projects/${projectId}/documents`, body),
+  /** The AI drafting cost estimate, when the document type's policy shows it. */
+  costEstimate: (projectId: string, body: { type: string; sources: Array<{ uploadId: string; role: SourceRole }> }) =>
+    api.post<CostEstimate>(`/projects/${projectId}/documents/cost-estimate`, body),
+  /** Set, raise or remove (null) a document's AI cost limit, in the install's currency. PMs only. */
+  setAiCostLimit: (documentId: string, amount: number | null) =>
+    api.put<{ limit: { amount: number; currency: string; usd: number } | null; spent: number; currency: string }>(`/documents/${documentId}/ai-cost-limit`, { amount }),
   /** Can these sources be drafted from, and what will be missing (shown before Create). */
   sourceCheck: (projectId: string, body: { type: string; sources: Array<{ uploadId: string; role: SourceRole }> }) =>
     api.post<SourceCheckResult>(`/projects/${projectId}/documents/source-check`, body),

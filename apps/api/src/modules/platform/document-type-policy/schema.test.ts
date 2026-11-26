@@ -104,3 +104,16 @@ describe('renderSectionRules', () => {
     expect(renderSectionRules('s9', digest, {})).toBe('')
   })
 })
+
+describe('reference style', () => {
+  it('a PM may set numbered or author-year, nothing else; leaving it out keeps the current one', async () => {
+    const { updatePolicySchema } = await import('./schema.js')
+    expect(updatePolicySchema.parse({ referenceStyle: 'author_year' })).toEqual({ referenceStyle: 'author_year' })
+    expect(updatePolicySchema.safeParse({ referenceStyle: 'apa' }).success).toBe(false)
+    expect(updatePolicySchema.parse({})).toEqual({})
+  })
+  it('a build plan can’t be set through the policy edit', async () => {
+    const { updatePolicySchema } = await import('./schema.js')
+    expect(updatePolicySchema.parse({ buildPlan: { stages: [] } })).toEqual({})
+  })
+})

@@ -23,6 +23,8 @@ import {
   type PreflightIssue,
 } from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
+import { documentsApi } from '../../api/documents'
+import { ResumeDraftCard } from './ResumeDraftCard'
 import {
   useAiDebugLayout,
   AI_DEBUG_COLLAPSED_PX,
@@ -127,6 +129,10 @@ interface DebugData {
   // writers can expand a section and see every source that was in
   // Claude's context when that section was produced.
   sectionDraftTraces?: DebugSectionTrace[]
+  /** The study fact sheet the sections were drafted with (build plan); null without one. */
+  factSheet?: DebugFactSheet | null
+  /** AI spend so far and the document's cost limit, in the install's currency. */
+  cost?: DebugCost
   draftSteps?:        DebugDraftStep[]
   buildSummary?:      DebugBuildSummary
   auditTail?:         DebugAudit[]
@@ -432,7 +438,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
     try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* no-op */ }
   }
   // The snapshot follows a running draft; it stops refreshing once the draft settles.
-  const { summary: draftStatus } = useAiDraftStatus(open ? documentId : undefined)
+  const { summary: draftStatus, data: draftStatusData } = useAiDraftStatus(open ? documentId : undefined)
   const { data, isLoading, error, refetch, isFetching } = useQuery<DebugData>({
     queryKey: ['ai-debug', documentId],
     queryFn:  () => aiDrafterApi.debug(documentId) as Promise<DebugData>,
@@ -640,6 +646,15 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
           {data && (
             <div className="flex flex-col gap-4 p-5">
 
+              {/* RESUME — a draft that failed or was stopped picks up where it left off, keeping what was drafted. */}
+              {(() => {
+                const p = data.preflight ?? preflightQ.data
+                const state = draftStatusData?.state ?? data.document?.aiDraftState ?? null
+                if (p && !p.ok) return null
+                if (state !== 'failed' && state !== 'cancelled') return null
+                return <ResumeDraftCard documentId={documentId} status={{ ...draftStatusData, state }} />
+              })()}
+
               {/* BLOCKERS — missing policy / checklist / sources / AI key.
                   Prefer the snapshot's inline preflight (always in sync with
                   the rest of the Setup card) and fall back to the dedicated
@@ -702,6 +717,20 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />
+
+              {/* COST — spent so far against the document's limit; a PM can change the limit */}
+              {data.cost && (data.cost.limit || data.cost.canSetLimit) && (
+                <Section title="AI cost">
+                  <CostLimitBox documentId={documentId} cost={data.cost} />
+                </Section>
+              )}
+
+              {/* STUDY FACT SHEET — the checked facts every section was drafted with */}
+              {data.factSheet && data.factSheet.facts.length > 0 && (
+                <Section title={`Study fact sheet (${data.factSheet.facts.filter(f => f.status === 'verified').length} of ${data.factSheet.facts.length} checked)`}>
+                  <FactSheetList sheet={data.factSheet} />
+                </Section>
+              )}
 
               {/* SETUP */}
               <Section title="Setup">
@@ -975,6 +1004,119 @@ function AiDebugDraftingFooter({
 }
 
 // ---- Sub-components ----------------------------------------------------
+
+interface DebugCost {
+  currency: string
+  rateMissing: boolean
+  spent: number
+  spentUsd: number
+  limit: { amount: number; usd: number } | null
+  /** Spent plus a call like the last one would pass the limit: the draft pauses before its next AI call. */
+  reached?: boolean
+  canSetLimit: boolean
+}
+
+/** Spent so far against the limit. A PM sets, raises or removes the limit; the draft pauses before passing it. */
+function CostLimitBox({ documentId, cost }: { documentId: string; cost: DebugCost }) {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState('')
+  const save = useMutation({
+    mutationFn: (amount: number | null) => documentsApi.setAiCostLimit(documentId, amount),
+    onSuccess: () => {
+      setDraft('')
+      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+    },
+  })
+  const money = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cost.currency}`
+  const amount = Number(draft)
+  const valid = draft.trim() !== '' && Number.isFinite(amount) && amount > 0
+  const reached = cost.reached ?? (!!cost.limit && cost.spent >= cost.limit.amount)
+  return (
+    <div className="text-[12px]" data-cost-limit>
+      <p className="text-slate-800">
+        Spent so far: <span className="font-semibold">{money(cost.spent)}</span>
+        {cost.limit ? <> of a <span className="font-semibold">{money(cost.limit.amount)}</span> limit</> : ' (no limit)'}
+      </p>
+      {reached && <p className="mt-1 text-amber-800" data-cost-limit-reached>The limit is reached: the draft pauses before its next AI call. Raise the limit, then Resume.</p>}
+      {cost.rateMissing && <p className="mt-1 text-[11px] text-slate-500">Shown in US dollars: no exchange rate is set for the install’s currency.</p>}
+      {cost.canSetLimit && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={draft}
+            onChange={e => setDraft(e.currentTarget.value)}
+            placeholder={cost.limit ? String(Math.ceil(cost.limit.amount * 1.5)) : 'Amount'}
+            aria-label={`New cost limit in ${cost.currency}`}
+            className="w-32 rounded-md border border-slate-300 px-2 py-1 text-[12px]"
+            data-field="new-cost-limit"
+          />
+          <button type="button" disabled={!valid || save.isPending} onClick={() => save.mutate(amount)}
+            className="rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50" data-action="save-cost-limit">
+            {cost.limit ? 'Change limit' : 'Set limit'}
+          </button>
+          {cost.limit && (
+            <button type="button" disabled={save.isPending} onClick={() => save.mutate(null)}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 disabled:opacity-50" data-action="remove-cost-limit">
+              Remove limit
+            </button>
+          )}
+          {save.isError && <span className="text-rose-700">Could not save the limit.</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface DebugFactSheet {
+  extractedAt: string
+  model: string
+  facts: Array<{
+    key: string; label: string; value: string; status: 'verified' | 'not_stated' | 'failed_check'
+    source?: { id: string; title: string; page: number | null }; quote?: string; reason?: string; claimed?: string
+  }>
+}
+
+/** Each fact with where it came from. Only checked facts reach the sections; the rest are [TBD] there. */
+function FactSheetList({ sheet }: { sheet: DebugFactSheet }) {
+  return (
+    <div>
+      <p className="mb-2 text-[11px] text-slate-500">
+        Extracted from the evidence sources on {new Date(sheet.extractedAt).toLocaleString()}. Each quote was looked up in its source by code;
+        only facts that passed are used, the rest are written as [TBD] in every section.
+      </p>
+      <ul className="flex flex-col gap-1.5" data-fact-sheet>
+        {sheet.facts.map(f => (
+          <li
+            key={f.key}
+            data-fact={f.key}
+            data-fact-status={f.status}
+            className={`rounded-md border px-2.5 py-1.5 text-[12px] ${
+              f.status === 'verified' ? 'border-slate-200 bg-white' : f.status === 'not_stated' ? 'border-slate-200 bg-slate-50' : 'border-amber-200 bg-amber-50'
+            }`}
+          >
+            <span className="font-semibold text-slate-900">{f.label}: </span>
+            <span className={f.status === 'verified' ? 'text-slate-800' : 'text-slate-500'}>
+              {f.status === 'verified' ? f.value : f.status === 'not_stated' ? '[TBD] not stated in the evidence' : '[TBD] failed the check'}
+            </span>
+            {f.source && (
+              <span className="block text-[11px] text-slate-500">
+                {f.source.title}{f.source.page ? `, page ${f.source.page}` : ''}{f.quote ? ` — “${f.quote}”` : ''}
+              </span>
+            )}
+            {f.status === 'failed_check' && (
+              <span className="block text-[11px] text-amber-800">
+                {f.claimed ? `The AI gave “${f.claimed}”. ` : ''}{f.reason}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

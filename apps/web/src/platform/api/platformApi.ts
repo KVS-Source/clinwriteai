@@ -555,6 +555,15 @@ export const platformApi = {
   importLicense: (token: string) =>
     api.post<LicenseView>(`/license/import`, { token }),
 
+  // --- Policy packages (migration 108) — signed by GenBioCa, imported by the admin (docs/policy-packages.md).
+  /** How a template fits its document type's AI build plan (warnings only). */
+  getTemplatePlanCheck: (templateId: string) =>
+    api.get<{ docType: string; plan: { label: string; policyVersion: number } | null; warnings: string[] }>(`/document-templates/${encodeURIComponent(templateId)}/plan-check`),
+  previewPolicyPackage: (pkg: string) =>
+    api.post<PolicyPackagePreview>(`/policy-packages/preview`, { package: pkg }),
+  importPolicyPackage: (pkg: string) =>
+    api.post<PolicyPackagePreview & { applied: Array<{ docType: string; version: number; policyId: string }> }>(`/policy-packages/import`, { package: pkg }),
+
   // --- Platform Settings — Branding + Localisation (migration 93) -----
   getPlatformSettings: () =>
     api.get<PlatformSettingsView>(`/platform-settings`),
@@ -1033,6 +1042,11 @@ export interface DocumentTypePolicy {
    *  doc-type convention map. */
   ichFrameworkNames:   string[]
   requirements:        PolicyRequirements
+  /** The AI build plan, imported from a GenBioCa policy package; null = none. Read-only. */
+  buildPlan?:          BuildPlanView | null
+  buildPlanSource?:    BuildPlanSourceView | null
+  referenceStyle?:     ReferenceStyle
+  costEstimateEnabled?: boolean
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1061,7 +1075,13 @@ export interface DocumentTypePolicyEditableFields {
   ichFramework?:        string | null
   ichFrameworkNames?:   string[]
   requirements?:        PolicyRequirements
+  referenceStyle?:      ReferenceStyle
+  /** Show the AI cost estimate (and an optional cost limit) at New Document. */
+  costEstimateEnabled?: boolean
 }
+
+/** How references are cited when code builds the References section. */
+export type ReferenceStyle = 'numbered' | 'author_year'
 
 export interface DocumentTypePolicyCreateBody extends DocumentTypePolicyEditableFields {
   docType:    string
@@ -1172,6 +1192,8 @@ export interface LocalisationSettings {
   dateFormat?: string                     // e.g. 'yyyy-MM-dd'
   timeFormat?: '24h' | '12h'
   currency?:   string                     // ISO-4217
+  /** 1 US dollar in `currency`: AI costs (billed in USD) are shown in the local currency with it. */
+  usdRate?:    number
 }
 
 // Migration 96: voice + sso sections. API keys for voice providers and
@@ -1709,3 +1731,33 @@ export interface DocumentTemplateCreateBody {
 }
 
 export type DocumentTemplateUpdateBody = Partial<Omit<DocumentTemplateCreateBody, 'type'>>
+
+/** What importing a policy package would change (POST /policy-packages/preview). */
+export interface PolicyPackagePreview {
+  ok:             boolean
+  packageId:      string
+  packageVersion: number
+  description:    string | null
+  issuedAt:       string | null
+  sha256:         string
+  items: Array<{
+    docType:        string
+    currentVersion: number | null
+    newVersion:     number
+    template:       { id: string; label: string; version: number } | null
+    stages:         Array<{ label: string; sections: number }>
+    errors:         string[]
+    warnings:       string[]
+  }>
+}
+
+/** A document type's AI build plan, as stored on its policy (read-only in the app). */
+export interface BuildPlanView {
+  label:  string
+  stages: Array<{ key: string; label: string; sections: Array<{ number: string; title: string }>; rules?: { exampleWording?: boolean; noNewFacts?: boolean } }>
+  builtByCode: Array<{ number: string; title: string; kind: string }>
+  dependsOn:   Record<string, '*' | string[]>
+}
+export interface BuildPlanSourceView {
+  packageId: string; packageVersion: number; sha256: string; importedAt: string; importedBy: string
+}

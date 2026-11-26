@@ -35,6 +35,10 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { buildSourceBlocks, inputUsage } from './source-blocks.js'
+import { asBuildPlan, headingNumbers } from './build-plan.js'
+import { asFactSheet, factSheetBlock, type FactSheet } from './fact-sheet.js'
+import { finishSafely } from './finishing-run.js'
+import { loadCostGuard } from './cost-guard.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
@@ -142,10 +146,13 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
     return { skipped: 'iteration_cap_reached', iteration }
   }
 
-  const rows = await prisma.sectionContent.findMany({
+  const allRows = await prisma.sectionContent.findMany({
     where: { documentVersionId: versionId },
     select: { id: true, sectionId: true, sectionNumber: true, contentHtml: true },
   })
+  // With a build plan, main headings and code-built sections are left empty on purpose: never flag or re-draft them.
+  const notDrafted = await sectionsNotDraftedByAi(prisma, documentId, job.data.type, allRows.map(r => r.sectionNumber))
+  const rows = allRows.filter(r => !notDrafted.has(r.sectionNumber.trim()))
   if (rows.length === 0) {
     log.warn({ documentId, versionId }, 'ai_validation_pass: no section_content rows — nothing to validate')
     await prisma.document.update({
@@ -177,6 +184,13 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
   let modelUsed: string | null = null
   const apiKey = await resolveAnthropicKey(prisma)
   const hasDraftedContent = rows.some(r => stripTags(r.contentHtml ?? '').length >= MIN_CONTENT_CHARS)
+  // The AI cost limit: pause before this pass's AI call would pass it (cost-guard.ts). Resume starts again here.
+  const costGuard = apiKey && hasDraftedContent ? await loadCostGuard(prisma, documentId) : null
+  if (costGuard?.reached) {
+    await prisma.document.update({ where: { id: documentId }, data: { aiDraftState: 'paused' } }).catch(() => undefined)
+    await steps.emit('job_paused', costGuard.describe(), { details: { reason: 'cost_limit', spentUsd: costGuard.spentUsd, limitUsd: costGuard.limitUsd, iteration } })
+    return { documentId, iteration, paused: 'cost_limit' }
+  }
   if (apiKey && hasDraftedContent) {
     try {
       const project = await prisma.project.findUnique({
@@ -191,7 +205,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
       // Japanese prose as off-template).
       const docRow = await prisma.document.findUnique({
         where:  { id: documentId },
-        select: { aiInstructions: true },
+        select: { aiInstructions: true, factSheet: true },
       })
       const aiInstructions = docRow?.aiInstructions?.trim() || null
       const { flags: aiFlagged, inputTokens: inTok, outputTokens: outTok } = await runLlmChecks({
@@ -201,6 +215,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         sections:  rows.map(r => ({ id: r.sectionId, html: r.contentHtml ?? '' })),
         sourcePdfs,
         aiInstructions,
+        factSheet: asFactSheet(docRow?.factSheet),
       })
       for (const flag of aiFlagged) {
         const bucket = flagsBySection.get(flag.sectionId)
@@ -283,6 +298,10 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         confidenceOverall, modelUsed, willStop: stop,
       },
     })
+
+  // The last pass: the build plan's finishing in code (cross-references, references, abbreviations, fact
+  // consistency), before the document is marked complete so nobody edits a section while code rewrites it.
+  if (stop) await finishSafely({ prisma, log }, { documentId, versionId, docType: job.data.type, actorId: job.data.actorId, steps })
 
   // --- Persist document roll-up + log this pass -------------------------
   const nextState: 'validating' | 'complete' = stop ? 'complete' : 'validating'
@@ -454,6 +473,8 @@ async function runLlmChecks(args: {
   sections:   Array<{ id: string; html: string }>
   sourcePdfs: SourcePdfPayload[]
   aiInstructions: string | null
+  /** The study fact sheet the sections were drafted with, when there is one. */
+  factSheet?: FactSheet | null
 }): Promise<{ flags: AiCheckFlag[]; inputTokens: number; outputTokens: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
@@ -482,6 +503,9 @@ async function runLlmChecks(args: {
     ...(args.sourcePdfs.some(p => p.example)
       ? [`  5. Facts from examples: a fact that appears only in an EXAMPLE source and not in any EVIDENCE source is an unsupported claim.`, EXAMPLE_SOURCES_RULE]
       : []),
+    ...(args.factSheet
+      ? [`  6. Study facts: a value that contradicts the STUDY FACT SHEET in the request, or a [TBD] fact filled in with a value, is an unsupported claim.`]
+      : []),
     `Return ONLY a JSON array of { "sectionId": "...", "reason": "short issue summary" } for sections that need revision.`,
     `Return an EMPTY array ("[]") if every section passes. No prose before or after. No code fences.`,
     authorBlock,
@@ -497,6 +521,7 @@ async function runLlmChecks(args: {
     `Attached sources (reference for the source-consistency check):`,
     args.sourcePdfs.length === 0 ? '(none)' : args.sourcePdfs.map(p => `- ${p.title}${p.example ? ' (EXAMPLE: structure and wording only, no facts)' : ' (EVIDENCE)'}`).join('\n'),
     ``,
+    ...(args.factSheet ? [factSheetBlock(args.factSheet), ``] : []),
     `Draft sections to review:`,
     sectionList,
     ``,
@@ -549,4 +574,22 @@ async function runLlmChecks(args: {
     })
   }
   return { flags: out, inputTokens, outputTokens }
+}
+
+/** Section numbers the document's build plan keeps out of AI drafting (main headings, code-built); empty without a plan. */
+async function sectionsNotDraftedByAi(
+  prisma: Parameters<JobHandler>[1]['prisma'],
+  documentId: string,
+  docType: string,
+  numbers: string[],
+): Promise<Set<string>> {
+  const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { policyVersionAtCreate: true } }).catch(() => null)
+  if (doc?.policyVersionAtCreate == null) return new Set()
+  const row = await prisma.documentTypePolicy.findUnique({
+    where:  { docType_version: { docType: docType.replace(/-/g, '_'), version: doc.policyVersionAtCreate } },
+    select: { buildPlan: true },
+  }).catch(() => null)
+  const plan = asBuildPlan(row?.buildPlan ?? null)
+  if (!plan) return new Set()
+  return new Set([...headingNumbers(numbers), ...plan.builtByCode.map(s => s.number)])
 }

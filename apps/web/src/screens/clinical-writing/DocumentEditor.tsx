@@ -1557,7 +1557,7 @@ function DocumentEditorInner() {
               />
             )}
             {activePanel === 'ai-drafting-report' && (
-              <AiDraftingReportPanel status={aiDraft.data} loading={aiDraft.isLoading} />
+              <AiDraftingReportPanel status={aiDraft.data} loading={aiDraft.isLoading} documentId={documentId} />
             )}
             {activePanel === 'protocol-metadata' && documentId && (
               <ProtocolMetadataPanel

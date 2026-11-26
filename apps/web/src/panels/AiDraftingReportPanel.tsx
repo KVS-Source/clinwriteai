@@ -24,6 +24,7 @@
 import { useTranslation } from 'react-i18next'
 import type { AiDraftStatusResponse, AiDraftState } from '../api/ai-drafter'
 import { useDocumentStore } from '../store'
+import { ResumeDraftCard } from '../components/ai-drafter/ResumeDraftCard'
 
 const STATE_LABEL_KEYS: Record<AiDraftState, string> = {
   pending:    'page.ai_drafting_report_panel.state_queued',
@@ -78,9 +79,11 @@ const FLAG_LABEL_KEYS: Record<string, string> = {
 interface Props {
   status:   AiDraftStatusResponse | undefined
   loading:  boolean
+  /** Lets a failed or stopped draft be resumed from here. */
+  documentId?: string
 }
 
-export function AiDraftingReportPanel({ status, loading }: Props) {
+export function AiDraftingReportPanel({ status, loading, documentId }: Props) {
   const { t } = useTranslation()
   const activeSection = useDocumentStore(s => s.activeSection)
 
@@ -117,6 +120,11 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
 
   return (
     <div className="flex-1 overflow-y-auto">
+      {documentId && (status.state === 'failed' || status.state === 'cancelled') && (
+        <div className="border-b border-slate-200 px-5 py-4">
+          <ResumeDraftCard documentId={documentId} status={status} />
+        </div>
+      )}
       {/* Headline block */}
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex items-center gap-2">

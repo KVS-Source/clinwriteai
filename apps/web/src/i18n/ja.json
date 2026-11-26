@@ -754,6 +754,15 @@
     },
 
     "ai_drafting_report_panel": {
+      "resume_title_failed": "AI ドラフト作成がエラーで停止しました",
+      "resume_title_cancelled": "AI ドラフト作成は停止されました",
+      "resume_kept": "{{total}} セクション中 {{drafted}} セクションはドラフト済みで、そのまま保持されます。",
+      "resume_body": "「ドラフト作成を再開」すると、テキストのない最初のセクションから再開します。ドラフト済みのセクションはそのまま保持され、それに依存するセクションに渡されます。ソースが同じであれば試験ファクトシートも再利用されます。",
+      "resume_reason": "直近の問題: {{reason}}",
+      "resume_button": "ドラフト作成を再開",
+      "resume_starting": "開始しています…",
+      "resume_started": "ドラフト作成を再開しました。",
+      "resume_blocked": "まだドラフト作成を開始できません:",
       "loading":                 "AI ドラフト レポートを読み込み中…",
       "no_activity_title":       "AI ドラフト活動はありません",
       "no_activity_body":        "このドキュメントは AI でドラフトされていません。新規ドキュメント ウィザードの「AI でドラフト」オプトインから作成すると、ドラフター + バリデーター パイプラインの実行を確認できます。",
@@ -1274,6 +1283,13 @@
     },
 
     "new_document": {
+      "cost_title": "AI ドラフト作成の推定コスト",
+      "cost_loading": "見積もりを計算しています…",
+      "cost_unavailable": "現在、この文書タイプの見積もりはありません。",
+      "cost_basis": "AI がドラフトするセクションは {{sections}} 件、約 {{minLow}}～{{minHigh}} 分です。ソースの量と現在の AI 料金に基づく概算で、実際のコストは AI Debug に表示されます。",
+      "cost_rate_missing": "米ドルで表示しています。インストールの通貨の為替レートが設定されていません（管理 → ローカライズ）。",
+      "cost_limit_label": "コスト上限（任意） {{currency}}",
+      "cost_limit_hint": "この金額を超える前にドラフト作成が一時停止します。プロジェクトマネージャーは AI Debug で上限を引き上げてから再開できます。上限なしの場合は空欄のままにしてください。",
       "hidden_unreadable_one": "AI が読み取れないため、{{count}} 件のソースを非表示にしています（PowerPoint、Excel、画像、旧形式 .doc、またはチェックに失敗したファイル）。使用するには PDF で保存してください。",
       "hidden_unreadable_other": "AI が読み取れないため、{{count}} 件のソースを非表示にしています（PowerPoint、Excel、画像、旧形式 .doc、またはチェックに失敗したファイル）。使用するには PDF で保存してください。",
       "looks_like_example": "サンプルまたはテンプレートのようです。{{reason}}",

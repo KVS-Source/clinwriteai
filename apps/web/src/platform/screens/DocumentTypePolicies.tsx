@@ -26,6 +26,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import {
   platformApi,
+  type BuildPlanView,
+  type BuildPlanSourceView,
+  type ReferenceStyle,
   type DocumentTypePolicy,
   type BestPracticeDigest,
   type AiPromptRecord,
@@ -401,6 +404,20 @@ function AssociationsPanel({
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
+  const saveReferenceStyle = useMutation({
+    mutationFn: (referenceStyle: ReferenceStyle) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { referenceStyle }),
+    onSuccess: () => { setActionInfo('Reference style saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
+  const saveCostEstimate = useMutation({
+    mutationFn: (costEstimateEnabled: boolean) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { costEstimateEnabled }),
+    onSuccess: () => { setActionInfo('Cost estimate setting saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const saveIchPins = useMutation({
     mutationFn: (names: string[]) =>
       platformApi.updateDocumentTypePolicy(policy.docType, { ichFrameworkNames: names }),
@@ -478,6 +495,50 @@ function AssociationsPanel({
         onChange={next => saveRequirements.mutate(next)}
       />
 
+      <section className="rounded-md border border-slate-200 bg-white p-3" data-section="reference-style">
+        <h3 className="text-[13px] font-semibold text-slate-900">Reference style</h3>
+        <p className="mt-1 text-[12px] text-slate-500">
+          How the AI drafter&rsquo;s references are cited when the References section is built. Only references found in the evidence sources are listed.
+        </p>
+        <div className="mt-2 flex gap-4 text-[12px] text-slate-800" role="radiogroup" aria-label="Reference style">
+          {([['numbered', 'Numbered: [1], listed in order of first use'], ['author_year', 'Author-year: (Smith 2021), listed alphabetically']] as const).map(([value, label]) => (
+            <label key={value} className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name={`reference-style-${policy.docType}`}
+                checked={(policy.referenceStyle ?? 'numbered') === value}
+                disabled={saveReferenceStyle.isPending}
+                onChange={() => saveReferenceStyle.mutate(value)}
+                data-reference-style={value}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-md border border-slate-200 bg-white p-3" data-section="cost-estimate">
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={policy.costEstimateEnabled ?? false}
+            disabled={saveCostEstimate.isPending}
+            onChange={e => saveCostEstimate.mutate(e.currentTarget.checked)}
+            data-field="cost-estimate-enabled"
+          />
+          <span>
+            <span className="block text-[13px] font-semibold text-slate-900">Show the AI cost estimate at New Document</span>
+            <span className="block text-[12px] text-slate-500">
+              The project manager sees the estimated AI drafting cost and may set a cost limit for the document. The draft pauses
+              when it would pass the limit; the limit can be raised in AI Debug, then the draft resumed.
+            </span>
+          </span>
+        </label>
+      </section>
+
+      <BuildPlanCard plan={policy.buildPlan ?? null} source={policy.buildPlanSource ?? null} />
+
       <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">
         <p className="font-mono text-[10px] text-slate-400">
           Policy created {new Date(policy.createdAt).toLocaleDateString()} · last updated {new Date(policy.updatedAt).toLocaleDateString()} by {policy.updatedBy}
@@ -493,6 +554,46 @@ function AssociationsPanel({
         </button>
       </footer>
     </div>
+  )
+}
+
+/**
+ * The AI build plan of this document type: the order its sections are drafted in. Read-only: it comes from a
+ * policy package signed by GenBioCa and imported by the admin under Admin → Licensing (docs/policy-packages.md).
+ */
+function BuildPlanCard({ plan, source }: { plan: BuildPlanView | null; source: BuildPlanSourceView | null }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-3" data-section="build-plan">
+      <h3 className="text-[13px] font-semibold text-slate-900">AI build plan</h3>
+      {!plan ? (
+        <p className="mt-1 text-[12px] text-slate-500">
+          No build plan: the AI drafts every section in the template’s order. A plan arrives in a policy package from GenBioCa.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-[12px] text-slate-600">
+            {plan.label}. Set by GenBioCa{source ? ` (package ${source.packageId} v${source.packageVersion}, imported ${new Date(source.importedAt).toLocaleDateString()})` : ''}; it can’t be edited here.
+            Main headings keep the template heading and are not drafted.
+          </p>
+          <ol className="mt-2 flex flex-col gap-1.5 text-[12px]">
+            {plan.stages.map((stage, i) => (
+              <li key={stage.key} data-plan-stage={stage.key}>
+                <span className="font-medium text-slate-900">{i + 1}. {stage.label}</span>
+                {stage.rules?.noNewFacts && <span className="ml-1 text-[11px] text-slate-500">(only facts from earlier sections)</span>}
+                {stage.rules?.exampleWording && <span className="ml-1 text-[11px] text-slate-500">(standard wording from examples allowed)</span>}
+                <span className="block text-[11px] text-slate-500">{stage.sections.map(s => `${s.number} ${s.title}`).join(' · ')}</span>
+              </li>
+            ))}
+            {plan.builtByCode.length > 0 && (
+              <li data-plan-stage="built-by-code">
+                <span className="font-medium text-slate-900">{plan.stages.length + 1}. Built by code after drafting</span>
+                <span className="block text-[11px] text-slate-500">{plan.builtByCode.map(s => `${s.number} ${s.title}`).join(' · ')}</span>
+              </li>
+            )}
+          </ol>
+        </>
+      )}
+    </section>
   )
 }
 

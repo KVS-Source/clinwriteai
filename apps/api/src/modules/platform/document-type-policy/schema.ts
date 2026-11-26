@@ -85,6 +85,10 @@ export const createPolicySchema = z.object({
   ichFramework:        z.string().max(80).optional().nullable(),   // DEPRECATED — see ichFrameworkNames
   ichFrameworkNames:   z.array(z.string().min(1).max(80)).max(20).optional(),
   requirements:        policyRequirementsSchema.optional(),
+  /** How references are cited when code builds the References section (migration 110). */
+  referenceStyle:      z.enum(['numbered', 'author_year']).optional(),
+  /** Show the AI cost estimate (and an optional limit) at New Document (migration 111). */
+  costEstimateEnabled: z.boolean().optional(),
 })
 
 /** Default SME-prompt placeholder used on `create` when the admin opts

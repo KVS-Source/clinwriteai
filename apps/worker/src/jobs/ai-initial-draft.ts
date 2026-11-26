@@ -33,6 +33,13 @@ import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind, type SourceRole } from './source-files.js'
+import { asBuildPlan, earlierSectionsFor, orderByPlan, planPromptBlock, type PlannedSection } from './build-plan.js'
+import { asFactSheet, factSheetBlock, factSheetPrompt, indexSources, parseFactAnswer, sameSources, verifyFacts, type FactSheet, type IndexedSource } from './fact-sheet.js'
+import { pageBlocks, rankPages, scannedPages } from './source-pages.js'
+import { markerInstructions } from './finishing.js'
+import { finishSafely } from './finishing-run.js'
+import { loadCostGuard } from './cost-guard.js'
+import { onlyPages } from './source-blocks.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
@@ -156,6 +163,8 @@ async function draftSection(args: {
   sectionTemplateFormatRules:  string | null
   sectionTemplateInstructions: string | null
   sectionTemplateGuidance:     string | null
+  /** From the build plan: the earlier sections this one is given, and the stage's rules (empty without a plan). */
+  planBlock?:   string
   apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
   abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
 }): Promise<{ contentHtml: string; engine: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
@@ -168,6 +177,42 @@ async function draftSection(args: {
   // text is never written into a document as if it were a draft.
   const result = await draftWithClaude(args)
   return { contentHtml: result.html, engine: args.model, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens, usedSources: result.usedSources, promptChars: result.promptChars }
+}
+
+const countFacts = (sheet: FactSheet) => {
+  const n = (s: string) => sheet.facts.filter(f => f.status === s).length
+  return `${n('verified')} of ${sheet.facts.length} facts found and checked, ${n('not_stated')} not stated in the evidence, ${n('failed_check')} failed the check (left as [TBD])`
+}
+
+/**
+ * The study facts, in one call over all the sources (the same cached blocks the sections reuse when every file is
+ * sent), then checked in code against the sources' text (fact-sheet.ts verifyFacts).
+ */
+async function extractFactSheet(args: {
+  apiKey: string
+  model: string
+  sourceBlocks: SourceBlocks
+  fields: Array<{ key: string; label: string; hint?: string }>
+  indexed: IndexedSource[]
+  abortSignal?: AbortSignal
+}): Promise<{ facts: FactSheet['facts']; inputTokens: number; cachedTokens: number; outputTokens: number }> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk')
+  const client = new Anthropic({ apiKey: args.apiKey })
+  const message = await client.messages.create({
+    model: args.model,
+    max_tokens: 8000,
+    system: CACHED_SYSTEM,
+    messages: [{ role: 'user', content: [...args.sourceBlocks.blocks, { type: 'text', text: factSheetPrompt(args.fields, args.indexed) }] }],
+  }, { signal: args.abortSignal })
+  const text = message.content.map(b => (b.type === 'text' ? (b as { type: 'text'; text: string }).text : '')).join('\n')
+  const answers = parseFactAnswer(text)
+  if (answers.length === 0) throw new Error('the answer had no facts in the expected form')
+  const { inputTokens, cachedTokens } = inputUsage(message.usage)
+  return {
+    facts: verifyFacts(args.fields, answers, args.indexed),
+    inputTokens, cachedTokens,
+    outputTokens: typeof message.usage?.output_tokens === 'number' ? message.usage.output_tokens : 0,
+  }
 }
 
 /** Dev/CI only: AI_ALLOW_STUB=1 lets the placeholder drafter run. Off by default. */
@@ -194,6 +239,7 @@ async function draftWithClaude(args: {
   sectionTemplateFormatRules:  string | null
   sectionTemplateInstructions: string | null
   sectionTemplateGuidance:     string | null
+  planBlock?:   string
   abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
 }): Promise<{ html: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
@@ -281,6 +327,7 @@ async function draftWithClaude(args: {
   const userPrompt =
     `Draft section ${args.section.number} "${args.section.title}" of a ${args.docType}.\n\n` +
     `Attached sources:\n${sourceList}\n\n` +
+    (args.planBlock ? `${args.planBlock}\n\n` : '') +
     (usageInstruction ? `${usageInstruction}\n\nApart from that comment, return HTML only.` : `Return HTML only.`)
 
   // Long sources are cached between sections, which needs everything before them to be identical in every call: the
@@ -289,6 +336,8 @@ async function draftWithClaude(args: {
   const message = await client.messages.create({
     model:      args.model,
     max_tokens: MAX_SECTION_OUTPUT_TOKENS,
+    // No temperature: the SDK sends API version 2026-10-21, which rejects temperature / top_p / top_k
+    // on every model (400 "temperature: Extra inputs are not permitted"). A build plan's rules.temperature is ignored.
     system:     cached ? CACHED_SYSTEM : system,
     messages: [
       {
@@ -437,6 +486,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     select: {
       aiInstructions:       true,
       policyVersionAtCreate: true,
+      factSheet:            true,
       aiPromptRecordId:     true,
       bestPracticeRecordId: true,
     },
@@ -466,6 +516,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       `No DocumentTypePolicy resolved for '${type}' — drafter falls back to template-only guidance.`, {})
   }
 
+  // --- The build plan of the policy version the document was created with -----
+  // Documents created before a plan was imported (or of a type without one) draft as before.
+  const planRow = docRow?.policyVersionAtCreate != null
+    ? await prisma.documentTypePolicy.findUnique({
+        where:  { docType_version: { docType: type.replace(/-/g, '_'), version: docRow.policyVersionAtCreate } },
+        select: { buildPlan: true },
+      }).catch(() => null)
+    : null
+  const buildPlan = asBuildPlan(planRow?.buildPlan ?? null)
+
   // --- Load the template -------------------------------------------------
   const template = await prisma.documentTemplate.findFirst({
     where: { type, isCurrent: true, retiredAt: null },
@@ -489,6 +549,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // to the full set for the initial draft.
   const targetSet = targetSectionIds && targetSectionIds.length > 0 ? new Set(targetSectionIds) : null
   const sections = targetSet ? allSections.filter(s => targetSet.has(s.id)) : allSections
+  // Drafting order: the plan's stages, or the template's order when there is no plan.
+  const planned: Array<PlannedSection<SectionTemplate>> = buildPlan
+    ? orderByPlan(allSections, buildPlan)
+    : allSections.map(section => ({ section, stageKey: 'template', stageLabel: 'Template order', mode: 'draft' as const, dependsOn: [], rules: {} }))
+  if (buildPlan) {
+    await steps.emit('prompt_assembled',
+      `Build plan “${buildPlan.label}”: ${buildPlan.stages.length} stages. ${planned.filter(p => p.mode === 'draft').length} sections are drafted in the plan's order, ${planned.filter(p => p.mode === 'heading').length} main headings keep the template heading, ${planned.filter(p => p.mode === 'code').length} are built by code.`, {
+        details: { plan: buildPlan.label, stages: buildPlan.stages.map(s => s.label), order: planned.filter(p => p.mode === 'draft').map(p => p.section.number) },
+      })
+  }
 
   // --- Load the sources (metadata) --------------------------------------
   const sources: SourceSummary[] = sourceUploadIds.length === 0
@@ -596,6 +666,93 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       })
   }
 
+  // --- AI cost limit (set by the PM at New Document) --------------------------
+  // Before each AI call: would what has been spent plus a call like the last one pass the limit? Then pause.
+  const costGuard = await loadCostGuard(prisma, documentId)
+  const pauseForCost = async (drafted: number) => {
+    await prisma.document.update({ where: { id: documentId }, data: { aiDraftState: 'paused' } }).catch(() => undefined)
+    log.info({ documentId, spentUsd: costGuard!.spentUsd, limitUsd: costGuard!.limitUsd }, 'ai_initial_draft: cost limit reached — paused')
+    await steps.emit('job_paused', costGuard!.describe(), {
+      details: { reason: 'cost_limit', spentUsd: costGuard!.spentUsd, limitUsd: costGuard!.limitUsd, drafted },
+    })
+  }
+
+  // --- Study fact sheet and the page index (build plan) ---------------------
+  // The facts every section must use, extracted once from the evidence with quotes that code checks; and, for long
+  // sources, each section's relevant pages. Neither stops the draft: without them it drafts from the sources as above.
+  let factSheet: FactSheet | null = null
+  let indexed: IndexedSource[] | null = null
+  if (buildPlan && apiKey && sourcePdfs.length > 0 && (buildPlan.factSheet || buildPlan.sourcePages)) {
+    indexed = await indexSources(sourcePdfs.map(p => ({ id: p.id, title: p.title, bytes: p.bytes, text: p.text, example: isExample(p.role) })))
+  }
+  if (buildPlan?.factSheet && apiKey && indexed) {
+    const stored = asFactSheet(docRow?.factSheet)
+    if (sameSources(stored, sourcePdfs.map(p => p.id))) {
+      factSheet = stored
+      await steps.emit('prompt_assembled', `Study fact sheet reused from the earlier run: ${countFacts(stored!)}.`, { details: { factSheet: 'reused' } })
+    } else {
+      if (costGuard?.reached) {
+        await pauseForCost(0)
+        return { documentId, sectionsTotal: sections.length, drafted: 0, skipped: 0, errored: [] }
+      }
+      try {
+        const result = await extractFactSheet({
+          apiKey, model: resolvedModel, sourceBlocks, fields: buildPlan.factSheet.fields, indexed,
+          abortSignal: abortController.signal,
+        })
+        costGuard?.add({ model: resolvedModel, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens })
+        factSheet = { extractedAt: new Date().toISOString(), model: resolvedModel, sourceIds: sourcePdfs.map(p => p.id), facts: result.facts }
+        await prisma.document.update({ where: { id: documentId }, data: { factSheet: factSheet as unknown as object } })
+        await steps.emit('prompt_assembled', `Study fact sheet: ${countFacts(factSheet)}. Every section uses these values.`, {
+          details: {
+            model: resolvedModel, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens,
+            failed: factSheet.facts.filter(f => f.status === 'failed_check').map(f => ({ fact: f.label, reason: f.reason })),
+          },
+        })
+      } catch (err) {
+        if (abortController.signal.aborted) {
+          await steps.emit('job_cancelled', 'Writer stopped the draft while the study fact sheet was being made.', {})
+          return { documentId, sectionsTotal: sections.length, drafted: 0, skipped: 0, errored: [] }
+        }
+        const message = err instanceof Error ? err.message : String(err)
+        log.warn({ documentId, err: message }, 'ai_initial_draft: fact sheet failed — drafting without it')
+        await steps.emit('warning', `The study fact sheet could not be made (${message.slice(0, 200)}). Sections are drafted from the sources without it.`, { details: { err: message } })
+      }
+    }
+  }
+  const totalPages = indexed?.reduce((n, s) => n + s.pages.length, 0) ?? 0
+  const pagesMode = !!(buildPlan?.sourcePages && indexed && totalPages > buildPlan.sourcePages.allBelowPages)
+  // In pages mode, pages without text can't be matched to a section: they go to every section as PDF pages, the same
+  // block each time so it is cached. Over Claude's limit they are left out and the writer is told.
+  const scannedBlocks: SourceBlocks['blocks'] = []
+  if (pagesMode && indexed) {
+    const total = indexed.reduce((n, s) => n + scannedPages(s).length, 0)
+    if (total > 0 && total <= 100) {
+      for (const s of indexed) {
+        const pages = scannedPages(s)
+        const pdf = sourcePdfs[s.no - 1]!
+        if (!pages.length || pdf.text !== undefined) continue
+        const bytes = await onlyPages(pdf.bytes, pages.map(p => p - 1)).catch(() => null)
+        if (bytes) scannedBlocks.push({ type: 'document', title: `${isExample(pdf.role) ? 'EXAMPLE ONLY, not this study: ' : ''}${s.title} (its pages ${pages.join(', ')}, no text)`.slice(0, 480), source: { type: 'base64', media_type: 'application/pdf', data: bytes.toString('base64') } })
+      }
+      if (scannedBlocks.length) scannedBlocks[scannedBlocks.length - 1]!.cache_control = { type: 'ephemeral' }
+    } else if (total > 100) {
+      await steps.emit('warning', `${total} source pages have no text (scans). Too many to send with every section, so they are left out; their content will be [TBD]. Upload searchable PDFs to include them.`, { details: { scannedPages: total } })
+    }
+    await steps.emit('prompt_assembled', `Sources have ${totalPages} pages, so each section gets only its relevant pages (up to about ${Math.round(buildPlan!.sourcePages!.budgetChars / 3.5 / 1000)}k tokens), plus the study fact sheet.`, {
+      details: { totalPages, budgetChars: buildPlan!.sourcePages!.budgetChars },
+    })
+  }
+  // Cross-references and references as markers that code resolves after drafting (finishing.ts).
+  const markers = buildPlan?.finishing ? markerInstructions(buildPlan.finishing, allSections.map(s => ({ number: s.number, title: s.title }))) : ''
+
+  /** What a section is sent from the sources: every file, or (pages mode) its relevant pages. */
+  const blocksFor = (title: string, context: string): SourceBlocks => {
+    if (!pagesMode || !indexed) return sourceBlocks
+    const refs = rankPages(indexed, title, buildPlan!.sourcePages!.budgetChars, context)
+    return { blocks: [...scannedBlocks, ...pageBlocks(indexed, refs)], cached: scannedBlocks.length > 0, asText: [], pages: totalPages }
+  }
+
   // --- Load the SectionContent rows the API seeded for this version ------
   // templateFormatRules is the per-section NL formatting snapshot pinned
   // at document-create time (migration 91, flipped from JSON in 90).
@@ -621,7 +778,28 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // --- Draft each section ------------------------------------------------
   const report: Report = { drafted: 0, skipped: 0, errored: [] }
 
-  for (const sec of sections) {
+  // Each section's current text, so a section can be given the earlier sections it depends on.
+  const contentById = new Map(existing.map(e => [e.sectionId, e.contentHtml]))
+  let lastStage: string | null = null
+  for (const [planIndex, item] of planned.entries()) {
+    const sec = item.section
+    if (targetSet && !targetSet.has(sec.id)) continue
+    if (item.mode !== 'draft') {
+      if (!targetSet) {
+        await steps.emit('section_skipped',
+          item.mode === 'heading'
+            ? `§${sec.number} ${sec.title} — main heading, kept as in the template.`
+            : `§${sec.number} ${sec.title} — built by code after drafting, not by the AI.`, {
+            sectionId: sec.id,
+            details:   { reason: item.mode === 'heading' ? 'main_heading' : 'built_by_code' },
+          })
+      }
+      continue
+    }
+    if (buildPlan && item.stageKey !== lastStage) {
+      lastStage = item.stageKey
+      await steps.emit('prompt_assembled', `Stage: ${item.stageLabel}.`, { details: { stage: item.stageKey } })
+    }
     // Co-operative cancellation / pause check — writer hit Stop (→
     // 'cancelled') or Pause (→ 'paused') on the toast. Both exit the
     // loop at the section boundary; the difference is intent — pause
@@ -665,12 +843,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     // existing content failed a check and should be rewritten).
     if (!targetSet && row.contentHtml && row.contentHtml.trim().length > 0) {
       await steps.emit('section_skipped',
-        `Skipped §${sec.number} ${sec.title} — writer already filled it in.`, {
+        `Kept §${sec.number} ${sec.title} as it is — it already has text (drafted earlier or written by the writer).`, {
           sectionId: sec.id,
           details:   { reason: 'writer_edit', existingChars: row.contentHtml.length },
         })
       report.skipped++
       continue
+    }
+    if (costGuard?.reached) {
+      await pauseForCost(report.drafted)
+      return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
     }
     try {
       await steps.emit('section_start',
@@ -683,7 +865,11 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       const sectionTemplateGuidance     = row.templateGuidance     ?? null
       const sectionStartMs = Date.now()
       const { contentHtml, engine, inputTokens, cachedTokens, outputTokens, usedSources, promptChars } = await draftSection({
-        section: sec, sources, sourcePdfs, sourceBlocks, docType: type, model: resolvedModel, aiInstructions, policy,
+        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
+        sourceBlocks: blocksFor(sec.title, `${sectionTemplateInstructions ?? ''} ${sectionTemplateGuidance ?? ''}`),
+        planBlock: buildPlan
+          ? [factSheet ? factSheetBlock(factSheet) : '', markers, planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })].filter(Boolean).join('\n\n')
+          : undefined,
         sectionTemplateFormatRules,
         sectionTemplateInstructions,
         sectionTemplateGuidance,
@@ -784,6 +970,8 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       })
 
       report.drafted++
+      contentById.set(sec.id, contentHtml)
+      if (engine !== 'stub') costGuard?.add({ model: resolvedModel, inputTokens, cachedTokens, outputTokens })
       const missing = extractMissingItems(contentHtml)
       log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')
       await steps.emit('section_committed',
@@ -870,7 +1058,8 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       log.warn({ err, documentId }, 'ai_initial_draft: failed to enqueue validation pass — draft stands')
       // If we can't enqueue the validator, mark the chain as complete so
       // the SPA stops polling. The sections ARE drafted at this point —
-      // only the critique/consistency loop didn't run.
+      // only the critique/consistency loop didn't run. Code finishing still runs, so no marker is left behind.
+      await finishSafely({ prisma, log }, { documentId, versionId, docType: type, actorId: job.data.actorId, steps })
       await prisma.document.update({
         where: { id: documentId },
         data:  { aiDraftState: 'complete' },

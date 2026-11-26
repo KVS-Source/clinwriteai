@@ -22,6 +22,8 @@ export const localisationSchema = z.object({
   dateFormat: z.string().min(1).max(40).optional(),           // e.g. 'yyyy-MM-dd'
   timeFormat: z.enum(['24h', '12h']).optional(),
   currency:   z.string().length(3).toUpperCase().optional(),  // ISO-4217
+  /** 1 US dollar in `currency`, for showing AI costs (billed in USD) in the local currency. */
+  usdRate:    z.number().positive().max(1_000_000).optional(),
 }).strict()
 
 /** Voice transcription — engine choice + GDPR jurisdiction + retention

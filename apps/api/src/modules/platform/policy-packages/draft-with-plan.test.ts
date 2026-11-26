@@ -1,0 +1,107 @@
+// The drafting worker with a build plan: the real handler, with the AI call replaced, drafts a Protocol in the plan's
+// order, gives each section the sections it depends on, leaves headings and References alone, and drafts a document
+// created before the plan in the template's order.
+
+import { readFileSync } from 'node:fs'
+import { PDFDocument } from 'pdf-lib'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { handleAiInitialDraft } from '../../../../../worker/src/jobs/ai-initial-draft.js'
+
+const PLAN = JSON.parse(readFileSync(new URL('../../../../../../policy-packages/protocol-build-plan/build-plan.json', import.meta.url), 'utf8')) as {
+  stages: Array<{ sections: Array<{ number: string; title: string }> }>
+}
+const TEMPLATE = [
+  ...Array.from({ length: 11 }, (_, i) => ({ number: String(i + 1), title: `Heading ${i + 1}` })),
+  ...PLAN.stages.flatMap(s => s.sections),
+  { number: '12', title: 'References' },
+].sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true })).map(s => ({ ...s, id: `s${s.number}` }))
+
+type Call = { temperature?: number; prompt: string }
+const state = vi.hoisted(() => ({ calls: [] as Call[], pdf: Buffer.alloc(0) }))
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class {
+    messages = {
+      create: async (body: { temperature?: number; messages: Array<{ content: Array<{ type: string; text?: string }> }> }) => {
+        const prompt = body.messages[0]!.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+        state.calls.push({ temperature: body.temperature, prompt })
+        const n = /Draft section (\S+) /.exec(prompt)?.[1]
+        return { content: [{ type: 'text', text: `<!-- sources-used: 1 --><p>Facts of ${n}</p>` }], usage: { input_tokens: 10, output_tokens: 5 } }
+      },
+    }
+  },
+}))
+vi.mock('../../../../../worker/src/blob-reader.js', async (original) => ({
+  ...(await original<object>()), createBlobReaderFromEnv: () => ({ read: async () => ({ bytes: state.pdf, contentType: 'application/pdf' }) }),
+}))
+vi.mock('../../../../../worker/src/jobs/resolve-anthropic-key.js', () => ({ resolveAnthropicKey: async () => 'k' }))
+vi.mock('../../../../../worker/src/ai-engine-settings.js', () => ({ resolveDraftModel: async () => 'claude-sonnet-4-6' }))
+vi.mock('../../../../../worker/src/jobs/policy-prompt.js', () => ({
+  resolveForDocument: async () => null, renderPolicyPromptBlock: () => '', SECTION_GROUNDING_RULES: '',
+}))
+vi.mock('../../../../../worker/src/jobs/ai-draft-step.js', () => ({ createStepLogger: () => ({ emit: async () => undefined }) }))
+
+function run(policyVersionAtCreate: number | null) {
+  const written: string[] = []
+  const prisma = {
+    document: {
+      update: vi.fn(async () => ({})),
+      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null })),
+    },
+    project: { findUnique: async () => null },
+    documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: PLAN })) },
+    documentTemplate: { findFirst: async () => ({ sections: TEMPLATE }) },
+    documentUpload: { findMany: async () => [{ id: 'u1', title: 'Synopsis', fileName: 'syn.pdf', sourceCategory: 'protocol', blobKey: 'k', contentType: 'application/pdf' }] },
+    documentSource: { findMany: async () => [] },
+    sectionContent: {
+      findMany: async () => TEMPLATE.map(s => ({ id: `row-${s.id}`, sectionId: s.id, contentHtml: '', templateFormatRules: null, templateInstructions: null, templateGuidance: null })),
+      update: vi.fn(async ({ where }: { where: { id: string } }) => { written.push(where.id.replace('row-s', '')); return {} }),
+    },
+    editHistory: { create: async () => ({}) },
+    aiSectionDraftTrace: { create: async () => ({}) },
+    $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
+  }
+  return {
+    written,
+    done: handleAiInitialDraft(
+      { data: { documentId: 'd', versionId: 'v', projectId: 'p', type: 'protocol', sourceUploadIds: ['u1'], assigneeId: 'u', actorId: 'u' } } as never,
+      { prisma, log: { info() {}, warn() {}, error() {} }, enqueue: vi.fn() } as never,
+    ),
+  }
+}
+
+describe('drafting with the Protocol build plan', () => {
+  beforeEach(async () => {
+    state.calls.length = 0
+    const doc = await PDFDocument.create()
+    doc.addPage()
+    state.pdf = Buffer.from(await doc.save())
+  })
+
+  it('drafts in the plan’s order, gives each section what it depends on, and leaves headings and References alone', async () => {
+    const { written, done } = run(2)
+    await done
+    expect(written.slice(0, 4)).toEqual(['3.1', '3.2', '3.3', '4.1'])
+    expect(written.slice(-2)).toEqual(['1.1', '1.2'])
+    expect(written).toHaveLength(50)
+    expect(written).not.toContain('12')
+    expect(written).not.toContain('4')
+
+    const prompt = (n: string) => state.calls.find(c => c.prompt.includes(`Draft section ${n} `))!.prompt
+    expect(prompt('3.1')).not.toContain('EARLIER SECTIONS')
+    expect(prompt('6.4')).toContain('--- 5.4 Withdrawal and Replacement ---\n<p>Facts of 5.4</p>')
+    expect(prompt('6.4')).not.toContain('--- 3.1 ')
+    expect(prompt('1.1')).toContain('THIS SECTION SUMMARISES THE DOCUMENT')
+    expect(prompt('1.1')).toContain('--- 10.6 Interim Analyses ---')
+    expect(prompt('9.1')).toContain('Standard wording from EXAMPLE sources may be reused')
+    expect(state.calls.every(c => c.temperature === 0)).toBe(true)
+  })
+
+  it('a document created before the plan drafts every section in the template’s order, as before', async () => {
+    const { written, done } = run(null)
+    await done
+    expect(written).toHaveLength(TEMPLATE.length)
+    expect(written.slice(0, 3)).toEqual(['1', '1.1', '1.2'])
+    expect(state.calls.some(c => c.prompt.includes('EARLIER SECTIONS'))).toBe(false)
+    expect(state.calls.every(c => c.temperature === undefined)).toBe(true)
+  })
+})

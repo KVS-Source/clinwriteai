@@ -59,6 +59,8 @@ interface PolicyRow {
   ichFramework:        string | null
   ichFrameworkNames:   string[]
   requirements:        unknown
+  buildPlan?:          unknown
+  buildPlanSource?:    unknown
   effectiveDate:       Date
   supersededBy:        string | null
   retiredAt:           Date | null
@@ -86,6 +88,9 @@ function shape(row: PolicyRow) {
     ichFramework:        row.ichFramework,
     ichFrameworkNames:   row.ichFrameworkNames,
     requirements:        requirementsOf(row),
+    // Read-only here: set by importing a GenBioCa policy package (policy-packages/).
+    buildPlan:           row.buildPlan ?? null,
+    buildPlanSource:     row.buildPlanSource ?? null,
     effectiveDate:       row.effectiveDate.toISOString(),
     supersededBy:        row.supersededBy,
     retiredAt:           row.retiredAt?.toISOString() ?? null,

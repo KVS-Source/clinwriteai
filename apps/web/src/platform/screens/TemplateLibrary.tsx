@@ -532,6 +532,8 @@ function TemplateEditor({
         </div>
       </Field>
 
+      <PlanCheckWarnings templateId={template.id} sectionCount={template.sections?.length ?? 0} />
+
       <Field
         label={`Sections (${sections.length})`}
         help={sectionsOk
@@ -661,6 +663,29 @@ const TEMPLATE_DOC_TYPES: { value: string; label: string }[] = [
   { value: 'end-of-study-summary', label: 'End-of-Study Summary' },
   { value: 'patient-narrative',    label: 'Patient Narrative' },
 ]
+
+/**
+ * Once a template has sections (after parsing), how it fits its document type's AI build plan: sections the plan
+ * expects but the template lacks (title page, abbreviations …), sections the plan doesn't place, renamed sections.
+ * Warnings only; nothing is blocked.
+ */
+function PlanCheckWarnings({ templateId, sectionCount }: { templateId: string; sectionCount: number }) {
+  const check = useQuery({
+    queryKey: ['template-plan-check', templateId, sectionCount],
+    queryFn:  () => platformApi.getTemplatePlanCheck(templateId),
+    enabled:  sectionCount > 0,
+    retry:    false,
+  })
+  if (!check.data?.plan || check.data.warnings.length === 0) return null
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-900" data-template-plan-warnings>
+      <p className="font-semibold">Compared with the AI build plan “{check.data.plan.label}” (policy v{check.data.plan.policyVersion}):</p>
+      <ul className="mt-1 list-disc pl-5">
+        {check.data.warnings.map(w => <li key={w}>{w}</li>)}
+      </ul>
+    </div>
+  )
+}
 
 function NewTemplateForm({
   aiReady, existingTypes, onCreated,

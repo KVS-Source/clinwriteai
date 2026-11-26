@@ -35,6 +35,7 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { buildSourceBlocks, inputUsage } from './source-blocks.js'
+import { asBuildPlan, headingNumbers } from './build-plan.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
@@ -142,10 +143,13 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
     return { skipped: 'iteration_cap_reached', iteration }
   }
 
-  const rows = await prisma.sectionContent.findMany({
+  const allRows = await prisma.sectionContent.findMany({
     where: { documentVersionId: versionId },
     select: { id: true, sectionId: true, sectionNumber: true, contentHtml: true },
   })
+  // With a build plan, main headings and code-built sections are left empty on purpose: never flag or re-draft them.
+  const notDrafted = await sectionsNotDraftedByAi(prisma, documentId, job.data.type, allRows.map(r => r.sectionNumber))
+  const rows = allRows.filter(r => !notDrafted.has(r.sectionNumber.trim()))
   if (rows.length === 0) {
     log.warn({ documentId, versionId }, 'ai_validation_pass: no section_content rows — nothing to validate')
     await prisma.document.update({
@@ -549,4 +553,22 @@ async function runLlmChecks(args: {
     })
   }
   return { flags: out, inputTokens, outputTokens }
+}
+
+/** Section numbers the document's build plan keeps out of AI drafting (main headings, code-built); empty without a plan. */
+async function sectionsNotDraftedByAi(
+  prisma: Parameters<JobHandler>[1]['prisma'],
+  documentId: string,
+  docType: string,
+  numbers: string[],
+): Promise<Set<string>> {
+  const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { policyVersionAtCreate: true } }).catch(() => null)
+  if (doc?.policyVersionAtCreate == null) return new Set()
+  const row = await prisma.documentTypePolicy.findUnique({
+    where:  { docType_version: { docType: docType.replace(/-/g, '_'), version: doc.policyVersionAtCreate } },
+    select: { buildPlan: true },
+  }).catch(() => null)
+  const plan = asBuildPlan(row?.buildPlan ?? null)
+  if (!plan) return new Set()
+  return new Set([...headingNumbers(numbers), ...plan.builtByCode.map(s => s.number)])
 }

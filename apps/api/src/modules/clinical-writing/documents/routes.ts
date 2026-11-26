@@ -39,6 +39,7 @@ import { DocumentTypePolicyService } from '../../platform/document-type-policy/s
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { computeDraftPreflight } from './ai-draft-preflight.js'
+import { numbersNotDraftedByAi } from '../../platform/policy-packages/build-plan.js'
 import { runSourceCheck, SOURCE_ROLES, type SourceRole } from './source-check.js'
 import {
   buildAutofillPrompt,
@@ -1443,6 +1444,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         aiConfidenceOverall: true,
         aiLastPassAt: true,
         aiLastPassNumber: true,
+        type: true,
+        policyVersionAtCreate: true,
       },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
@@ -1456,6 +1459,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           },
         })
       : []
+    const planRow = doc.policyVersionAtCreate != null
+      ? await app.prisma.documentTypePolicy.findUnique({
+          where:  { docType_version: { docType: doc.type.replace(/-/g, '_'), version: doc.policyVersionAtCreate } },
+          select: { buildPlan: true },
+        }).catch(() => null)
+      : null
+    const notDrafted = numbersNotDraftedByAi(planRow?.buildPlan ?? null, sectionRows.map(r => r.sectionNumber))
     // Numeric-aware sort so §3 comes before §10.
     sectionRows.sort((a, b) => a.sectionId.localeCompare(b.sectionId, undefined, { numeric: true }))
 
@@ -1479,7 +1489,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       lastPassNumber:     doc.aiLastPassNumber,
       lastPassAt:         doc.aiLastPassAt?.toISOString() ?? null,
       // How far the draft has got: sections written so far, out of all of them (the toast's "23 of 67").
-      ...draftProgress(sectionRows),
+      // With a build plan, main headings and code-built sections are never drafted, so they don't count.
+      ...draftProgress(sectionRows.filter(r => !notDrafted.has(r.sectionNumber.trim()))),
       sections: sectionRows.map(s => ({
         sectionId:     s.sectionId,
         sectionNumber: s.sectionNumber,

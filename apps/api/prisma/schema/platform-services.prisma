@@ -156,6 +156,13 @@ model DocumentTypePolicy {
   //   { requireSources: bool, requireTemplate: bool, requirePurpose: bool }
   requirements        Json      @default("{\"requireSources\": true, \"requireTemplate\": true, \"requirePurpose\": true}")
 
+  // ---- AI build plan (migration 108) ----
+  // The drafting order, section dependencies and rules for this doc type, imported from a signed GenBioCa
+  // policy package (docs/policy-packages.md). Never edited in the app; a new version carries it forward.
+  // NULL = no plan (drafting as before). buildPlanSource: { packageId, packageVersion, sha256, importedAt, importedBy }.
+  buildPlan           Json?
+  buildPlanSource     Json?
+
   effectiveDate       DateTime  @default(now())
   supersededBy        String?                                           // → next version's id
   retiredAt           DateTime?

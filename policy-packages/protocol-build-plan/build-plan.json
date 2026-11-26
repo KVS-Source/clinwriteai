@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "docType": "protocol",
+  "label": "Protocol build plan v1",
+  "rules": { "temperature": 0 },
+  "stages": [
+    {
+      "key": "objectives",
+      "label": "Objectives, endpoints and estimands",
+      "sections": [
+        { "number": "3.1", "title": "Primary Objective and Endpoint" },
+        { "number": "3.2", "title": "Secondary and Exploratory Objectives" },
+        { "number": "3.3", "title": "Estimands" }
+      ]
+    },
+    {
+      "key": "design",
+      "label": "Design, population and treatment",
+      "sections": [
+        { "number": "4.1", "title": "Overall Design" },
+        { "number": "4.3", "title": "End of Study Definition" },
+        { "number": "4.2", "title": "Scientific Rationale" },
+        { "number": "4.4", "title": "Quality by Design" },
+        { "number": "5.1", "title": "Inclusion Criteria" },
+        { "number": "5.2", "title": "Exclusion Criteria" },
+        { "number": "5.3", "title": "Screening and Recruitment" },
+        { "number": "5.4", "title": "Withdrawal and Replacement" },
+        { "number": "6.1", "title": "Trial Intervention" },
+        { "number": "6.2", "title": "Assignment and Blinding" },
+        { "number": "6.3", "title": "Preparation, Handling and Accountability" },
+        { "number": "6.4", "title": "Dose Modification and Discontinuation" },
+        { "number": "6.5", "title": "Concomitant Therapy" },
+        { "number": "6.6", "title": "Adherence" }
+      ]
+    },
+    {
+      "key": "conduct",
+      "label": "Study conduct",
+      "sections": [
+        { "number": "7.1", "title": "Efficacy Assessments" },
+        { "number": "7.2", "title": "Safety Assessments" },
+        { "number": "7.3", "title": "Pharmacokinetic / Pharmacodynamic Assessments" },
+        { "number": "7.4", "title": "Patient-Reported Outcomes" },
+        { "number": "7.5", "title": "Biological Samples" },
+        { "number": "8.1", "title": "AE and SAE Definitions" },
+        { "number": "8.2", "title": "AE/SAE Collection and Follow-up" },
+        { "number": "8.3", "title": "Reporting Timelines and Procedures" },
+        { "number": "8.4", "title": "AESIs, Pregnancy and Overdose" },
+        { "number": "8.5", "title": "Safety Oversight and Stopping Rules" },
+        { "number": "1.3", "title": "Schedule of Activities" }
+      ]
+    },
+    {
+      "key": "statistics",
+      "label": "Statistics",
+      "sections": [
+        { "number": "10.1", "title": "Hypotheses and Sample Size" },
+        { "number": "10.2", "title": "Analysis Sets" },
+        { "number": "10.3", "title": "Primary Analysis" },
+        { "number": "10.4", "title": "Secondary and Exploratory Analyses" },
+        { "number": "10.5", "title": "Missing Data and Sensitivity Analyses" },
+        { "number": "10.6", "title": "Interim Analyses" }
+      ]
+    },
+    {
+      "key": "background",
+      "label": "Background and rationale",
+      "sections": [
+        { "number": "2.1", "title": "Background" },
+        { "number": "2.2", "title": "Investigational Product Overview" },
+        { "number": "2.4", "title": "Rationale for Study Design" },
+        { "number": "2.3", "title": "Benefit–Risk Assessment" }
+      ]
+    },
+    {
+      "key": "standard",
+      "label": "Standard sections",
+      "rules": { "exampleWording": true },
+      "sections": [
+        { "number": "9.1", "title": "Data Capture and Source Records" },
+        { "number": "9.2", "title": "Data Quality and Validation" },
+        { "number": "9.3", "title": "Monitoring and Oversight" },
+        { "number": "9.4", "title": "Privacy and Retention" },
+        { "number": "11.1", "title": "Ethics Committee and Regulatory Approval" },
+        { "number": "11.2", "title": "Informed Consent" },
+        { "number": "11.3", "title": "Confidentiality" },
+        { "number": "11.4", "title": "Protocol Amendments and Deviations" },
+        { "number": "11.5", "title": "Publication and Data Sharing" },
+        { "number": "13", "title": "Appendices" }
+      ]
+    },
+    {
+      "key": "summary",
+      "label": "Summary (last)",
+      "rules": { "noNewFacts": true },
+      "sections": [
+        { "number": "1.1", "title": "Protocol Synopsis" },
+        { "number": "1.2", "title": "Schema" }
+      ]
+    }
+  ],
+  "builtByCode": [
+    { "number": "12", "title": "References", "kind": "references" }
+  ],
+  "dependsOn": {
+    "3.2": ["3.1"],
+    "3.3": ["3.1", "3.2"],
+    "4.1": ["3.1", "3.2", "3.3"],
+    "4.3": ["4.1"],
+    "4.2": ["4.1", "3.1"],
+    "4.4": ["4.1"],
+    "5.1": ["4.1"],
+    "5.2": ["4.1"],
+    "5.3": ["4.1", "5.1", "5.2"],
+    "5.4": ["4.1", "5.1", "5.2"],
+    "6.1": ["4.1"],
+    "6.2": ["4.1", "6.1"],
+    "6.3": ["6.1"],
+    "6.4": ["6.1", "5.4"],
+    "6.5": ["5.2", "6.1"],
+    "6.6": ["6.1"],
+    "7.1": ["3.1", "3.2", "3.3", "4.1"],
+    "7.2": ["4.1", "6.1"],
+    "7.3": ["3.2", "4.1"],
+    "7.4": ["3.2", "4.1"],
+    "7.5": ["3.2", "4.1"],
+    "8.1": ["6.1", "7.2"],
+    "8.2": ["6.1", "7.2"],
+    "8.3": ["6.1", "7.2"],
+    "8.4": ["6.1", "7.2"],
+    "8.5": ["6.1", "7.2"],
+    "1.3": ["4.1", "5.3", "7.1", "7.2", "7.3", "7.4", "7.5"],
+    "10.1": ["3.1", "3.2", "3.3", "4.1", "6.2"],
+    "10.2": ["3.1", "3.2", "3.3", "4.1", "6.2"],
+    "10.3": ["3.1", "3.2", "3.3", "4.1", "6.2"],
+    "10.4": ["3.1", "3.2", "3.3", "4.1", "6.2"],
+    "10.5": ["3.1", "3.2", "3.3", "4.1", "6.2"],
+    "10.6": ["3.1", "3.2", "3.3", "4.1", "6.2"],
+    "2.4": ["4.1", "4.2", "3.1"],
+    "2.3": ["2.2", "6.1", "7.2", "8.5"],
+    "9.1": ["4.1"],
+    "9.2": ["4.1"],
+    "9.3": ["4.1"],
+    "9.4": ["4.1"],
+    "11.1": ["4.1"],
+    "11.2": ["4.1"],
+    "11.3": ["4.1"],
+    "11.4": ["4.1"],
+    "11.5": ["4.1"],
+    "13": ["5.1", "5.2", "7.2", "8.4"],
+    "1.1": "*",
+    "1.2": ["4.1", "1.3"]
+  },
+  "expectedSections": [
+    { "label": "title page", "matchAny": ["title page"] },
+    { "label": "signature page", "matchAny": ["signature"] },
+    { "label": "list of abbreviations", "matchAny": ["abbreviation"] },
+    { "label": "table of contents", "matchAny": ["table of contents"] }
+  ]
+}

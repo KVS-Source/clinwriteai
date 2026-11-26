@@ -33,6 +33,7 @@ import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind, type SourceRole } from './source-files.js'
+import { asBuildPlan, earlierSectionsFor, orderByPlan, planPromptBlock, type PlannedSection } from './build-plan.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
@@ -156,6 +157,9 @@ async function draftSection(args: {
   sectionTemplateFormatRules:  string | null
   sectionTemplateInstructions: string | null
   sectionTemplateGuidance:     string | null
+  /** From the build plan: the earlier sections this one is given, and the stage's rules (empty without a plan). */
+  planBlock?:   string
+  temperature?: number
   apiKey:    string                                         // resolved at handler entry (DB first, env fallback)
   abortSignal?: AbortSignal                                 // flipped to aborted when writer hits Stop
 }): Promise<{ contentHtml: string; engine: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
@@ -194,6 +198,8 @@ async function draftWithClaude(args: {
   sectionTemplateFormatRules:  string | null
   sectionTemplateInstructions: string | null
   sectionTemplateGuidance:     string | null
+  planBlock?:   string
+  temperature?: number
   abortSignal?: AbortSignal                       // writer-triggered Stop aborts the in-flight call
 }): Promise<{ html: string; inputTokens: number; cachedTokens: number; outputTokens: number; usedSources: SourcePdfPayload[] | null; promptChars: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
@@ -281,6 +287,7 @@ async function draftWithClaude(args: {
   const userPrompt =
     `Draft section ${args.section.number} "${args.section.title}" of a ${args.docType}.\n\n` +
     `Attached sources:\n${sourceList}\n\n` +
+    (args.planBlock ? `${args.planBlock}\n\n` : '') +
     (usageInstruction ? `${usageInstruction}\n\nApart from that comment, return HTML only.` : `Return HTML only.`)
 
   // Long sources are cached between sections, which needs everything before them to be identical in every call: the
@@ -289,6 +296,7 @@ async function draftWithClaude(args: {
   const message = await client.messages.create({
     model:      args.model,
     max_tokens: MAX_SECTION_OUTPUT_TOKENS,
+    ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
     system:     cached ? CACHED_SYSTEM : system,
     messages: [
       {
@@ -466,6 +474,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       `No DocumentTypePolicy resolved for '${type}' — drafter falls back to template-only guidance.`, {})
   }
 
+  // --- The build plan of the policy version the document was created with -----
+  // Documents created before a plan was imported (or of a type without one) draft as before.
+  const planRow = docRow?.policyVersionAtCreate != null
+    ? await prisma.documentTypePolicy.findUnique({
+        where:  { docType_version: { docType: type.replace(/-/g, '_'), version: docRow.policyVersionAtCreate } },
+        select: { buildPlan: true },
+      }).catch(() => null)
+    : null
+  const buildPlan = asBuildPlan(planRow?.buildPlan ?? null)
+
   // --- Load the template -------------------------------------------------
   const template = await prisma.documentTemplate.findFirst({
     where: { type, isCurrent: true, retiredAt: null },
@@ -489,6 +507,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // to the full set for the initial draft.
   const targetSet = targetSectionIds && targetSectionIds.length > 0 ? new Set(targetSectionIds) : null
   const sections = targetSet ? allSections.filter(s => targetSet.has(s.id)) : allSections
+  // Drafting order: the plan's stages, or the template's order when there is no plan.
+  const planned: Array<PlannedSection<SectionTemplate>> = buildPlan
+    ? orderByPlan(allSections, buildPlan)
+    : allSections.map(section => ({ section, stageKey: 'template', stageLabel: 'Template order', mode: 'draft' as const, dependsOn: [], rules: {} }))
+  if (buildPlan) {
+    await steps.emit('prompt_assembled',
+      `Build plan “${buildPlan.label}”: ${buildPlan.stages.length} stages. ${planned.filter(p => p.mode === 'draft').length} sections are drafted in the plan's order, ${planned.filter(p => p.mode === 'heading').length} main headings keep the template heading, ${planned.filter(p => p.mode === 'code').length} are built by code.`, {
+        details: { plan: buildPlan.label, stages: buildPlan.stages.map(s => s.label), order: planned.filter(p => p.mode === 'draft').map(p => p.section.number) },
+      })
+  }
 
   // --- Load the sources (metadata) --------------------------------------
   const sources: SourceSummary[] = sourceUploadIds.length === 0
@@ -621,7 +649,28 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // --- Draft each section ------------------------------------------------
   const report: Report = { drafted: 0, skipped: 0, errored: [] }
 
-  for (const sec of sections) {
+  // Each section's current text, so a section can be given the earlier sections it depends on.
+  const contentById = new Map(existing.map(e => [e.sectionId, e.contentHtml]))
+  let lastStage: string | null = null
+  for (const [planIndex, item] of planned.entries()) {
+    const sec = item.section
+    if (targetSet && !targetSet.has(sec.id)) continue
+    if (item.mode !== 'draft') {
+      if (!targetSet) {
+        await steps.emit('section_skipped',
+          item.mode === 'heading'
+            ? `§${sec.number} ${sec.title} — main heading, kept as in the template.`
+            : `§${sec.number} ${sec.title} — built by code after drafting, not by the AI.`, {
+            sectionId: sec.id,
+            details:   { reason: item.mode === 'heading' ? 'main_heading' : 'built_by_code' },
+          })
+      }
+      continue
+    }
+    if (buildPlan && item.stageKey !== lastStage) {
+      lastStage = item.stageKey
+      await steps.emit('prompt_assembled', `Stage: ${item.stageLabel}.`, { details: { stage: item.stageKey } })
+    }
     // Co-operative cancellation / pause check — writer hit Stop (→
     // 'cancelled') or Pause (→ 'paused') on the toast. Both exit the
     // loop at the section boundary; the difference is intent — pause
@@ -684,6 +733,10 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       const sectionStartMs = Date.now()
       const { contentHtml, engine, inputTokens, cachedTokens, outputTokens, usedSources, promptChars } = await draftSection({
         section: sec, sources, sourcePdfs, sourceBlocks, docType: type, model: resolvedModel, aiInstructions, policy,
+        planBlock: buildPlan
+          ? planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })
+          : undefined,
+        temperature: buildPlan?.rules.temperature,
         sectionTemplateFormatRules,
         sectionTemplateInstructions,
         sectionTemplateGuidance,
@@ -784,6 +837,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       })
 
       report.drafted++
+      contentById.set(sec.id, contentHtml)
       const missing = extractMissingItems(contentHtml)
       log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')
       await steps.emit('section_committed',

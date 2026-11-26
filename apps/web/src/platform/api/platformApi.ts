@@ -555,6 +555,15 @@ export const platformApi = {
   importLicense: (token: string) =>
     api.post<LicenseView>(`/license/import`, { token }),
 
+  // --- Policy packages (migration 108) — signed by GenBioCa, imported by the admin (docs/policy-packages.md).
+  /** How a template fits its document type's AI build plan (warnings only). */
+  getTemplatePlanCheck: (templateId: string) =>
+    api.get<{ docType: string; plan: { label: string; policyVersion: number } | null; warnings: string[] }>(`/document-templates/${encodeURIComponent(templateId)}/plan-check`),
+  previewPolicyPackage: (pkg: string) =>
+    api.post<PolicyPackagePreview>(`/policy-packages/preview`, { package: pkg }),
+  importPolicyPackage: (pkg: string) =>
+    api.post<PolicyPackagePreview & { applied: Array<{ docType: string; version: number; policyId: string }> }>(`/policy-packages/import`, { package: pkg }),
+
   // --- Platform Settings — Branding + Localisation (migration 93) -----
   getPlatformSettings: () =>
     api.get<PlatformSettingsView>(`/platform-settings`),
@@ -1033,6 +1042,9 @@ export interface DocumentTypePolicy {
    *  doc-type convention map. */
   ichFrameworkNames:   string[]
   requirements:        PolicyRequirements
+  /** The AI build plan, imported from a GenBioCa policy package; null = none. Read-only. */
+  buildPlan?:          BuildPlanView | null
+  buildPlanSource?:    BuildPlanSourceView | null
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1709,3 +1721,33 @@ export interface DocumentTemplateCreateBody {
 }
 
 export type DocumentTemplateUpdateBody = Partial<Omit<DocumentTemplateCreateBody, 'type'>>
+
+/** What importing a policy package would change (POST /policy-packages/preview). */
+export interface PolicyPackagePreview {
+  ok:             boolean
+  packageId:      string
+  packageVersion: number
+  description:    string | null
+  issuedAt:       string | null
+  sha256:         string
+  items: Array<{
+    docType:        string
+    currentVersion: number | null
+    newVersion:     number
+    template:       { id: string; label: string; version: number } | null
+    stages:         Array<{ label: string; sections: number }>
+    errors:         string[]
+    warnings:       string[]
+  }>
+}
+
+/** A document type's AI build plan, as stored on its policy (read-only in the app). */
+export interface BuildPlanView {
+  label:  string
+  stages: Array<{ key: string; label: string; sections: Array<{ number: string; title: string }>; rules?: { exampleWording?: boolean; noNewFacts?: boolean } }>
+  builtByCode: Array<{ number: string; title: string; kind: string }>
+  dependsOn:   Record<string, '*' | string[]>
+}
+export interface BuildPlanSourceView {
+  packageId: string; packageVersion: number; sha256: string; importedAt: string; importedBy: string
+}

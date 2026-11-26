@@ -111,6 +111,8 @@ export class DocumentTypePolicyService {
           ichFramework:        input.ichFramework        ?? null,
           ichFrameworkNames:   input.ichFrameworkNames   ?? current.ichFrameworkNames ?? [],
           requirements:        (input.requirements ?? (current.requirements ?? DEFAULT_POLICY_REQUIREMENTS)) as unknown as object,
+          // The build plan comes only from a policy package; a new version keeps it.
+          ...carriedBuildPlan(current),
           createdBy:           actorId,
           updatedBy:           actorId,
         },
@@ -119,6 +121,53 @@ export class DocumentTypePolicyService {
         where: { id: current.id },
         data:  { isCurrent: false, supersededBy: next.id },
       })
+      return next
+    })
+  }
+
+  /**
+   * A new version that is the current one with this build plan (policy-package import). With no policy yet for the
+   * doc type, the first version is created with the defaults, so a plan can arrive before anyone writes a policy.
+   */
+  async newVersionWithPlan(docType: string, buildPlan: object, buildPlanSource: object, actorId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.documentTypePolicy.findFirst({ where: { docType, isCurrent: true, retiredAt: null } })
+      if (!current) {
+        const last = await tx.documentTypePolicy.findFirst({ where: { docType }, orderBy: { version: 'desc' }, select: { version: true } })
+        return tx.documentTypePolicy.create({
+          data: {
+            docType,
+            version:      (last?.version ?? 0) + 1,
+            isCurrent:    true,
+            smePrompt:    defaultPlaceholderSmePrompt(docType),
+            requirements: DEFAULT_POLICY_REQUIREMENTS as unknown as object,
+            buildPlan,
+            buildPlanSource,
+            createdBy:    actorId,
+            updatedBy:    actorId,
+          },
+        })
+      }
+      const next = await tx.documentTypePolicy.create({
+        data: {
+          docType,
+          version:             current.version + 1,
+          isCurrent:           true,
+          smePrompt:           current.smePrompt,
+          bestPracticeDigest:  current.bestPracticeDigest as object,
+          sectionRules:        current.sectionRules as object,
+          templateId:          current.templateId,
+          checklistTemplateId: current.checklistTemplateId,
+          ichFramework:        current.ichFramework,
+          ichFrameworkNames:   current.ichFrameworkNames,
+          requirements:        current.requirements as object,
+          buildPlan,
+          buildPlanSource,
+          createdBy:           actorId,
+          updatedBy:           actorId,
+        },
+      })
+      await tx.documentTypePolicy.update({ where: { id: current.id }, data: { isCurrent: false, supersededBy: next.id } })
       return next
     })
   }
@@ -198,4 +247,10 @@ export function digestOf(row: { bestPracticeDigest: unknown }): BestPracticeDige
 
 export function sectionRulesOf(row: { sectionRules: unknown }): SectionRules {
   return row.sectionRules as SectionRules
+}
+
+/** The build plan fields of a policy row, to copy onto its next version (nothing when it has none). */
+function carriedBuildPlan(row: { buildPlan?: unknown; buildPlanSource?: unknown }): { buildPlan?: object; buildPlanSource?: object } {
+  if (row.buildPlan == null) return {}
+  return { buildPlan: row.buildPlan as object, ...(row.buildPlanSource != null ? { buildPlanSource: row.buildPlanSource as object } : {}) }
 }

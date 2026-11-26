@@ -26,6 +26,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import {
   platformApi,
+  type BuildPlanView,
+  type BuildPlanSourceView,
   type DocumentTypePolicy,
   type BestPracticeDigest,
   type AiPromptRecord,
@@ -478,6 +480,8 @@ function AssociationsPanel({
         onChange={next => saveRequirements.mutate(next)}
       />
 
+      <BuildPlanCard plan={policy.buildPlan ?? null} source={policy.buildPlanSource ?? null} />
+
       <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">
         <p className="font-mono text-[10px] text-slate-400">
           Policy created {new Date(policy.createdAt).toLocaleDateString()} · last updated {new Date(policy.updatedAt).toLocaleDateString()} by {policy.updatedBy}
@@ -493,6 +497,46 @@ function AssociationsPanel({
         </button>
       </footer>
     </div>
+  )
+}
+
+/**
+ * The AI build plan of this document type: the order its sections are drafted in. Read-only: it comes from a
+ * policy package signed by GenBioCa and imported by the admin under Admin → Licensing (docs/policy-packages.md).
+ */
+function BuildPlanCard({ plan, source }: { plan: BuildPlanView | null; source: BuildPlanSourceView | null }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-3" data-section="build-plan">
+      <h3 className="text-[13px] font-semibold text-slate-900">AI build plan</h3>
+      {!plan ? (
+        <p className="mt-1 text-[12px] text-slate-500">
+          No build plan: the AI drafts every section in the template’s order. A plan arrives in a policy package from GenBioCa.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-[12px] text-slate-600">
+            {plan.label}. Set by GenBioCa{source ? ` (package ${source.packageId} v${source.packageVersion}, imported ${new Date(source.importedAt).toLocaleDateString()})` : ''}; it can’t be edited here.
+            Main headings keep the template heading and are not drafted.
+          </p>
+          <ol className="mt-2 flex flex-col gap-1.5 text-[12px]">
+            {plan.stages.map((stage, i) => (
+              <li key={stage.key} data-plan-stage={stage.key}>
+                <span className="font-medium text-slate-900">{i + 1}. {stage.label}</span>
+                {stage.rules?.noNewFacts && <span className="ml-1 text-[11px] text-slate-500">(only facts from earlier sections)</span>}
+                {stage.rules?.exampleWording && <span className="ml-1 text-[11px] text-slate-500">(standard wording from examples allowed)</span>}
+                <span className="block text-[11px] text-slate-500">{stage.sections.map(s => `${s.number} ${s.title}`).join(' · ')}</span>
+              </li>
+            ))}
+            {plan.builtByCode.length > 0 && (
+              <li data-plan-stage="built-by-code">
+                <span className="font-medium text-slate-900">{plan.stages.length + 1}. Built by code after drafting</span>
+                <span className="block text-[11px] text-slate-500">{plan.builtByCode.map(s => `${s.number} ${s.title}`).join(' · ')}</span>
+              </li>
+            )}
+          </ol>
+        </>
+      )}
+    </section>
   )
 }
 

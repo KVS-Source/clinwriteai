@@ -29,7 +29,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { requireAuth } from '../../../auth/rbac.js'
+import { onlyRolesIn, requireAuth } from '../../../auth/rbac.js'
+import { canonicalRole } from '../../../auth/role-combos.js'
 import { PASSWORD_MAX_LENGTH, verifyPassword } from '../../../auth/password.js'
 import { DocumentService, hashSections } from '../documents/service.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
@@ -243,6 +244,18 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     // someone else's behalf (Part 11: signatures cannot be delegated, FR-A-063).
     if (record.signerId !== request.user!.id) {
       return reply.code(403).send({ error: 'wrong_signer', message: 'Only the designated signer may sign this step' })
+    }
+    // A Project Manager takes part in a document only through their Contributor role, so someone working as
+    // PM switches role before signing, whatever they sign as. (Someone who holds only PM — an older chain from
+    // before PMs left the RACI — has nothing to switch to and still signs.)
+    if (onlyRolesIn(request.user!, ['pm'])) {
+      const held = await app.prisma.user.findUnique({ where: { id: request.user!.id }, select: { role: true, additionalRoles: true } })
+      if (held && [held.role, ...(held.additionalRoles ?? [])].some(r => canonicalRole(r) !== 'pm')) {
+        return reply.code(409).send({
+          error:   'switch_role_to_sign',
+          message: "You're working as Project Manager. Switch to your Contributor role to sign this document.",
+        })
+      }
     }
     if (record.status === 'signed') {
       return reply.code(409).send({ error: 'already_signed' })

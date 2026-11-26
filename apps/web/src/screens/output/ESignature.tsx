@@ -564,11 +564,13 @@ export function ESignature() {
   // In an approvers-first chain an Approver approves and signs in one step, "Approve & E-sign" in the Approver
   // View — they cannot sign their step from this page. (The server records the same signature either way.)
   const approveInApproverView = selected?.meaning === 'approved' && chain.chainType === 'approvers_first'
-  // Someone working as Project Manager never gets the Approver View, so an Approver who is also a PM switches to
-  // their other role (normally Contributor) first. The page reloads as that role, like the top-bar switcher.
+  // A PM takes part in a document only through their other role (normally Contributor), so someone working as
+  // Project Manager switches before signing: Approvers (who also never get the Approver View as PM), Authors and
+  // Reviewers alike; the API refuses a signature sent as PM. The page reloads as that role, like the top-bar switcher.
   const approverViewPath = `/projects/${projectId}/clinical-writing/documents/${documentId}/review`
+  const signPath = `/projects/${projectId}/clinical-writing/documents/${documentId}/sign`
   const otherRoles = (me?.allRoles ?? []).filter(r => r !== 'pm')
-  const approverRole = me?.role === 'pm' ? (otherRoles.find(r => r === 'contributor') ?? otherRoles[0]) : undefined
+  const switchRole = me?.role === 'pm' ? (otherRoles.find(r => r === 'contributor') ?? otherRoles[0]) : undefined
   const roleLabel = (r: string) => PLATFORM_USER_ROLE_LABEL[r as keyof typeof PLATFORM_USER_ROLE_LABEL] ?? r
   const panelTitle =
     selectedState === 'signed' ? t('page.e_signature.panel_signed')
@@ -808,32 +810,49 @@ export function ESignature() {
                   <p className="mt-1 text-[12px] leading-relaxed text-green-900">{t('page.e_signature.approver_use_approve_body')}</p>
                   <button
                     type="button"
-                    onClick={() => (approverRole ? setSwitchRoleOpen(true) : navigate(approverViewPath))}
+                    onClick={() => (switchRole ? setSwitchRoleOpen(true) : navigate(approverViewPath))}
                     className="mt-3 rounded-md bg-green-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-green-700"
                     data-action="go-approver-view"
                   >{t('page.e_signature.approver_use_approve_cta')}</button>
-                  {switchRoleOpen && approverRole && me && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="switch-role-title" data-switch-role-dialog>
-                      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-                        <h2 id="switch-role-title" className="text-[15px] font-bold text-slate-900">{t('page.e_signature.switch_role_title', { role: roleLabel(approverRole) })}</h2>
-                        <p className="mt-1 text-[12px] leading-relaxed text-slate-600">{t('page.e_signature.switch_role_body', { role: roleLabel(approverRole), current: roleLabel(me.role) })}</p>
-                        <div className="mt-4 flex justify-end gap-2">
-                          <button type="button" onClick={() => setSwitchRoleOpen(false)} data-action="cancel-switch-role"
-                            className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
-                            {t('page.e_signature.switch_role_cancel')}
-                          </button>
-                          <button type="button" data-action="confirm-switch-role"
-                            onClick={() => { chooseActiveRole(me.id, approverRole); window.location.assign(approverViewPath) }}
-                            className="rounded-md bg-green-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-green-700">
-                            {t('page.e_signature.switch_role_confirm', { role: roleLabel(approverRole) })}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
-              {selectedState === 'you' && !approveInApproverView && (
+              {/* Working as PM: switch to Contributor to sign (the API refuses a signature sent as PM). */}
+              {selectedState === 'you' && !approveInApproverView && switchRole && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3.5" data-switch-role-to-sign>
+                  <p className="text-[13px] font-semibold text-amber-900">{t('page.e_signature.switch_sign_title', { role: roleLabel(switchRole) })}</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-amber-900">{t('page.e_signature.switch_sign_notice', { role: roleLabel(switchRole), current: roleLabel(me?.role ?? 'pm') })}</p>
+                  <button
+                    type="button"
+                    onClick={() => setSwitchRoleOpen(true)}
+                    className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
+                    data-action="switch-role-to-sign"
+                  >{t('page.e_signature.switch_sign_cta', { role: roleLabel(switchRole) })}</button>
+                </div>
+              )}
+              {switchRoleOpen && switchRole && me && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="switch-role-title" data-switch-role-dialog>
+                  <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+                    <h2 id="switch-role-title" className="text-[15px] font-bold text-slate-900">
+                      {t(approveInApproverView ? 'page.e_signature.switch_role_title' : 'page.e_signature.switch_sign_title', { role: roleLabel(switchRole) })}
+                    </h2>
+                    <p className="mt-1 text-[12px] leading-relaxed text-slate-600">
+                      {t(approveInApproverView ? 'page.e_signature.switch_role_body' : 'page.e_signature.switch_sign_body', { role: roleLabel(switchRole), current: roleLabel(me.role) })}
+                    </p>
+                    <div className="mt-4 flex justify-end gap-2">
+                      <button type="button" onClick={() => setSwitchRoleOpen(false)} data-action="cancel-switch-role"
+                        className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+                        {t('page.e_signature.switch_role_cancel')}
+                      </button>
+                      <button type="button" data-action="confirm-switch-role"
+                        onClick={() => { chooseActiveRole(me.id, switchRole); window.location.assign(approveInApproverView ? approverViewPath : signPath) }}
+                        className="rounded-md bg-green-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-green-700">
+                        {t(approveInApproverView ? 'page.e_signature.switch_role_confirm' : 'page.e_signature.switch_sign_confirm', { role: roleLabel(switchRole) })}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {selectedState === 'you' && !approveInApproverView && !switchRole && (
                 <YouPanel
                   record={selected}
                   credential={credential}
@@ -843,7 +862,7 @@ export function ESignature() {
               )}
             </div>
 
-            {selectedState === 'you' && !approveInApproverView && (
+            {selectedState === 'you' && !approveInApproverView && !switchRole && (
               <div className="flex flex-none flex-col border-t border-slate-200" style={{ backgroundColor: '#F8FAFC' }}>
                 <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2">
                   <button

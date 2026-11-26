@@ -397,6 +397,16 @@ describe('signature chain routes', () => {
     expect(t.db.records[0].status).toBe('awaiting')
   })
 
+  it('refuses a signature sent while working as Project Manager by someone who also holds Contributor', async () => {
+    const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    t.as({ ...USERS.author, role: 'pm', roles: ['pm'] })
+    t.db.prisma.user.findUnique = async () => ({ role: 'pm', additionalRoles: ['contributor'], passwordHash: PASSWORD_HASH })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('switch_role_to_sign')
+    expect(t.db.records[0].status).toBe('awaiting')
+  })
+
   it('does not let an admin sign on someone else’s behalf', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     t.as(USERS.admin)

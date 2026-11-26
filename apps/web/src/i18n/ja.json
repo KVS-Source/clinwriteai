@@ -1270,6 +1270,19 @@
     },
 
     "new_document": {
+      "hidden_unreadable_one": "AI が読み取れないため、{{count}} 件のソースを非表示にしています（PowerPoint、Excel、画像、旧形式 .doc、またはチェックに失敗したファイル）。使用するには PDF で保存してください。",
+      "hidden_unreadable_other": "AI が読み取れないため、{{count}} 件のソースを非表示にしています（PowerPoint、Excel、画像、旧形式 .doc、またはチェックに失敗したファイル）。使用するには PDF で保存してください。",
+      "looks_like_example": "サンプルまたはテンプレートのようです。{{reason}}",
+      "role_label": "「{{title}}」の用途",
+      "role_evidence": "エビデンス",
+      "role_example": "例",
+      "role_evidence_hint": "この試験の文書です。事実はここから取得されます。",
+      "role_example_hint": "サンプルまたは他の試験の文書です。構成と表現にのみ使用し、事実には使用しません。",
+      "source_check_loading": "ソースを確認しています…",
+      "source_check_unavailable": "現在ソースを確認できません。「作成」をクリックしたときに再確認されます。",
+      "source_check_ok": "ソースを確認しました。すべてのファイルを読み取ることができ、不足や矛盾はありません。",
+      "source_check_warnings": "ソースを確認しました。文書は作成できますが、先に次の点をご確認ください:",
+      "source_check_blocked": "文書を作成する前に次の点を修正してください:",
       "assignee_no_capability": "執筆者の権限が登録されていません。まず管理者が can-author 権限を付与してください。",
       "step_label_1": "種別",
       "step_label_2": "ソース",
@@ -1985,6 +1998,9 @@
     },
 
     "upload_document": {
+      "check_unreadable": "AI はこのファイルを使用できません: {{problem}}",
+      "check_duplicate": "同じファイルが「{{title}}」としてライブラリに既にあります。",
+      "check_example": "実際の試験文書ではなく、サンプルまたはテンプレートのようです。{{reason}} これを使って文書を作成する場合は「例」としてマークしてください。",
       "file_too_large": "ファイルが大きすぎます ({{sizeMB}} MB)。最大は 50 MB です。",
       "unexpected_response": "アップロード エンドポイントから予期しない応答がありました。",
       "upload_failed_http": "アップロードに失敗しました (HTTP {{status}})",

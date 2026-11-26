@@ -29,6 +29,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { BestPractice, CreateDocumentBody, DocumentType } from '@platform/types'
 import { documentsApi, type DocumentTemplate } from '../../api'
+import type { SourceDocument, SourceRole } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { assignableUsersApi } from '../../api/raci'
 import { AssigneeCombobox, type AssigneeOption } from '../../components/raci/AssigneeCombobox'
@@ -108,6 +109,9 @@ export function NewDocumentForm({
   const [showAllCategories,    setShowAllCategories]    = useState(false)
   // Sources uploaded from this wizard (via "+ Upload source").
   const [uploadedHere,         setUploadedHere]         = useState<string[]>([])
+  // What each chosen source is for: evidence (this study's facts) or example (structure and wording only).
+  // Unset = the suggestion: example when the upload check found it looks like a sample, else evidence.
+  const [roles,                setRoles]                = useState<Record<string, SourceRole>>({})
   // Step 4 — every new document is drafted by AI from its sources (CW-056: there is
   // no "Create blank"; step 2 already requires at least one source).
   // Author's free-text prompt to the AI drafter. Max 2000 chars enforced
@@ -145,11 +149,10 @@ export function NewDocumentForm({
     queryFn:  () => documentsApi.listSources(projectId, { state: 'saved', sort: 'title', dir: 'asc', pageSize: 100 }),
   })
   const allSources = sourcePage?.items ?? []
-  const sources = useMemo(
-    () => allSources.filter(s => (s.contentType ?? '').toLowerCase() === 'application/pdf'),
-    [allSources],
-  )
+  const sources = useMemo(() => allSources.filter(aiCanRead), [allSources])
   const hiddenNonPdfCount = allSources.length - sources.length
+  const roleOf = (id: string): SourceRole =>
+    roles[id] ?? (sources.find(s => s.id === id)?.check?.looksLikeExample ? 'example' : 'evidence')
 
   const toggleSource = (id: string) =>
     setSourceIds(cur => (cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]))
@@ -279,6 +282,17 @@ export function NewDocumentForm({
       }))
   }, [members])
 
+  // Step 4: can the chosen sources be drafted from (API source-check.ts). Create waits for it; the API runs it again.
+  const sourcesWithRoles = sourceIds.map(uploadId => ({ uploadId, role: roleOf(uploadId) }))
+  const sourceCheck = useQuery({
+    queryKey: ['source-check', projectId, type, sourcesWithRoles],
+    queryFn:  () => documentsApi.sourceCheck(projectId, { type, sources: sourcesWithRoles }),
+    enabled:  step === 4 && sourceIds.length > 0,
+    staleTime: 30_000,
+    retry: false,
+  })
+  const sourceCheckBlocks = !!sourceCheck.data && !sourceCheck.data.ok
+
   const create = useMutation({
     mutationFn: () => {
       const body: CreateDocumentBody = {
@@ -288,6 +302,7 @@ export function NewDocumentForm({
         targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate).toISOString() : undefined,
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
+        sourceRoles: sourceIds.length ? Object.fromEntries(sourcesWithRoles.map(s => [s.uploadId, s.role])) : undefined,
         // AI drafting runs when the platform has an AI engine configured;
         // otherwise create a blank document (the author drafts by hand).
         // The API also refuses aiDraft=true when AI is off, so this flag
@@ -322,6 +337,7 @@ export function NewDocumentForm({
   const canAdvanceFromStep3 = title.trim().length > 0 && assigneeOptions.some(o => o.id === assigneeId) && !isPastDate(targetCompletionDate)
   const canAdvanceFromStep4 = !requirements.requirePurpose || !aiReady || aiInstructions.trim().length > 0
   const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && canAdvanceFromStep4 && !create.isPending
+                            && !(sourceIds.length > 0 && (sourceCheck.isFetching || sourceCheckBlocks))
 
   const next = () => {
     if (step === 1 && canAdvanceFromStep1) setStep(2)
@@ -343,7 +359,9 @@ export function NewDocumentForm({
         : create.error.status === 403
           ? 'You do not have write access to this project.'
           : create.error.status === 422
-            ? 'A selected source document is no longer usable. Deselect it and try again.'
+            ? (create.error.body as { error?: string; message?: string } | null)?.error === 'source_check_failed'
+              ? (create.error.body as { message: string }).message
+              : 'A selected source document is no longer usable. Deselect it and try again.'
             : `Could not create document (HTTP ${create.error.status}).`
       : 'Could not create document — see console for details.'
     : null
@@ -506,9 +524,7 @@ export function NewDocumentForm({
                 className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
                 data-banner="non-pdf-hidden"
               >
-                {hiddenNonPdfCount} source{hiddenNonPdfCount === 1 ? '' : 's'} hidden because the AI
-                drafter only reads PDFs today. Re-upload Word / PowerPoint sources as PDF to use
-                them.
+                {t('page.new_document.hidden_unreadable', { count: hiddenNonPdfCount })}
               </div>
             )}
 
@@ -523,18 +539,14 @@ export function NewDocumentForm({
             ) : (
               <div className="flex max-h-[55vh] flex-col gap-1.5 overflow-y-auto">
                 {filteredSources.map(src => (
-                  <label key={src.id}
-                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2.5 ${
-                      sourceIds.includes(src.id) ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}>
-                    <input type="checkbox" className="mt-0.5" checked={sourceIds.includes(src.id)} onChange={() => toggleSource(src.id)} data-source-id={src.id} />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[12px] font-semibold text-slate-900">{src.title}</span>
-                      <span className="block truncate text-[11px] text-slate-500">
-                        {sourceCategoryLabel(src.category)} · {src.fileName}
-                      </span>
-                    </span>
-                  </label>
+                  <SourcePickRow
+                    key={src.id}
+                    src={src}
+                    selected={sourceIds.includes(src.id)}
+                    role={roleOf(src.id)}
+                    onToggle={() => toggleSource(src.id)}
+                    onRole={role => setRoles(cur => ({ ...cur, [src.id]: role }))}
+                  />
                 ))}
               </div>
             )}
@@ -645,6 +657,10 @@ export function NewDocumentForm({
               t={t}
             />
 
+            {sourceIds.length > 0 && (
+              <SourceCheckPanel loading={sourceCheck.isFetching} failed={sourceCheck.isError} result={sourceCheck.data} />
+            )}
+
             {errorMsg && (
               <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700" role="alert">
                 {errorMsg}
@@ -708,6 +724,106 @@ export function NewDocumentForm({
 // the step doesn't scroll the user past the Next button. "Review due" items
 // expand on first open regardless, since those are the ones that most want
 // the writer's attention.
+/** The AI drafter reads PDF, Word (.docx) and plain-text files; the rest can't be drafted from. */
+function aiCanRead(src: SourceDocument): boolean {
+  if (src.check?.usable === false) return false
+  const ext = src.fileName.split('.').pop()?.toLowerCase() ?? ''
+  const type = (src.contentType ?? '').toLowerCase()
+  return type === 'application/pdf' || ['pdf', 'docx', 'txt', 'csv', 'md'].includes(ext) || type.startsWith('text/')
+}
+
+/** One source in step 2: pick it, and say whether it is this study's evidence or only an example. */
+function SourcePickRow({ src, selected, role, onToggle, onRole }: {
+  src: SourceDocument
+  selected: boolean
+  role: SourceRole
+  onToggle: () => void
+  onRole: (role: SourceRole) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className={`rounded-md border p-2.5 ${selected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+      data-source-row={src.id}
+    >
+      <label className="flex cursor-pointer items-start gap-2">
+        <input type="checkbox" className="mt-0.5" checked={selected} onChange={onToggle} data-source-id={src.id} />
+        <span className="min-w-0">
+          <span className="block truncate text-[12px] font-semibold text-slate-900">{src.title}</span>
+          <span className="block truncate text-[11px] text-slate-500">
+            {sourceCategoryLabel(src.category)} · {src.fileName}
+          </span>
+          {src.check?.looksLikeExample && (
+            <span className="mt-0.5 block text-[11px] text-amber-700" data-looks-like-example>
+              {t('page.new_document.looks_like_example', { reason: src.check.exampleReason ?? '' }).trim()}
+            </span>
+          )}
+        </span>
+      </label>
+      {selected && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 pl-6" role="radiogroup" aria-label={t('page.new_document.role_label', { title: src.title })}>
+          {(['evidence', 'example'] as const).map(r => (
+            <button
+              key={r}
+              type="button"
+              role="radio"
+              aria-checked={role === r}
+              onClick={() => onRole(r)}
+              data-source-role={r}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                role === r
+                  ? r === 'evidence' ? 'border-blue-600 bg-blue-600 text-white' : 'border-amber-500 bg-amber-500 text-white'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {t(`page.new_document.role_${r}`)}
+            </button>
+          ))}
+          <span className="text-[11px] text-slate-500">{t(`page.new_document.role_${role}_hint`)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Step 4: what the source check found. Problems that block Create come first. */
+function SourceCheckPanel({ loading, failed, result }: {
+  loading: boolean
+  failed: boolean
+  result: { ok: boolean; issues: Array<{ code: string; severity: 'block' | 'warn'; message: string }> } | undefined
+}) {
+  const { t } = useTranslation()
+  if (loading) return <p className="text-[12px] text-slate-500" data-source-check="loading">{t('page.new_document.source_check_loading')}</p>
+  if (failed || !result) return <p className="text-[12px] text-slate-500" data-source-check="unavailable">{t('page.new_document.source_check_unavailable')}</p>
+  const issues = [...result.issues].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'block' ? -1 : 1))
+  if (issues.length === 0) {
+    return (
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800" data-source-check="ok">
+        {t('page.new_document.source_check_ok')}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1.5" data-source-check={result.ok ? 'warnings' : 'blocked'}>
+      <p className="text-[12px] font-semibold text-slate-900">
+        {result.ok ? t('page.new_document.source_check_warnings') : t('page.new_document.source_check_blocked')}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {issues.map((i, n) => (
+          <li
+            key={`${i.code}-${n}`}
+            data-source-issue={i.code}
+            data-severity={i.severity}
+            className={`rounded-md border px-3 py-2 text-[12px] ${i.severity === 'block' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}
+          >
+            {i.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; docTypeLabel: string }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(items.length <= 2 || items.some(bp => bp.reviewDue))

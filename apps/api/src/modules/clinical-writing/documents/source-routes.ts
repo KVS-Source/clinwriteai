@@ -20,6 +20,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanChangeSource, actorCanUploadSources, actorCanViewSources, SOURCE_EDIT_FORBIDDEN, SOURCE_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { fileCheckOf } from './source-check.js'
 import { SOURCE_CATEGORY_LABEL, suggestSourceCategory, type SourceCategory } from './source-categories.js'
 
 const SORT_KEYS = ['title', 'file', 'category', 'state', 'scan', 'usedIn', 'size', 'uploaded'] as const
@@ -191,6 +192,8 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
         state: stateOf(r),
         virusScanStatus: r.virusScanStatus,
         usedIn: usedInByUpload.get(r.id) ?? [],
+        // Upload-time checks: readable by the AI, looks like a sample, the study it names, duplicate (source-check.ts).
+        check: fileCheckOf(r.classification),
         uploadedBy: { id: r.uploadedBy, name: uploader?.name ?? null, email: uploader?.email ?? null },
         uploadedAt: r.createdAt.toISOString(),
       }

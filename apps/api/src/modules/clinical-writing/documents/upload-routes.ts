@@ -26,6 +26,7 @@ import { DocumentService } from './service.js'
 import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
 import { SOURCE_CATEGORIES, suggestSourceCategory } from './source-categories.js'
 import { classifySourceUpload } from './source-classifier.js'
+import { inspectSource } from './source-inspect.js'
 import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024   // 50 MB per API contract
@@ -117,14 +118,28 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
       metadata: { originalFilename: file.filename, projectId, uploadedBy: request.user!.id },
     })
 
-    const classification = await classifySourceUpload(app, classifyByFilename(file.filename), {
-      buffer: buf,
-      fileName: file.filename,
-      contentType: file.mimetype,
-      tenantId: request.user!.tenantId,
-      projectId,
-      actorId: request.user!.id,
+    const [classified, inspection] = await Promise.all([
+      classifySourceUpload(app, classifyByFilename(file.filename), {
+        buffer: buf,
+        fileName: file.filename,
+        contentType: file.mimetype,
+        tenantId: request.user!.tenantId,
+        projectId,
+        actorId: request.user!.id,
+      }),
+      // Whether the AI drafter can read it; the upload form shows any problem before the file is saved.
+      inspectSource(buf, file.filename, file.mimetype),
+    ])
+    // The same file already in this project's library.
+    const same = await app.prisma.documentUpload.findFirst({
+      where: { projectId, status: 'confirmed', classification: { path: ['inspection', 'sha256'], equals: inspection.sha256 } },
+      select: { id: true, title: true, fileName: true },
     })
+    const classification = {
+      ...classified,
+      inspection,
+      duplicateOf: same ? { id: same.id, title: same.title ?? same.fileName } : null,
+    }
 
     const row = await app.prisma.documentUpload.create({
       data: {
@@ -155,6 +170,8 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
         classifiedBy: classification.classifiedBy,
         suggestedCategory: classification.sourceCategory,
         suggestedCategoryConfidence: classification.sourceCategoryConfidence,
+        readableByAi: inspection.usable,
+        ...(classification.duplicateOf ? { duplicateOf: classification.duplicateOf.id } : {}),
         ...(classification.classifiedBy === 'ai'
           ? { aiModel: classification.aiModel, aiCallRecordId: classification.aiCallRecordId }
           : { fallbackReason: classification.fallbackReason }),

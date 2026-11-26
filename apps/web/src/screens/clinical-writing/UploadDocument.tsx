@@ -51,6 +51,13 @@ interface Classification {
   reason?:                  string
   /** Why the suggestion is a filename guess. */
   fallbackReason?:          'unreadable' | 'ai_unavailable'
+  /** Can the AI drafter read the file (API source-inspect.ts). */
+  inspection?:              { usable: boolean; problem: string | null }
+  /** Looks like a sample, template or mock-up, not a real study document. */
+  looksLikeExample?:        boolean
+  exampleReason?:           string | null
+  /** The same file is already in the library. */
+  duplicateOf?:             { id: string; title: string } | null
 }
 
 interface UploadResponse {
@@ -451,6 +458,8 @@ function FileCard({ item, alone, locked, onEdit, onRemove }: {
         </div>
       )}
 
+      <SourceFileNotes classification={upload.classification} />
+
       <fieldset disabled={locked} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <h3 className="text-[13px] font-semibold text-slate-900">{t('page.upload_document.source_details')}</h3>
         <div className="mt-3 flex flex-col gap-3">
@@ -506,6 +515,35 @@ function FileCard({ item, alone, locked, onEdit, onRemove }: {
         </div>
       )}
     </div>
+  )
+}
+
+/** What the upload-time checks found: unreadable by the AI, a duplicate, or looks like a sample. */
+function SourceFileNotes({ classification: c }: { classification: Classification }) {
+  const { t } = useTranslation()
+  const notes: Array<{ tone: 'red' | 'amber'; key: string; text: string }> = []
+  if (c.inspection && !c.inspection.usable) {
+    notes.push({ tone: 'red', key: 'unreadable', text: t('page.upload_document.check_unreadable', { problem: c.inspection.problem ?? '' }) })
+  } else if (c.inspection?.problem) {
+    notes.push({ tone: 'amber', key: 'limited', text: c.inspection.problem })
+  }
+  if (c.duplicateOf) notes.push({ tone: 'amber', key: 'duplicate', text: t('page.upload_document.check_duplicate', { title: c.duplicateOf.title }) })
+  if (c.looksLikeExample) {
+    notes.push({ tone: 'amber', key: 'example', text: t('page.upload_document.check_example', { reason: c.exampleReason ?? '' }).trim() })
+  }
+  if (notes.length === 0) return null
+  return (
+    <ul className="flex flex-col gap-1.5" data-source-checks>
+      {notes.map(n => (
+        <li
+          key={n.key}
+          data-source-check={n.key}
+          className={`rounded-md border px-3 py-2 text-[12px] ${n.tone === 'red' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}
+        >
+          {n.text}
+        </li>
+      ))}
+    </ul>
   )
 }
 

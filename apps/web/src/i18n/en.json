@@ -1158,6 +1158,19 @@
       "menu_soon_badge": "soon"
     },
     "new_document": {
+      "hidden_unreadable_one": "{{count}} source is hidden because the AI can’t read it (PowerPoint, Excel, image, old .doc, or a file that failed its check). Save it as PDF to use it.",
+      "hidden_unreadable_other": "{{count}} sources are hidden because the AI can’t read them (PowerPoint, Excel, images, old .doc, or files that failed their check). Save them as PDF to use them.",
+      "looks_like_example": "Looks like a sample or template. {{reason}}",
+      "role_label": "What “{{title}}” is used for",
+      "role_evidence": "Evidence",
+      "role_example": "Example",
+      "role_evidence_hint": "This study’s own document: facts are taken from it.",
+      "role_example_hint": "A sample or another study’s document: used for structure and wording only, never for facts.",
+      "source_check_loading": "Checking the sources…",
+      "source_check_unavailable": "The sources could not be checked right now. They are checked again when you click Create.",
+      "source_check_ok": "Sources checked: every file can be read, and nothing is missing or conflicting.",
+      "source_check_warnings": "Sources checked. You can create the document, but look at these first:",
+      "source_check_blocked": "Fix these before creating the document:",
       "assignee_no_capability": "No author capability recorded. An admin must give them the can-author capability first.",
       "step_label_1": "Type",
       "step_label_2": "Sources",
@@ -1841,6 +1854,9 @@
       "soon": "soon"
     },
     "upload_document": {
+      "check_unreadable": "The AI can’t use this file: {{problem}}",
+      "check_duplicate": "The same file is already in the library as “{{title}}”.",
+      "check_example": "This looks like a sample or template, not a real study document. {{reason}} When you create a document from it, mark it as an example.",
       "file_too_large": "File is too large ({{sizeMB}} MB). Maximum is 50 MB.",
       "unexpected_response": "Unexpected response from upload endpoint.",
       "upload_failed_http": "Upload failed (HTTP {{status}})",

@@ -32,6 +32,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
+import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind, type SourceRole } from './source-files.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
@@ -75,6 +76,10 @@ interface SourcePdfPayload {
   title:    string
   category: string | null
   bytes:    Buffer
+  /** Word / plain-text sources: their text (sent as text, not as a PDF). */
+  text?:    string
+  /** evidence = this study's facts; example = structure and wording only (document_sources.role). */
+  role:     SourceRole
 }
 
 // Only ever written when AI_ALLOW_STUB=1 (dev/CI). Matched by the API's placeholder guard.
@@ -253,6 +258,7 @@ async function draftWithClaude(args: {
     // against the same "sources are authoritative, no fabrication"
     // contract. See apps/api/.../document-type-policy/resolve.ts.
     SECTION_GROUNDING_RULES,
+    args.sourcePdfs.some(p => isExample(p.role)) ? `\n${EXAMPLE_SOURCES_RULE}` : '',
     authorBlock,
     policySection,
     templateGuidanceBlock,
@@ -267,7 +273,8 @@ async function draftWithClaude(args: {
     : args.sources.map(s => {
         // Numbered as attached, so the model can name the ones it used; a source that could not be attached has no number.
         const n = args.sourcePdfs.findIndex(p => p.id === s.id) + 1
-        return `${n > 0 ? `${n}.` : '- (not attached)'} ${s.title || s.fileName}${s.category ? ` [${s.category}]` : ''}`
+        const role = n > 0 ? (isExample(args.sourcePdfs[n - 1]!.role) ? ' (EXAMPLE: structure and wording only, no facts)' : ' (EVIDENCE)') : ''
+        return `${n > 0 ? `${n}.` : '- (not attached)'} ${s.title || s.fileName}${s.category ? ` [${s.category}]` : ''}${role}`
       }).join('\n')
   const usageInstruction = sourceUsageInstruction(args.sourcePdfs.length)
 
@@ -509,11 +516,15 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   const unreadable: string[] = []
   if (apiKey && sources.length > 0) {
     const reader = createBlobReaderFromEnv()
+    // What each source may be used for, as set at New Document (links made before roles existed are evidence).
+    const links = await prisma.documentSource.findMany({ where: { documentId }, select: { uploadId: true, role: true } }).catch(() => [])
+    const roleOf = (id: string): SourceRole => (links.find(l => l.uploadId === id)?.role === 'example' ? 'example' : 'evidence')
     for (const src of sources) {
       const title = src.title || src.fileName
-      if (src.contentType !== 'application/pdf') {
+      const kind = sourceKind(src.fileName, src.contentType)
+      if (kind === 'other') {
         await steps.emit('source_skipped',
-          `Skipped "${title}" — not a PDF (${src.contentType ?? 'unknown type'}).`, {
+          `Skipped "${title}" — the AI can't read this type of file (${src.contentType ?? 'unknown type'}).`, {
             details: { sourceId: src.id, contentType: src.contentType },
           })
         continue
@@ -528,17 +539,19 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
             })
           continue
         }
-        sourcePdfs.push({ id: src.id, title, category: src.category, bytes })
+        const role = roleOf(src.id)
+        const text = kind === 'pdf' ? undefined : await readSourceText(bytes, kind)
+        sourcePdfs.push({ id: src.id, title, category: src.category, bytes, text, role })
         await steps.emit('source_loaded',
-          `Loaded "${title}" (${(bytes.length / 1024).toFixed(0)}KB) — attached to every section call.`, {
-            details: { sourceId: src.id, bytes: bytes.length, category: src.category },
+          `Loaded "${title}" (${(bytes.length / 1024).toFixed(0)}KB${text !== undefined ? ', as text' : ''}) as ${role === 'example' ? 'an EXAMPLE — structure and wording only, no facts' : 'evidence'} — attached to every section call.`, {
+            details: { sourceId: src.id, bytes: bytes.length, category: src.category, role, asText: text !== undefined },
           })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         unreadable.push(title)
         log.warn({ documentId, sourceId: src.id, err: message }, 'ai_initial_draft: could not read source blob')
         await steps.emit('source_skipped',
-          `Skipped "${title}" — blob read failed: ${message.slice(0, 200)}`, {
+          `Skipped "${title}" — could not be read: ${message.slice(0, 200)}`, {
             details: { sourceId: src.id, err: message },
           })
       }
@@ -566,7 +579,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // --- Any number of pages: long sources go as text ----------------------
   let sourceBlocks: SourceBlocks
   try {
-    sourceBlocks = await buildSourceBlocks(sourcePdfs, resolvedModel)
+    sourceBlocks = await buildSourceBlocks(sourcePdfs.map(p => ({ ...p, example: isExample(p.role) })), resolvedModel)
   } catch (err) {
     if (!(err instanceof SourcesTooLongError)) throw err
     log.error({ documentId, err: err.message }, 'ai_initial_draft: sources too long — stopped')

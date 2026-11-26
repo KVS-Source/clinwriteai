@@ -30,7 +30,7 @@ async function build(chat: ReturnType<typeof vi.fn> = vi.fn(async () => ({ respo
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1' })) },
     documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-r' })) },
     document: { findFirst: vi.fn(async () => null) },
-    documentUpload: { create },
+    documentUpload: { create, findFirst: vi.fn(async () => null) },
   } as never)
   app.decorate('blob', { put: vi.fn(async () => undefined) } as never)
   app.decorate('audit', { append } as never)

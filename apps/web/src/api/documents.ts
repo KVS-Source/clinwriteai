@@ -71,6 +71,36 @@ export interface SourceDocument {
   usedIn: Array<{ id: string; title: string }>
   uploadedBy: { id: string; name: string | null; email: string | null }
   uploadedAt: string
+  /** What the upload-time checks found; null for files uploaded before them. */
+  check?: SourceFileCheck | null
+}
+
+export type SourceRole = 'evidence' | 'example'
+
+/** Upload-time checks of a source file (API source-check.ts fileCheckOf). */
+export interface SourceFileCheck {
+  /** The AI drafter can read it; null when not checked yet. */
+  usable:           boolean | null
+  problem:          string | null
+  scannedPages:     number | null
+  /** Looks like a sample, template or mock-up rather than a real study document. */
+  looksLikeExample: boolean
+  exampleReason:    string | null
+  study:            { protocolNumber: string | null; drug: string | null; sponsor: string | null } | null
+  duplicateOf:      { id: string; title: string } | null
+}
+
+/** New Document source check (POST …/documents/source-check). */
+export interface SourceCheckIssue {
+  code:      string
+  severity:  'block' | 'warn'
+  message:   string
+  uploadIds: string[]
+}
+export interface SourceCheckResult {
+  ok:         boolean
+  issues:     SourceCheckIssue[]
+  unknownIds: string[]
 }
 
 export interface SourceDocumentPage {
@@ -193,6 +223,9 @@ export const documentsApi = {
     api.download(`/documents/${documentId}/final/pdf`),
   create: (projectId: string, body: CreateDocumentBody) =>
     api.post<Document>(`/projects/${projectId}/documents`, body),
+  /** Can these sources be drafted from, and what will be missing (shown before Create). */
+  sourceCheck: (projectId: string, body: { type: string; sources: Array<{ uploadId: string; role: SourceRole }> }) =>
+    api.post<SourceCheckResult>(`/projects/${projectId}/documents/source-check`, body),
   upload: (projectId: string, formData: FormData) =>
     api.upload(`/projects/${projectId}/documents/upload`, formData),
   // Throw away an upload the user never saved to the library (cancelled the upload form).

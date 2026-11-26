@@ -49,7 +49,7 @@ export class SourcesTooLongError extends Error {}
 const contextTokens = (model: string) => (/haiku-4|sonnet-4-[05]|opus-4-[015]|claude-3/.test(model) ? 200_000 : 1_000_000)
 const maxPdfPages = (model: string) => (contextTokens(model) < 1_000_000 ? 100 : MAX_PDF_PAGES)
 
-async function pageTexts(bytes: Buffer): Promise<string[]> {
+export async function pageTexts(bytes: Buffer): Promise<string[]> {
   const { PDFParse } = await import('pdf-parse')
   const parser = new PDFParse({ data: new Uint8Array(bytes) })
   try {
@@ -59,7 +59,7 @@ async function pageTexts(bytes: Buffer): Promise<string[]> {
   }
 }
 
-async function onlyPages(bytes: Buffer, indexes: number[]): Promise<Buffer> {
+export async function onlyPages(bytes: Buffer, indexes: number[]): Promise<Buffer> {
   const { PDFDocument } = await import('pdf-lib')
   const from = await PDFDocument.load(bytes)
   const out = await PDFDocument.create()

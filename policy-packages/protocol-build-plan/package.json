@@ -1,9 +1,16 @@
 {
   "packageId": "protocol-build-plan",
-  "packageVersion": 1,
-  "description": "Protocol AI build plan: objectives first, then design, population and treatment, study conduct, statistics, background, standard sections, and the synopsis last.",
-  "audience": { "installIds": ["*"] },
+  "packageVersion": 2,
+  "description": "Protocol AI build plan: a checked study fact sheet first, then objectives, design, population and treatment, study conduct, statistics, background, standard sections, and the synopsis last. Long sources: each section gets its relevant pages.",
+  "audience": {
+    "installIds": [
+      "*"
+    ]
+  },
   "contents": [
-    { "docType": "protocol", "buildPlan": "./build-plan.json" }
+    {
+      "docType": "protocol",
+      "buildPlan": "./build-plan.json"
+    }
   ]
 }

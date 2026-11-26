@@ -3,7 +3,7 @@
 // created before the plan in the template's order.
 
 import { readFileSync } from 'node:fs'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleAiInitialDraft } from '../../../../../worker/src/jobs/ai-initial-draft.js'
 
@@ -16,14 +16,15 @@ const TEMPLATE = [
   { number: '12', title: 'References' },
 ].sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true })).map(s => ({ ...s, id: `s${s.number}` }))
 
-type Call = { temperature?: number; prompt: string }
-const state = vi.hoisted(() => ({ calls: [] as Call[], pdf: Buffer.alloc(0) }))
+type Call = { temperature?: number; prompt: string; titles: string[] }
+const state = vi.hoisted(() => ({ calls: [] as Call[], pdf: Buffer.alloc(0), factAnswer: '[]' }))
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class {
     messages = {
-      create: async (body: { temperature?: number; messages: Array<{ content: Array<{ type: string; text?: string }> }> }) => {
+      create: async (body: { temperature?: number; messages: Array<{ content: Array<{ type: string; text?: string; title?: string }> }> }) => {
         const prompt = body.messages[0]!.content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-        state.calls.push({ temperature: body.temperature, prompt })
+        state.calls.push({ temperature: body.temperature, prompt, titles: body.messages[0]!.content.filter(c => c.type === 'document').map(c => c.title!) })
+        if (prompt.includes('Extract the key facts')) return { content: [{ type: 'text', text: state.factAnswer }], usage: { input_tokens: 100, output_tokens: 50 } }
         const n = /Draft section (\S+) /.exec(prompt)?.[1]
         return { content: [{ type: 'text', text: `<!-- sources-used: 1 --><p>Facts of ${n}</p>` }], usage: { input_tokens: 10, output_tokens: 5 } }
       },
@@ -40,15 +41,16 @@ vi.mock('../../../../../worker/src/jobs/policy-prompt.js', () => ({
 }))
 vi.mock('../../../../../worker/src/jobs/ai-draft-step.js', () => ({ createStepLogger: () => ({ emit: async () => undefined }) }))
 
-function run(policyVersionAtCreate: number | null) {
+function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown } = {}) {
   const written: string[] = []
+  const updates: Array<Record<string, unknown>> = []
   const prisma = {
     document: {
-      update: vi.fn(async () => ({})),
-      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null })),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return {} }),
+      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null, factSheet: opts.factSheet ?? null })),
     },
     project: { findUnique: async () => null },
-    documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: PLAN })) },
+    documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: opts.plan ?? PLAN })) },
     documentTemplate: { findFirst: async () => ({ sections: TEMPLATE }) },
     documentUpload: { findMany: async () => [{ id: 'u1', title: 'Synopsis', fileName: 'syn.pdf', sourceCategory: 'protocol', blobKey: 'k', contentType: 'application/pdf' }] },
     documentSource: { findMany: async () => [] },
@@ -62,6 +64,7 @@ function run(policyVersionAtCreate: number | null) {
   }
   return {
     written,
+    updates,
     done: handleAiInitialDraft(
       { data: { documentId: 'd', versionId: 'v', projectId: 'p', type: 'protocol', sourceUploadIds: ['u1'], assigneeId: 'u', actorId: 'u' } } as never,
       { prisma, log: { info() {}, warn() {}, error() {} }, enqueue: vi.fn() } as never,
@@ -69,12 +72,19 @@ function run(policyVersionAtCreate: number | null) {
   }
 }
 
+async function pdf(pages: string[]): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  for (const text of pages) doc.addPage().drawText(text, { x: 20, y: 700, size: 9, font })
+  return Buffer.from(await doc.save())
+}
+const callFor = (n: string) => state.calls.find(c => c.prompt.includes(`Draft section ${n} `))!
+
 describe('drafting with the Protocol build plan', () => {
   beforeEach(async () => {
     state.calls.length = 0
-    const doc = await PDFDocument.create()
-    doc.addPage()
-    state.pdf = Buffer.from(await doc.save())
+    state.factAnswer = '[]'
+    state.pdf = await pdf([''])
   })
 
   it('drafts in the plan’s order, gives each section what it depends on, and leaves headings and References alone', async () => {
@@ -103,5 +113,48 @@ describe('drafting with the Protocol build plan', () => {
     expect(written.slice(0, 3)).toEqual(['1', '1.1', '1.2'])
     expect(state.calls.some(c => c.prompt.includes('EARLIER SECTIONS'))).toBe(false)
     expect(state.calls.every(c => c.temperature === undefined)).toBe(true)
+  })
+
+  it('extracts the study fact sheet first, keeps only checked facts, stores it, and gives it to every section', async () => {
+    state.pdf = await pdf(['Protocol MP-301 is a study of Moonazumab in adults with moderate asthma.'])
+    state.factAnswer = JSON.stringify([
+      { key: 'protocol_number', value: 'MP-301', source: 1, page: 1, quote: 'Protocol MP-301 is a study of Moonazumab' },
+      { key: 'sample_size', value: '500', source: 1, page: 1, quote: 'A total of 500 participants' },
+    ])
+    const { updates, done } = run(2)
+    await done
+    expect(state.calls[0]!.prompt).toContain('Extract the key facts of THIS study')
+    const stored = updates.find(u => u.factSheet)!.factSheet as { sourceIds: string[]; facts: Array<{ key: string; status: string; value: string }> }
+    expect(stored.sourceIds).toEqual(['u1'])
+    expect(stored.facts.find(f => f.key === 'protocol_number')).toMatchObject({ status: 'verified', value: 'MP-301' })
+    expect(stored.facts.find(f => f.key === 'sample_size')).toMatchObject({ status: 'failed_check', value: '[TBD]' })
+    expect(stored.facts.find(f => f.key === 'sponsor')).toMatchObject({ status: 'not_stated' })
+    for (const n of ['3.1', '10.1', '1.1']) {
+      expect(callFor(n).prompt).toContain('- Protocol number: MP-301 (Synopsis, p. 1)')
+      expect(callFor(n).prompt).toContain('- Planned number of participants: [TBD]')
+    }
+    expect(callFor('3.1').prompt).not.toContain('500')
+  })
+
+  it('a stored fact sheet for the same sources is reused, not extracted again', async () => {
+    const sheet = { extractedAt: '', model: 'm', sourceIds: ['u1'], facts: [{ key: 'phase', label: 'Trial phase', value: 'Phase 3', status: 'verified' }] }
+    const { done } = run(2, { factSheet: sheet })
+    await done
+    expect(state.calls.some(c => c.prompt.includes('Extract the key facts'))).toBe(false)
+    expect(callFor('3.1').prompt).toContain('- Trial phase: Phase 3')
+  })
+
+  it('long sources: each section gets its matching pages, and scanned pages go to every section', async () => {
+    state.pdf = await pdf([
+      'Inclusion criteria: adults aged 18 to 75 years with moderate asthma.',
+      'Hypotheses and sample size: 1200 participants give 90 percent power.',
+      '',
+    ])
+    const plan = { ...PLAN, sourcePages: { allBelowPages: 0, budgetChars: 10_000 } }
+    const { done } = run(2, { plan })
+    await done
+    expect(callFor('5.1').titles).toEqual(['Synopsis (its pages 3, no text)', 'Synopsis (pages 1)'])
+    expect(callFor('10.1').titles).toContain('Synopsis (pages 2)')
+    expect(callFor('10.1').titles).not.toContain('Synopsis (pages 1)')
   })
 })

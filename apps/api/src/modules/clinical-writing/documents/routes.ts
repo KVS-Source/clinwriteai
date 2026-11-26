@@ -1838,6 +1838,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         policyVersionAtCreate: true,
         aiPromptRecordId: true,
         bestPracticeRecordId: true,
+        factSheet: true,
         createdAt: true, updatedAt: true,
       },
     })
@@ -2183,6 +2184,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         createdAt:            doc.createdAt.toISOString(),
         updatedAt:            doc.updatedAt.toISOString(),
       },
+
+      // The study fact sheet the sections were drafted with (worker fact-sheet.ts); null without a build plan.
+      factSheet: doc.factSheet ?? null,
 
       policy: {
         pinnedVersionAtCreate: doc.policyVersionAtCreate,

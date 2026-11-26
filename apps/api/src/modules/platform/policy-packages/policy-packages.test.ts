@@ -25,6 +25,8 @@ const TEMPLATE = [
   { number: '12', title: 'References' },
 ].sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true }))
 
+const VERSION = (JSON.parse(readFileSync(MANIFEST, 'utf8')) as { packageVersion: number }).packageVersion
+
 const signed = (over: Record<string, unknown> = {}, key = DEV_PRIVATE_KEY_PEM) => signPayload({ ...packagePayload(MANIFEST), ...over }, key)
 
 describe('the Protocol build plan file', () => {
@@ -76,7 +78,7 @@ describe('build plan rules', () => {
 describe('verifying a package', () => {
   it('a package signed with the GenBioCa key for every install is accepted', () => {
     const r = verifyPolicyPackage(signed(), DEV_PUBLIC_KEY_PEM, 'install-1')
-    expect(r).toMatchObject({ ok: true, value: { pkg: { packageId: 'protocol-build-plan', packageVersion: 1 } } })
+    expect(r).toMatchObject({ ok: true, value: { pkg: { packageId: 'protocol-build-plan', packageVersion: VERSION } } })
   })
   it('refuses another key, a changed file, a license key, a newer format and another install', () => {
     const other = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
@@ -128,7 +130,7 @@ describe('previewing and importing', () => {
     const prisma = fakePrisma([{ ...PROTOCOL_V1 }])
     const r = await service(prisma).preview(signed())
     expect(r.ok && r.value).toMatchObject({
-      ok: true, packageId: 'protocol-build-plan', packageVersion: 1,
+      ok: true, packageId: 'protocol-build-plan', packageVersion: VERSION,
       items: [{ docType: 'protocol', currentVersion: 1, newVersion: 2, template: { id: 'tpl' }, errors: [], stages: expect.arrayContaining([{ label: 'Summary (last)', sections: 2 }]) }],
     })
     expect(r.ok && r.value.items[0]!.warnings).toHaveLength(4)
@@ -142,8 +144,8 @@ describe('previewing and importing', () => {
     expect(policies[0]).toMatchObject({ isCurrent: false, supersededBy: 'pol-2' })
     expect(policies[1]).toMatchObject({
       version: 2, isCurrent: true, smePrompt: 'SME prompt', checklistTemplateId: 'cl-1', ichFrameworkNames: ['ICH M11'],
-      requirements: { requirePurpose: false }, buildPlan: { label: 'Protocol build plan v1' },
-      buildPlanSource: { packageId: 'protocol-build-plan', packageVersion: 1, importedBy: 'admin-1', sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      requirements: { requirePurpose: false }, buildPlan: { label: PLAN.label },
+      buildPlanSource: { packageId: 'protocol-build-plan', packageVersion: VERSION, importedBy: 'admin-1', sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
     })
   })
 
@@ -151,14 +153,14 @@ describe('previewing and importing', () => {
     const policies: PolicyRow[] = []
     const r = await service(fakePrisma(policies, null)).importPackage(signed(), 'admin-1')
     expect(r.ok && r.value.items[0]!.warnings).toEqual(['There is no protocol template yet. The plan is checked against it when one is added.'])
-    expect(policies).toMatchObject([{ docType: 'protocol', version: 1, isCurrent: true, buildPlan: { label: 'Protocol build plan v1' } }])
+    expect(policies).toMatchObject([{ docType: 'protocol', version: 1, isCurrent: true, buildPlan: { label: PLAN.label } }])
   })
 
   it('the same or an older package version is not imported again; nothing is written', async () => {
-    const prisma = fakePrisma([{ ...PROTOCOL_V1, buildPlanSource: { packageId: 'protocol-build-plan', packageVersion: 1 } }])
+    const prisma = fakePrisma([{ ...PROTOCOL_V1, buildPlanSource: { packageId: 'protocol-build-plan', packageVersion: VERSION } }])
     const r = await service(prisma).importPackage(signed(), 'admin-1')
     expect(r.ok && r.value).toMatchObject({ ok: false, applied: [] })
-    expect(r.ok && r.value.items[0]!.errors[0]).toMatch(/Version 1 of this package is already imported/)
+    expect(r.ok && r.value.items[0]!.errors[0]).toMatch(new RegExp(`Version ${VERSION} of this package is already imported`))
     expect(prisma.documentTypePolicy.create).not.toHaveBeenCalled()
   })
 

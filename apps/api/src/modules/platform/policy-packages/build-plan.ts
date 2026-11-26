@@ -45,6 +45,21 @@ export const buildPlanSchema = z.object({
   /** Section number → the sections it is given, by number; '*' = every section drafted before it. */
   dependsOn:     z.record(z.union([z.literal('*'), z.array(z.string().trim().min(1).max(20)).max(200)])).default({}),
   expectedSections: z.array(expectedSectionSchema).max(30).default([]),
+  /** The study fact sheet extracted at the start of a draft and given to every section (worker fact-sheet.ts). */
+  factSheet: z.object({
+    fields: z.array(z.object({
+      key:   z.string().trim().regex(/^[a-z][a-z0-9_]*$/).max(40),
+      label: z.string().trim().min(1).max(80),
+      hint:  z.string().trim().max(200).optional(),
+    }).strict()).min(1).max(60),
+  }).strict().optional(),
+  /** Long sources: each section gets only its relevant pages (worker source-pages.ts). */
+  sourcePages: z.object({
+    /** Up to this many pages in all, every section still gets every file. */
+    allBelowPages: z.number().int().min(0).max(5000).default(100),
+    /** Text of the chosen pages per section, in characters (about 3.5 per token). */
+    budgetChars:   z.number().int().min(10_000).max(400_000).default(80_000),
+  }).strict().optional(),
   rules: z.object({
     /** 0 makes drafting as repeatable as the model allows. */
     temperature: z.number().min(0).max(1).optional(),
@@ -89,6 +104,10 @@ export function validateBuildPlan(plan: BuildPlan): PlanError[] {
         errors.push({ message: `Section ${number} depends on ${dep}, which is drafted after it.` })
       }
     }
+  }
+  const keys = (plan.factSheet?.fields ?? []).map(f => f.key)
+  for (const key of new Set(keys)) {
+    if (keys.filter(k => k === key).length > 1) errors.push({ message: `Fact "${key}" appears more than once in the fact sheet.` })
   }
   return errors
 }

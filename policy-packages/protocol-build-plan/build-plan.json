@@ -1,8 +1,111 @@
 {
   "schemaVersion": 1,
   "docType": "protocol",
-  "label": "Protocol build plan v1",
+  "label": "Protocol build plan v2",
   "rules": { "temperature": 0 },
+  "factSheet": {
+    "fields": [
+      {
+        "key": "study_title",
+        "label": "Study title",
+        "hint": "the full title as stated"
+      },
+      {
+        "key": "protocol_number",
+        "label": "Protocol number",
+        "hint": "the sponsor's protocol or study code"
+      },
+      {
+        "key": "registry_ids",
+        "label": "Registry and regulatory numbers",
+        "hint": "EU CT, EudraCT, NCT or IND numbers"
+      },
+      {
+        "key": "sponsor",
+        "label": "Sponsor"
+      },
+      {
+        "key": "phase",
+        "label": "Trial phase"
+      },
+      {
+        "key": "investigational_product",
+        "label": "Investigational product",
+        "hint": "name and code"
+      },
+      {
+        "key": "dose_regimen",
+        "label": "Dose and regimen",
+        "hint": "dose, frequency and duration of dosing"
+      },
+      {
+        "key": "route",
+        "label": "Route of administration"
+      },
+      {
+        "key": "comparator",
+        "label": "Comparator",
+        "hint": "placebo or active control"
+      },
+      {
+        "key": "indication",
+        "label": "Indication",
+        "hint": "the disease or condition studied"
+      },
+      {
+        "key": "population",
+        "label": "Study population",
+        "hint": "who is enrolled, including the age range"
+      },
+      {
+        "key": "sample_size",
+        "label": "Planned number of participants"
+      },
+      {
+        "key": "randomisation",
+        "label": "Randomisation",
+        "hint": "ratio and stratification factors"
+      },
+      {
+        "key": "blinding",
+        "label": "Blinding",
+        "hint": "for example open-label or double-blind"
+      },
+      {
+        "key": "design",
+        "label": "Overall design",
+        "hint": "for example parallel-group, multicentre"
+      },
+      {
+        "key": "treatment_duration",
+        "label": "Treatment duration",
+        "hint": "per participant"
+      },
+      {
+        "key": "study_duration",
+        "label": "Study duration",
+        "hint": "per participant, including screening and follow-up"
+      },
+      {
+        "key": "primary_objective",
+        "label": "Primary objective"
+      },
+      {
+        "key": "primary_endpoint",
+        "label": "Primary endpoint"
+      },
+      {
+        "key": "secondary_endpoints",
+        "label": "Key secondary endpoints"
+      },
+      {
+        "key": "countries_sites",
+        "label": "Countries and sites",
+        "hint": "countries and number of sites"
+      }
+    ]
+  },
+  "sourcePages": { "allBelowPages": 100, "budgetChars": 80000 },
   "stages": [
     {
       "key": "objectives",

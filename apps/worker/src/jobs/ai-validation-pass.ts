@@ -36,6 +36,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { buildSourceBlocks, inputUsage } from './source-blocks.js'
 import { asBuildPlan, headingNumbers } from './build-plan.js'
+import { asFactSheet, factSheetBlock, type FactSheet } from './fact-sheet.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
@@ -195,7 +196,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
       // Japanese prose as off-template).
       const docRow = await prisma.document.findUnique({
         where:  { id: documentId },
-        select: { aiInstructions: true },
+        select: { aiInstructions: true, factSheet: true },
       })
       const aiInstructions = docRow?.aiInstructions?.trim() || null
       const { flags: aiFlagged, inputTokens: inTok, outputTokens: outTok } = await runLlmChecks({
@@ -205,6 +206,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         sections:  rows.map(r => ({ id: r.sectionId, html: r.contentHtml ?? '' })),
         sourcePdfs,
         aiInstructions,
+        factSheet: asFactSheet(docRow?.factSheet),
       })
       for (const flag of aiFlagged) {
         const bucket = flagsBySection.get(flag.sectionId)
@@ -458,6 +460,8 @@ async function runLlmChecks(args: {
   sections:   Array<{ id: string; html: string }>
   sourcePdfs: SourcePdfPayload[]
   aiInstructions: string | null
+  /** The study fact sheet the sections were drafted with, when there is one. */
+  factSheet?: FactSheet | null
 }): Promise<{ flags: AiCheckFlag[]; inputTokens: number; outputTokens: number }> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
@@ -486,6 +490,9 @@ async function runLlmChecks(args: {
     ...(args.sourcePdfs.some(p => p.example)
       ? [`  5. Facts from examples: a fact that appears only in an EXAMPLE source and not in any EVIDENCE source is an unsupported claim.`, EXAMPLE_SOURCES_RULE]
       : []),
+    ...(args.factSheet
+      ? [`  6. Study facts: a value that contradicts the STUDY FACT SHEET in the request, or a [TBD] fact filled in with a value, is an unsupported claim.`]
+      : []),
     `Return ONLY a JSON array of { "sectionId": "...", "reason": "short issue summary" } for sections that need revision.`,
     `Return an EMPTY array ("[]") if every section passes. No prose before or after. No code fences.`,
     authorBlock,
@@ -501,6 +508,7 @@ async function runLlmChecks(args: {
     `Attached sources (reference for the source-consistency check):`,
     args.sourcePdfs.length === 0 ? '(none)' : args.sourcePdfs.map(p => `- ${p.title}${p.example ? ' (EXAMPLE: structure and wording only, no facts)' : ' (EVIDENCE)'}`).join('\n'),
     ``,
+    ...(args.factSheet ? [factSheetBlock(args.factSheet), ``] : []),
     `Draft sections to review:`,
     sectionList,
     ``,

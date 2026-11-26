@@ -34,6 +34,9 @@ import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind, type SourceRole } from './source-files.js'
 import { asBuildPlan, earlierSectionsFor, orderByPlan, planPromptBlock, type PlannedSection } from './build-plan.js'
+import { asFactSheet, factSheetBlock, factSheetPrompt, indexSources, parseFactAnswer, sameSources, verifyFacts, type FactSheet, type IndexedSource } from './fact-sheet.js'
+import { pageBlocks, rankPages, scannedPages } from './source-pages.js'
+import { onlyPages } from './source-blocks.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
 import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
@@ -172,6 +175,44 @@ async function draftSection(args: {
   // text is never written into a document as if it were a draft.
   const result = await draftWithClaude(args)
   return { contentHtml: result.html, engine: args.model, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens, usedSources: result.usedSources, promptChars: result.promptChars }
+}
+
+const countFacts = (sheet: FactSheet) => {
+  const n = (s: string) => sheet.facts.filter(f => f.status === s).length
+  return `${n('verified')} of ${sheet.facts.length} facts found and checked, ${n('not_stated')} not stated in the evidence, ${n('failed_check')} failed the check (left as [TBD])`
+}
+
+/**
+ * The study facts, in one call over all the sources (the same cached blocks the sections reuse when every file is
+ * sent), then checked in code against the sources' text (fact-sheet.ts verifyFacts).
+ */
+async function extractFactSheet(args: {
+  apiKey: string
+  model: string
+  sourceBlocks: SourceBlocks
+  fields: Array<{ key: string; label: string; hint?: string }>
+  indexed: IndexedSource[]
+  temperature?: number
+  abortSignal?: AbortSignal
+}): Promise<{ facts: FactSheet['facts']; inputTokens: number; cachedTokens: number; outputTokens: number }> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk')
+  const client = new Anthropic({ apiKey: args.apiKey })
+  const message = await client.messages.create({
+    model: args.model,
+    max_tokens: 8000,
+    ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
+    system: CACHED_SYSTEM,
+    messages: [{ role: 'user', content: [...args.sourceBlocks.blocks, { type: 'text', text: factSheetPrompt(args.fields, args.indexed) }] }],
+  }, { signal: args.abortSignal })
+  const text = message.content.map(b => (b.type === 'text' ? (b as { type: 'text'; text: string }).text : '')).join('\n')
+  const answers = parseFactAnswer(text)
+  if (answers.length === 0) throw new Error('the answer had no facts in the expected form')
+  const { inputTokens, cachedTokens } = inputUsage(message.usage)
+  return {
+    facts: verifyFacts(args.fields, answers, args.indexed),
+    inputTokens, cachedTokens,
+    outputTokens: typeof message.usage?.output_tokens === 'number' ? message.usage.output_tokens : 0,
+  }
 }
 
 /** Dev/CI only: AI_ALLOW_STUB=1 lets the placeholder drafter run. Off by default. */
@@ -445,6 +486,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     select: {
       aiInstructions:       true,
       policyVersionAtCreate: true,
+      factSheet:            true,
       aiPromptRecordId:     true,
       bestPracticeRecordId: true,
     },
@@ -624,6 +666,74 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       })
   }
 
+  // --- Study fact sheet and the page index (build plan) ---------------------
+  // The facts every section must use, extracted once from the evidence with quotes that code checks; and, for long
+  // sources, each section's relevant pages. Neither stops the draft: without them it drafts from the sources as above.
+  let factSheet: FactSheet | null = null
+  let indexed: IndexedSource[] | null = null
+  if (buildPlan && apiKey && sourcePdfs.length > 0 && (buildPlan.factSheet || buildPlan.sourcePages)) {
+    indexed = await indexSources(sourcePdfs.map(p => ({ id: p.id, title: p.title, bytes: p.bytes, text: p.text, example: isExample(p.role) })))
+  }
+  if (buildPlan?.factSheet && apiKey && indexed) {
+    const stored = asFactSheet(docRow?.factSheet)
+    if (sameSources(stored, sourcePdfs.map(p => p.id))) {
+      factSheet = stored
+      await steps.emit('prompt_assembled', `Study fact sheet reused from the earlier run: ${countFacts(stored!)}.`, { details: { factSheet: 'reused' } })
+    } else {
+      try {
+        const result = await extractFactSheet({
+          apiKey, model: resolvedModel, sourceBlocks, fields: buildPlan.factSheet.fields, indexed,
+          temperature: buildPlan.rules.temperature, abortSignal: abortController.signal,
+        })
+        factSheet = { extractedAt: new Date().toISOString(), model: resolvedModel, sourceIds: sourcePdfs.map(p => p.id), facts: result.facts }
+        await prisma.document.update({ where: { id: documentId }, data: { factSheet: factSheet as unknown as object } })
+        await steps.emit('prompt_assembled', `Study fact sheet: ${countFacts(factSheet)}. Every section uses these values.`, {
+          details: {
+            model: resolvedModel, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens,
+            failed: factSheet.facts.filter(f => f.status === 'failed_check').map(f => ({ fact: f.label, reason: f.reason })),
+          },
+        })
+      } catch (err) {
+        if (abortController.signal.aborted) {
+          await steps.emit('job_cancelled', 'Writer stopped the draft while the study fact sheet was being made.', {})
+          return { documentId, sectionsTotal: sections.length, drafted: 0, skipped: 0, errored: [] }
+        }
+        const message = err instanceof Error ? err.message : String(err)
+        log.warn({ documentId, err: message }, 'ai_initial_draft: fact sheet failed — drafting without it')
+        await steps.emit('warning', `The study fact sheet could not be made (${message.slice(0, 200)}). Sections are drafted from the sources without it.`, { details: { err: message } })
+      }
+    }
+  }
+  const totalPages = indexed?.reduce((n, s) => n + s.pages.length, 0) ?? 0
+  const pagesMode = !!(buildPlan?.sourcePages && indexed && totalPages > buildPlan.sourcePages.allBelowPages)
+  // In pages mode, pages without text can't be matched to a section: they go to every section as PDF pages, the same
+  // block each time so it is cached. Over Claude's limit they are left out and the writer is told.
+  const scannedBlocks: SourceBlocks['blocks'] = []
+  if (pagesMode && indexed) {
+    const total = indexed.reduce((n, s) => n + scannedPages(s).length, 0)
+    if (total > 0 && total <= 100) {
+      for (const s of indexed) {
+        const pages = scannedPages(s)
+        const pdf = sourcePdfs[s.no - 1]!
+        if (!pages.length || pdf.text !== undefined) continue
+        const bytes = await onlyPages(pdf.bytes, pages.map(p => p - 1)).catch(() => null)
+        if (bytes) scannedBlocks.push({ type: 'document', title: `${isExample(pdf.role) ? 'EXAMPLE ONLY, not this study: ' : ''}${s.title} (its pages ${pages.join(', ')}, no text)`.slice(0, 480), source: { type: 'base64', media_type: 'application/pdf', data: bytes.toString('base64') } })
+      }
+      if (scannedBlocks.length) scannedBlocks[scannedBlocks.length - 1]!.cache_control = { type: 'ephemeral' }
+    } else if (total > 100) {
+      await steps.emit('warning', `${total} source pages have no text (scans). Too many to send with every section, so they are left out; their content will be [TBD]. Upload searchable PDFs to include them.`, { details: { scannedPages: total } })
+    }
+    await steps.emit('prompt_assembled', `Sources have ${totalPages} pages, so each section gets only its relevant pages (up to about ${Math.round(buildPlan!.sourcePages!.budgetChars / 3.5 / 1000)}k tokens), plus the study fact sheet.`, {
+      details: { totalPages, budgetChars: buildPlan!.sourcePages!.budgetChars },
+    })
+  }
+  /** What a section is sent from the sources: every file, or (pages mode) its relevant pages. */
+  const blocksFor = (title: string, context: string): SourceBlocks => {
+    if (!pagesMode || !indexed) return sourceBlocks
+    const refs = rankPages(indexed, title, buildPlan!.sourcePages!.budgetChars, context)
+    return { blocks: [...scannedBlocks, ...pageBlocks(indexed, refs)], cached: scannedBlocks.length > 0, asText: [], pages: totalPages }
+  }
+
   // --- Load the SectionContent rows the API seeded for this version ------
   // templateFormatRules is the per-section NL formatting snapshot pinned
   // at document-create time (migration 91, flipped from JSON in 90).
@@ -732,9 +842,10 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       const sectionTemplateGuidance     = row.templateGuidance     ?? null
       const sectionStartMs = Date.now()
       const { contentHtml, engine, inputTokens, cachedTokens, outputTokens, usedSources, promptChars } = await draftSection({
-        section: sec, sources, sourcePdfs, sourceBlocks, docType: type, model: resolvedModel, aiInstructions, policy,
+        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
+        sourceBlocks: blocksFor(sec.title, `${sectionTemplateInstructions ?? ''} ${sectionTemplateGuidance ?? ''}`),
         planBlock: buildPlan
-          ? planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })
+          ? [factSheet ? factSheetBlock(factSheet) : '', planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })].filter(Boolean).join('\n\n')
           : undefined,
         temperature: buildPlan?.rules.temperature,
         sectionTemplateFormatRules,

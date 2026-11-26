@@ -127,6 +127,8 @@ interface DebugData {
   // writers can expand a section and see every source that was in
   // Claude's context when that section was produced.
   sectionDraftTraces?: DebugSectionTrace[]
+  /** The study fact sheet the sections were drafted with (build plan); null without one. */
+  factSheet?: DebugFactSheet | null
   draftSteps?:        DebugDraftStep[]
   buildSummary?:      DebugBuildSummary
   auditTail?:         DebugAudit[]
@@ -703,6 +705,13 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />
 
+              {/* STUDY FACT SHEET — the checked facts every section was drafted with */}
+              {data.factSheet && data.factSheet.facts.length > 0 && (
+                <Section title={`Study fact sheet (${data.factSheet.facts.filter(f => f.status === 'verified').length} of ${data.factSheet.facts.length} checked)`}>
+                  <FactSheetList sheet={data.factSheet} />
+                </Section>
+              )}
+
               {/* SETUP */}
               <Section title="Setup">
                 <SetupList data={data} droppedSources={droppedSources} />
@@ -975,6 +984,54 @@ function AiDebugDraftingFooter({
 }
 
 // ---- Sub-components ----------------------------------------------------
+
+interface DebugFactSheet {
+  extractedAt: string
+  model: string
+  facts: Array<{
+    key: string; label: string; value: string; status: 'verified' | 'not_stated' | 'failed_check'
+    source?: { id: string; title: string; page: number | null }; quote?: string; reason?: string; claimed?: string
+  }>
+}
+
+/** Each fact with where it came from. Only checked facts reach the sections; the rest are [TBD] there. */
+function FactSheetList({ sheet }: { sheet: DebugFactSheet }) {
+  return (
+    <div>
+      <p className="mb-2 text-[11px] text-slate-500">
+        Extracted from the evidence sources on {new Date(sheet.extractedAt).toLocaleString()}. Each quote was looked up in its source by code;
+        only facts that passed are used, the rest are written as [TBD] in every section.
+      </p>
+      <ul className="flex flex-col gap-1.5" data-fact-sheet>
+        {sheet.facts.map(f => (
+          <li
+            key={f.key}
+            data-fact={f.key}
+            data-fact-status={f.status}
+            className={`rounded-md border px-2.5 py-1.5 text-[12px] ${
+              f.status === 'verified' ? 'border-slate-200 bg-white' : f.status === 'not_stated' ? 'border-slate-200 bg-slate-50' : 'border-amber-200 bg-amber-50'
+            }`}
+          >
+            <span className="font-semibold text-slate-900">{f.label}: </span>
+            <span className={f.status === 'verified' ? 'text-slate-800' : 'text-slate-500'}>
+              {f.status === 'verified' ? f.value : f.status === 'not_stated' ? '[TBD] not stated in the evidence' : '[TBD] failed the check'}
+            </span>
+            {f.source && (
+              <span className="block text-[11px] text-slate-500">
+                {f.source.title}{f.source.page ? `, page ${f.source.page}` : ''}{f.quote ? ` — “${f.quote}”` : ''}
+              </span>
+            )}
+            {f.status === 'failed_check' && (
+              <span className="block text-[11px] text-amber-800">
+                {f.claimed ? `The AI gave “${f.claimed}”. ` : ''}{f.reason}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

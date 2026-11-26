@@ -58,6 +58,8 @@ model Document {
   // Null for documents not drafted with AI. The other states let the SPA
   // poll /documents/:id/ai-draft-status instead of staring at empty sections.
   aiDraftState           String?   @map("ai_draft_state")
+  // Study fact sheet (migration 109): facts extracted from the evidence with file, page and quote, checked by code.
+  factSheet              Json?     @map("fact_sheet")
   // 0–100 roll-up (average of per-section aiConfidence). Updated at the
   // end of every validation pass. Null until the first pass runs.
   aiConfidenceOverall    Int?      @map("ai_confidence_overall")

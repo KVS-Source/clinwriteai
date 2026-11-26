@@ -19,6 +19,8 @@ export interface BuildPlanForDraft {
   builtByCode: Array<PlanSectionRef & { kind: string }>
   dependsOn:   Record<string, '*' | string[]>
   rules:       { temperature?: number }
+  factSheet?:  { fields: Array<{ key: string; label: string; hint?: string }> }
+  sourcePages?: { allBelowPages: number; budgetChars: number }
 }
 
 export interface PlannedSection<S> {
@@ -44,6 +46,8 @@ export function asBuildPlan(raw: unknown): BuildPlanForDraft | null {
     builtByCode: Array.isArray(p.builtByCode) ? p.builtByCode : [],
     dependsOn: p.dependsOn && typeof p.dependsOn === 'object' ? p.dependsOn : {},
     rules: p.rules && typeof p.rules === 'object' ? p.rules : {},
+    ...(p.factSheet && Array.isArray(p.factSheet.fields) && p.factSheet.fields.length ? { factSheet: p.factSheet } : {}),
+    ...(p.sourcePages ? { sourcePages: { allBelowPages: p.sourcePages.allBelowPages ?? 100, budgetChars: p.sourcePages.budgetChars ?? 80_000 } } : {}),
   }
 }
 

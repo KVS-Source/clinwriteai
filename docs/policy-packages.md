@@ -92,6 +92,8 @@ Defined in `apps/api/src/modules/platform/policy-packages/build-plan.ts`. The wo
 | `dependsOn` | Section number → the section numbers it is given (their drafted text goes into its prompt), or `"*"` for every section drafted before it |
 | `expectedSections[]` | `{ label, matchAny[] }`, sections a document of this type should have. A template without one gets a warning. |
 | `rules.temperature` | Sampling temperature for every section, e.g. `0` |
+| `factSheet.fields[]` | Optional. `{ key, label, hint? }`, the study facts extracted once at the start of a draft from the **evidence** sources, each with file, page and an exact quote. Code looks for every quote in that file's text. A fact whose quote isn't there, whose numbers aren't in its quote, or that came from an example source becomes `[TBD]` and is flagged. Every section is given the checked values, and the checking pass flags contradictions. Shown in AI Debug and stored on the document (`documents.fact_sheet`). It is extracted again only when the sources change. |
+| `sourcePages` | Optional. `{ allBelowPages, budgetChars }`. When the sources have more pages than `allBelowPages`, each section gets only its best-matching pages, ranked by keywords against its title and template guidance, up to `budgetChars`. Pages with no text go to every section as PDF pages (up to 100). At or below the threshold, every section gets every file, as before. |
 
 Checked on import and before signing:
 - every section is placed once;

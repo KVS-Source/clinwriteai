@@ -1247,17 +1247,17 @@ function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
           <span className="font-mono text-[10px] text-indigo-700">rate card {summary.rateCardVersion}</span>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <SummaryCell label="Est. cost"   value={costDisplay}                          sub={`${summary.aiCallCount} Claude call${summary.aiCallCount === 1 ? '' : 's'}`} />
-        <SummaryCell label="Tokens"      value={`${(totalTokens / 1000).toFixed(1)}K`} sub={`${summary.totalInputTokens.toLocaleString()} in · ${summary.totalOutputTokens.toLocaleString()} out`} />
-        <SummaryCell label="Sources"     value={`${summary.sources?.loaded ?? 0}/${summary.sources?.attached ?? 0}`}
-                     sub={summary.sources
-                       ? `${srcTotalMB < 1 ? `${(srcTotalMB * 1024).toFixed(0)}KB` : `${srcTotalMB.toFixed(1)}MB`} loaded${summary.sources.skipped ? ` · ${summary.sources.skipped} skipped` : ''}`
-                       : 'no source data'} />
-        <SummaryCell label="Sections"    value={`${summary.sectionsDrafted}`}
-                     sub={`${summary.sectionsErrored} errored · ${summary.sectionsSkipped} skipped`} />
-        <SummaryCell label="Elapsed"     value={elapsedDisplay}
-                     sub={`${(summary.runs ?? 0) > 1 ? `${summary.runs} runs · ` : ''}${summary.draftingCalls} draft · ${summary.validationCalls} validate · ${summary.autofillCalls} TBD-fill`} />
+      <div className="flex flex-col gap-1">
+        <SummaryRow label="Est. cost"   value={costDisplay}                          sub={`${summary.aiCallCount} Claude call${summary.aiCallCount === 1 ? '' : 's'}`} />
+        <SummaryRow label="Tokens"      value={`${(totalTokens / 1000).toFixed(1)}K`} sub={`${summary.totalInputTokens.toLocaleString()} in · ${summary.totalOutputTokens.toLocaleString()} out`} />
+        <SummaryRow label="Sources"     value={`${summary.sources?.loaded ?? 0}/${summary.sources?.attached ?? 0}`}
+                    sub={summary.sources
+                      ? `${srcTotalMB < 1 ? `${(srcTotalMB * 1024).toFixed(0)}KB` : `${srcTotalMB.toFixed(1)}MB`} loaded${summary.sources.skipped ? ` · ${summary.sources.skipped} skipped` : ''}`
+                      : 'no source data'} />
+        <SummaryRow label="Sections"    value={`${summary.sectionsDrafted}`}
+                    sub={`${summary.sectionsErrored} errored · ${summary.sectionsSkipped} skipped`} />
+        <SummaryRow label="Elapsed"     value={elapsedDisplay}
+                    sub={`${(summary.runs ?? 0) > 1 ? `${summary.runs} runs · ` : ''}${summary.draftingCalls} draft · ${summary.validationCalls} validate · ${summary.autofillCalls} TBD-fill`} />
       </div>
 
       {summary.sources && summary.sources.attached > 0 && (
@@ -1327,12 +1327,16 @@ function BuildSummaryCard({ summary }: { summary: DebugBuildSummary }) {
   )
 }
 
-function SummaryCell({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function SummaryRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="rounded border border-indigo-200 bg-white px-3 py-2">
-      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-700">{label}</p>
-      <p className="mt-0.5 text-[16px] font-semibold text-indigo-900">{value}</p>
-      {sub && <p className="text-[11px] text-slate-600">{sub}</p>}
+    <div className="flex items-baseline gap-2 rounded border border-indigo-200 bg-white px-2.5 py-1.5">
+      <p className="w-20 flex-none font-mono text-[10px] font-semibold uppercase tracking-widest text-indigo-700">{label}</p>
+      <p className="flex-none text-[13px] font-semibold text-indigo-900">{value}</p>
+      {sub && (
+        <p className="min-w-0 flex-1 truncate text-right text-[11px] text-slate-600" title={sub}>
+          {sub}
+        </p>
+      )}
     </div>
   )
 }

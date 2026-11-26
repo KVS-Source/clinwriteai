@@ -191,6 +191,7 @@ export function TemplateLibrary() {
               className="h-10 flex-none rounded-md px-4 text-[13px] font-semibold text-white"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
               data-action="new-template"
+              data-existing-types={templates.map(t => t.type).join(',')}
             >+ New template</button>
           </div>
         </div>
@@ -269,7 +270,11 @@ export function TemplateLibrary() {
         storageKey="template-detail" defaultWidth={760} belowTopBar closeOnOutsideClick>
         <div className="px-5 py-5" data-detail-panel>
           {creating
-            ? <NewTemplateForm aiReady={aiReady} onCreated={(id) => { invalidate(); setCreating(false); setOpenId(id) }} />
+            ? <NewTemplateForm
+                aiReady={aiReady}
+                existingTypes={templates.map(t => t.type)}
+                onCreated={(id) => { invalidate(); setCreating(false); setOpenId(id) }}
+              />
             : selected && <TemplateEditor key={selected.id} template={selected} aiReady={aiReady} onChanged={invalidate} onRetired={closePanel} />}
         </div>
       </SlidePanel>
@@ -639,28 +644,58 @@ function Field({ label, help, helpBelow = false, children }: { label: string; he
 
 // ---- new --------------------------------------------------------------
 
-function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: (templateId: string) => void }) {
+// The ten doc types the clinical-writing wizard offers. Keep in sync with
+// apps/api/src/modules/clinical-writing/document-templates/catalogue.ts —
+// the API's auto-derive map, which fills label / description / framework
+// from the type on create. Duplicated here only so the dropdown has human
+// labels; the server is the source of truth for the metadata it writes.
+const TEMPLATE_DOC_TYPES: { value: string; label: string }[] = [
+  { value: 'csr-full',             label: 'CSR (Full)' },
+  { value: 'csr-synopsis',         label: 'CSR Synopsis' },
+  { value: 'protocol',             label: 'Protocol' },
+  { value: 'protocol-amendment',   label: 'Protocol Amendment' },
+  { value: 'ib',                   label: 'Investigator Brochure' },
+  { value: 'icf',                  label: 'Informed Consent Form' },
+  { value: 'safety-narrative',     label: 'Safety Narrative' },
+  { value: 'dsur',                 label: 'DSUR' },
+  { value: 'end-of-study-summary', label: 'End-of-Study Summary' },
+  { value: 'patient-narrative',    label: 'Patient Narrative' },
+]
+
+function NewTemplateForm({
+  aiReady, existingTypes, onCreated,
+}: {
+  aiReady:        boolean
+  existingTypes:  string[]
+  onCreated:      (templateId: string) => void
+}) {
   // Two modes: parse a PDF to populate sections automatically, or create
-  // a bare template with no sections. Both need the four metadata fields.
-  const [mode,        setMode]        = useState<'parse' | 'bare'>('parse')
-  const [docType,     setDocType]     = useState('')
-  const [label,       setLabel]       = useState('')
-  const [description, setDescription] = useState('')
-  const [framework,   setFramework]   = useState('')
-  const [pdfFile,     setPdfFile]     = useState<File | null>(null)
+  // a bare template with no sections. Only the doc type is asked for —
+  // the server fills label / description / framework from the catalogue.
+  const [mode,    setMode]    = useState<'parse' | 'bare'>('parse')
+  const [docType, setDocType] = useState('')
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const clearFile = () => { setPdfFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }
-  const [error,       setError]       = useState<string | null>(null)
+  const [error,   setError]   = useState<string | null>(null)
 
-  const metaReady = docType.trim() && label.trim() && description.trim() && framework.trim()
+  const existing = useMemo(() => new Set(existingTypes), [existingTypes])
+  const availableTypes = useMemo(
+    () => TEMPLATE_DOC_TYPES.filter(t => !existing.has(t.value)),
+    [existing],
+  )
+  // If the user picks a type and then that type is created (templates list refreshes),
+  // the selection would become stale. Clear it when the chosen type leaves the available list.
+  useEffect(() => {
+    if (docType && !availableTypes.some(t => t.value === docType)) setDocType('')
+  }, [availableTypes, docType])
+
+  const metaReady = docType.length > 0
 
   const create = useMutation({
     mutationFn: () => platformApi.createDocumentTemplate({
-      type:        docType.trim().replace(/-/g, '_'),
-      label:       label.trim(),
-      description: description.trim(),
-      framework:   framework.trim(),
-      sections:    [],
+      type:     docType,
+      sections: [],
     }),
     onSuccess: (row) => { setError(null); onCreated(row.id) },
     onError:   (err: unknown) => setError(errMessage(err, 'Create failed')),
@@ -669,12 +704,7 @@ function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: 
   const parse = useMutation({
     mutationFn: () => {
       if (!pdfFile) throw new Error('Pick a PDF first')
-      return platformApi.parseTemplateFile(pdfFile, {
-        type:        docType.trim().replace(/-/g, '_'),
-        label:       label.trim(),
-        description: description.trim(),
-        framework:   framework.trim(),
-      })
+      return platformApi.parseTemplateFile(pdfFile, { type: docType })
     },
     onSuccess: (res) => { setError(null); onCreated(res.templateId) },
     onError:   (err: unknown) => setError(errMessage(err, 'Parse failed')),
@@ -683,8 +713,9 @@ function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: 
   return (
     <div data-new-template>
       <p className="text-[12px] text-slate-500">
-        Start a template either by uploading a PDF exemplar (sections auto-extracted)
-        or by filling in metadata only (sections edited by hand).
+        Pick the document type — the label, description, framework and required source categories come
+        from the standard catalogue. Start by uploading a PDF exemplar (sections auto-extracted) or with
+        an empty template whose sections you edit by hand.
       </p>
 
       <div className="mt-3 flex gap-2">
@@ -705,39 +736,27 @@ function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: 
 
       {error && <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <input
-          type="text"
-          value={docType}
-          onChange={e => setDocType(e.currentTarget.value)}
-          placeholder="doc type (e.g. protocol)"
-          className="rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
-          data-field="new-type"
-        />
-        <input
-          type="text"
-          value={label}
-          onChange={e => setLabel(e.currentTarget.value)}
-          placeholder="Label (e.g. Protocol)"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
-          data-field="new-label"
-        />
-        <input
-          type="text"
-          value={description}
-          onChange={e => setDescription(e.currentTarget.value)}
-          placeholder="One-line description"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
-          data-field="new-description"
-        />
-        <input
-          type="text"
-          value={framework}
-          onChange={e => setFramework(e.currentTarget.value)}
-          placeholder="Framework (e.g. ICH E6(R3))"
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
-          data-field="new-framework"
-        />
+      <div className="mt-3">
+        {availableTypes.length === 0 ? (
+          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600" data-state="all-used">
+            Every document type in the catalogue already has a template. Retire one to free its type.
+          </p>
+        ) : (
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold text-slate-800">Document type</span>
+            <select
+              value={docType}
+              onChange={e => setDocType(e.currentTarget.value)}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
+              data-field="new-type"
+            >
+              <option value="">Select a document type…</option>
+              {availableTypes.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {mode === 'parse' && (

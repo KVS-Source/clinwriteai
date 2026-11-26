@@ -1,7 +1,15 @@
 // Phase M-E.4 — ideation artefact section AI-suggest endpoint.
 // Mirror of regulatory / med-content /ai-suggest scoped to
 // IdeationArtefactSection rows. Composes the Claude call from grounding
-// rules + policy + attached source PDFs. RACI gating lands in M-E.5.
+// rules + policy + attached source PDFs.
+//
+// Migration 105 Package E-4 — wrapped with the shared must-preserve +
+// validator-retry pipeline (same shape used by Modules A/B/C/D).
+// Pre-call: must-preserve manifest + guidance snapshot prompt block.
+// Call wrapped in `callWithValidation` so dropped cross-refs / invented
+// citations trigger a 1-retry with feedback. Post-call: aiConfidence +
+// aiFlags written to the section row. Step events emitted via
+// `StepEmitter` to the shared ai_draft_steps table for the debug panel.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
@@ -16,6 +24,21 @@ import {
   actorCanEditIdeationArtefact,
   IDEATION_ARTEFACT_EDIT_FORBIDDEN,
 } from '../access/ideation-artefact-raci.js'
+// Migration 105 Package E-4 — shared validators + retry wrapper.
+import { extractManifest, renderForPrompt as renderMustPreserve } from '../../clinical-writing/documents/must-preserve.js'
+import { callWithValidation, type StepEmitter } from '../../clinical-writing/documents/ai-suggest-retry.js'
+import { scoreSection } from '../../clinical-writing/documents/ai-confidence.js'
+// Migration 105 Package E-5 — content-type-aware soft validators.
+import { computeFkGrade, FK_TARGET } from '../../medical-writing/content/fk-score.js'
+import { validateConsentDisclosure, isConsentGatedType } from './consent-validator.js'
+import { validateDisclaimer, isDisclaimerGatedType } from './disclaimer-validator.js'
+import { validatePressReleaseStructure, isPressReleaseGatedType } from './press-release-validator.js'
+
+// Module E's FK gate fires on patient-facing + journalist-facing
+// content. Module C's FK_GATED_TYPES set is PIL/EU-CTR-PLS only,
+// so we keep a separate Module-E-scoped set to avoid dragging the
+// Module C contract.
+const IDEATION_FK_GATED_TYPES: ReadonlySet<string> = new Set(['patient_story', 'disease_awareness_brief', 'press_release'])
 
 const writeGate = requireAuth({ modules: ['E'] })
 
@@ -69,7 +92,12 @@ export const ideationArtefactAiSuggestSectionRoutes: FastifyPluginAsync = async 
 
     const section = await app.prisma.ideationArtefactSection.findFirst({
       where:  { ideationArtefactVersionId: doc.currentVersionId, sectionId },
-      select: { id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
+      select: {
+        id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true,
+        // Package E-4: read snapshotted guidance for the TEMPLATE
+        // GUIDANCE prompt block.
+        templateInstructions: true, templateGuidance: true,
+      },
     })
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
@@ -198,33 +226,164 @@ export const ideationArtefactAiSuggestSectionRoutes: FastifyPluginAsync = async 
       SECTION_GROUNDING_RULES,
     ].join('\n')
 
+    // Package E-4: TEMPLATE GUIDANCE block from the snapshotted
+    // instructions + guidance on the section row.
+    const tIns  = ((section as { templateInstructions?: string | null }).templateInstructions ?? '').trim()
+    const tGuid = ((section as { templateGuidance?:     string | null }).templateGuidance     ?? '').trim()
+    const templateGuidanceBlock = tIns || tGuid
+      ? [
+          ``,
+          `TEMPLATE GUIDANCE for this section (from the template authored for ${docType}):`,
+          tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+          tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+          `Follow these precisely — they are the template's authored intent for this section.`,
+          ``,
+        ].filter(Boolean).join('\n')
+      : ''
+
+    // Package E-4: MUST PRESERVE manifest extracted fresh from the
+    // current body. Catches dropped citations, cross-refs, and numeric
+    // values via the shared regex. The retry wrapper diffs this
+    // against the model output.
+    const manifestBefore = extractManifest(currentContent)
+    const mustPreserveBlock = renderMustPreserve(manifestBefore)
+
+    // Package E-4: Module E has no CanonicalJsonEntry-style indexer —
+    // attached sources are the project's DocumentUpload PDFs, already
+    // auto-attached above. allowedTokens stays empty so the citation-
+    // grounding check is informational-only; the dropped-ref catch
+    // still fires.
+    const attachedSources = { allowedTokens: [] as string[] }
+
     const composedPrompt = [
       scaffold,
       authorBlock,
       policyBlock ? `\n${policyBlock}\n` : '',
+      templateGuidanceBlock,
+      mustPreserveBlock,
       '---',
       promptBody,
       textExcerpts.length > 0 ? `\n---\nAttachments metadata:\n${textExcerpts.join('\n')}` : '',
     ].filter(Boolean).join('\n')
 
     try {
-      const result = await app.aiGateway.chat({
-        tenantId:          request.user!.tenantId ?? 'unknown',
-        projectId:         projectId,
-        actorId:           request.user!.id,
-        module:            'E',
-        intent:            parsed.data.intent,
-        model:             parsed.data.model || 'claude-sonnet-4-5',
-        prompt:            composedPrompt,
-        maxOutputTokens:   parsed.data.intent === 'edit' ? 4096 : 2048,
-        documents:         documentAttachments.length > 0 ? documentAttachments : undefined,
-        documentId:        id,                     // reuse the field for ideationArtefactId
-        sectionId:         section.sectionId,
-        preCallSectionHtml: currentContent,
-        promptText:        parsed.data.customPrompt ?? parsed.data.intent,
-      })
+      // Package E-4: step emitter writes to ai_draft_steps keyed by
+      // ideationArtefactId (no FK on that column, so safe across
+      // modules — same pattern as Modules B / C / D).
+      const stepsEmitter: StepEmitter = {
+        async emit(kind, message, opts) {
+          await app.prisma.aiDraftStep.create({
+            data: {
+              documentId: id,
+              versionId:  doc.currentVersionId ?? null,
+              kind,
+              message:    message.slice(0, 1_000),
+              sectionId:  opts?.sectionId ?? null,
+              details:    (opts?.details ?? {}) as unknown as object,
+              elapsedMs:  0,
+            },
+          })
+        },
+      }
 
-      const responseText = parsed.data.intent === 'edit' ? stripCodeFence(result.responseText) : result.responseText
+      let lastGatewayResult: Awaited<ReturnType<typeof app.aiGateway.chat>> | null = null
+      const validation = await callWithValidation({
+        manifestBefore,
+        attachedSources,
+        steps:     stepsEmitter,
+        sectionId: section.sectionId,
+        call: async ({ prependPrompt }) => {
+          const effectivePrompt = prependPrompt
+            ? `${prependPrompt}\n\n----\n\n${composedPrompt}`
+            : composedPrompt
+          const r = await app.aiGateway.chat({
+            tenantId:           request.user!.tenantId ?? 'unknown',
+            projectId:          projectId,
+            actorId:            request.user!.id,
+            module:             'E',
+            intent:             parsed.data.intent,
+            model:              parsed.data.model || 'claude-sonnet-4-5',
+            prompt:             effectivePrompt,
+            maxOutputTokens:    parsed.data.intent === 'edit' ? 4096 : 2048,
+            documents:          documentAttachments.length > 0 ? documentAttachments : undefined,
+            documentId:         id,
+            sectionId:          section.sectionId,
+            preCallSectionHtml: currentContent,
+            promptText:         parsed.data.customPrompt ?? parsed.data.intent,
+          })
+          lastGatewayResult = r
+          return { html: parsed.data.intent === 'edit' ? stripCodeFence(r.responseText) : r.responseText }
+        },
+      })
+      const result = lastGatewayResult!
+
+      // Package E-5 content-type-aware soft validators.
+      const flagsWithExtra = [...validation.flags]
+
+      // (a) Consent / disclosure gate — patient_story only.
+      let consentTrace: ReturnType<typeof validateConsentDisclosure> | null = null
+      if (isConsentGatedType(docType)) {
+        consentTrace = validateConsentDisclosure(validation.html)
+        if (consentTrace.looksLikePatientStory && !consentTrace.structurallyValid
+            && !flagsWithExtra.includes('consent_disclosure_missing')) {
+          flagsWithExtra.push('consent_disclosure_missing')
+        }
+      }
+
+      // (b) Disclaimer gate — scientific_exchange_note + congress_summary.
+      let disclaimerTrace: ReturnType<typeof validateDisclaimer> | null = null
+      if (isDisclaimerGatedType(docType)) {
+        disclaimerTrace = validateDisclaimer(validation.html)
+        if (!disclaimerTrace.structurallyValid
+            && !flagsWithExtra.includes('disclaimer_missing')) {
+          flagsWithExtra.push('disclaimer_missing')
+        }
+      }
+
+      // (c) Press-release structure gate — press_release only.
+      let pressReleaseTrace: ReturnType<typeof validatePressReleaseStructure> | null = null
+      if (isPressReleaseGatedType(docType)) {
+        pressReleaseTrace = validatePressReleaseStructure(validation.html)
+        if (!pressReleaseTrace.structurallyValid
+            && !flagsWithExtra.includes('press_release_structure_invalid')) {
+          flagsWithExtra.push('press_release_structure_invalid')
+        }
+      }
+
+      // (d) Flesch-Kincaid regression — patient_story + disease_awareness_brief
+      //     + press_release. Fires only on a true regression (pre-grade
+      //     below target, post-grade above). "Already bad" content
+      //     doesn't fire — the gate is about the rewrite making it
+      //     WORSE, not about re-flagging known issues every call.
+      let fkScoreTrace: { preGrade: number; postGrade: number; target: number; raised: boolean } | null = null
+      if (IDEATION_FK_GATED_TYPES.has(docType)) {
+        try {
+          const pre  = computeFkGrade(currentContent)
+          const post = computeFkGrade(validation.html)
+          const raised = pre.grade < FK_TARGET && post.grade > FK_TARGET
+          fkScoreTrace = { preGrade: pre.grade, postGrade: post.grade, target: FK_TARGET, raised }
+          if (raised && !flagsWithExtra.includes('fk_score_raised')) {
+            flagsWithExtra.push('fk_score_raised')
+          }
+        } catch (err) {
+          app.log.warn({ err, ideationArtefactId: id, sectionId: section.sectionId }, 'ideation fk score compute failed (non-fatal)')
+        }
+      }
+
+      // Package E-4: persist aiConfidence + aiFlags on the section row
+      // so the live editor's badge + flag chips reflect the retry
+      // outcome.
+      try {
+        const score = scoreSection(flagsWithExtra)
+        await app.prisma.ideationArtefactSection.update({
+          where: { id: section.id },
+          data:  { aiConfidence: score, aiFlags: flagsWithExtra },
+        })
+      } catch (err) {
+        app.log.warn({ err, ideationArtefactId: id, sectionId: section.sectionId }, 'ideation section confidence update failed (non-fatal)')
+      }
+
+      const responseText = validation.html
 
       await app.audit.append({
         timestamp:  new Date().toISOString(),
@@ -247,6 +406,19 @@ export const ideationArtefactAiSuggestSectionRoutes: FastifyPluginAsync = async 
           autoAttachedSources:   autoAttachedUploadIds.length,
           explicitAttachedSources: explicitAttachedIds.length,
           outcome:               'completed',
+          // Package E-4: validator outcome audit.
+          validatorFlags:       flagsWithExtra,
+          validatorRetried:     validation.retried,
+          validatorTrace:       validation.trace.map(t => ({
+            attempt: t.attempt,
+            flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),
+            retriedBecause: t.retriedBecause,
+          })),
+          // Package E-5: content-type-aware validator traces (null for non-gated).
+          consentTrace,
+          disclaimerTrace,
+          pressReleaseTrace,
+          fkScoreTrace,
         },
         ipAddress: request.ip ?? null,
       }).catch(err => request.log.error({ err }, 'ideation_artefact_ai_suggestion_requested audit failed'))

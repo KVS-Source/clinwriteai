@@ -300,6 +300,23 @@ export const ideationPublishingApi = {
       `/ideation-artefacts/${id}/comments/${commentId}/resolve`,
       body,
     ),
+
+  // AI debug step log — migration 105 Package E-7. Returns the per-call
+  // step emissions the ai-suggest retry wrapper + initial-draft worker
+  // write. Consumed by IdeationAiDebugPanel.
+  aiDebugSteps: (ideationArtefactId: string) =>
+    api.get<{
+      ideationArtefactId: string
+      draftSteps: Array<{
+        id:         string
+        kind:       string
+        message:    string
+        sectionId:  string | null
+        details:    Record<string, unknown>
+        elapsedMs:  number | null
+        timestamp:  string
+      }>
+    }>(`/ideation-artefacts/${ideationArtefactId}/ai-debug-steps`),
 }
 
 // --- Artefact section + lock shapes (Phase M-E.2/4) -----------------------

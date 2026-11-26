@@ -79,6 +79,12 @@ const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   'content_past_expiry':    10,
   // Module D — HA response structural check (R-5), soft.
   'ha_response_structure_invalid': 15,
+  // Module D — CTD invented-cross-ref soft check (RD-2).
+  'ctd_invalid_cross_ref':         15,
+  // Module E — content-type-aware soft checks (E-5).
+  'consent_disclosure_missing':    20,
+  'disclaimer_missing':            15,
+  'press_release_structure_invalid': 10,
 }
 const AI_UNKNOWN_WEIGHT = 15
 

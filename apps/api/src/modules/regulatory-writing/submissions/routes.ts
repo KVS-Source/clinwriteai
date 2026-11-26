@@ -436,6 +436,65 @@ export const regSubmissionsRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
+  // Package RD-1 — Index Module A source documents for CSR grounding.
+  //
+  // Enumerates Documents in the submission's `sourceModuleAProjectId`
+  // project and enqueues one `regulatory.index_csr_source` job per
+  // live Document. The worker writes a CanonicalJsonEntry row per
+  // (submission, document) containing the structural identifiers
+  // (tables, sections, figures, study IDs, citation markers) extracted
+  // from the document's section bodies. The ai-suggest route's
+  // buildRegulatoryAttachedContext() reads those entries as the
+  // allowedTokens list for citation-grounding checks.
+  //
+  // Idempotent: the worker deletes any prior entry for the same
+  // (submission, document) before inserting the fresh one, so re-runs
+  // are safe.
+  app.post('/:submissionId/index-sources', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { submissionId } = request.params as { submissionId: string }
+    const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+
+    const docs = await app.prisma.document.findMany({
+      where:  { projectId: sub.sourceModuleAProjectId, deletedAt: null, currentVersionId: { not: null } },
+      select: { id: true, type: true, title: true },
+    })
+
+    let enqueued = 0
+    const jobIds: string[] = []
+    for (const doc of docs) {
+      const jobId = `reg-index-csr-${submissionId}-${doc.id}`
+      try {
+        await app.queue.enqueue('regulatory.index_csr_source', {
+          submissionId,
+          sourceDocId: doc.id,
+          actorId:     request.user!.id,
+        }, { jobId })
+        jobIds.push(jobId)
+        enqueued++
+      } catch (err) {
+        request.log.warn({ err, submissionId, docId: doc.id }, 'index-sources: enqueue failed for document')
+      }
+    }
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'reg_submission_sources_indexed',
+      entityType: 'reg_submission',
+      entityId: submissionId,
+      details: { documentCount: docs.length, enqueued, jobIds },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(202).send({
+      submissionId,
+      documentCount: docs.length,
+      enqueued,
+      sampleDocuments: docs.slice(0, 10).map(d => ({ id: d.id, type: d.type, title: d.title })),
+    })
+  })
+
   app.patch('/:submissionId/ectd-map/:nodeId', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { submissionId, nodeId } = request.params as { submissionId: string; nodeId: string }
     const parsed = patchNodeSchema.safeParse(request.body)

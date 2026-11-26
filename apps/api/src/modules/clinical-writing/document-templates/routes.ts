@@ -24,6 +24,7 @@ import { Prisma } from '@prisma/client'
 import { requireAuth } from '../../../auth/rbac.js'
 import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
+import { catalogueEntry, type CatalogueEntry } from './catalogue.js'
 
 const MAX_TEMPLATE_PDF_BYTES = 50 * 1024 * 1024    // 50 MB
 
@@ -68,13 +69,18 @@ const specSchema = z.record(z.string(), z.unknown()).refine(
   { message: `spec must be at most ${MAX_SPEC_BYTES} bytes of JSON` },
 )
 
+// label / description / framework are optional on create + parse-file: the Template Library's
+// New Template form only asks for a doc type picked from the dropdown, and the server derives
+// the rest from DOCUMENT_TEMPLATE_CATALOGUE. For types outside the catalogue an admin must
+// still provide all three (the schema can't require them unconditionally, so the route itself
+// returns 400 after the catalogue lookup fails).
 const createTemplateSchema = z.object({
   type:                     z.string().min(1).max(80),
-  label:                    z.string().min(1).max(200),
-  description:              z.string().min(1).max(500),
-  framework:                z.string().min(1).max(80),
+  label:                    z.string().min(1).max(200).optional(),
+  description:              z.string().min(1).max(500).optional(),
+  framework:                z.string().min(1).max(80).optional(),
   sections:                 z.array(sectionSchema).max(200).default([]),
-  requiredSourceCategories: z.array(z.string().min(1).max(80)).default([]),
+  requiredSourceCategories: z.array(z.string().min(1).max(80)).optional(),
   spec:                     specSchema.nullable().optional(),
 })
 
@@ -82,15 +88,42 @@ const updateTemplateSchema = createTemplateSchema.partial().omit({ type: true })
 
 const parseFileQuerySchema = z.object({
   // The template row to receive parsed sections. Optional: when absent,
-  // the route creates a bare template for `type` first (admin must then
-  // fill in label / description / framework).
+  // the route creates a bare template for `type` first — label / description /
+  // framework are filled from the catalogue, or required in the query when
+  // the type is not in the catalogue.
   templateId: z.string().optional(),
-  // Used only when creating a template on the fly (no templateId).
   type:       z.string().min(1).max(80).optional(),
   label:      z.string().min(1).max(200).optional(),
   description: z.string().min(1).max(500).optional(),
   framework:  z.string().min(1).max(80).optional(),
 })
+
+/** Fills missing label/description/framework/requiredSourceCategories from the catalogue; returns
+ *  `{ missing }` listing the fields neither in the request nor in the catalogue. */
+function resolveTemplateMetadata(input: {
+  type: string
+  label?: string
+  description?: string
+  framework?: string
+  requiredSourceCategories?: string[]
+}): { entry: CatalogueEntry | undefined; label: string; description: string; framework: string; requiredSourceCategories: string[] } | { missing: string[] } {
+  const entry = catalogueEntry(input.type)
+  const label:       string | undefined = input.label       ?? entry?.label
+  const description: string | undefined = input.description ?? entry?.description
+  const framework:   string | undefined = input.framework   ?? entry?.framework
+  const missing: string[] = []
+  if (label       === undefined) missing.push('label')
+  if (description === undefined) missing.push('description')
+  if (framework   === undefined) missing.push('framework')
+  if (missing.length > 0) return { missing }
+  return {
+    entry,
+    label:       label!,
+    description: description!,
+    framework:   framework!,
+    requiredSourceCategories: input.requiredSourceCategories ?? entry?.requiredSourceCategories ?? [],
+  }
+}
 
 interface TemplateRow {
   id:                       string
@@ -171,15 +204,24 @@ export const documentTemplatesRoutes: FastifyPluginAsync = async (app) => {
     })
     if (existing) return reply.code(409).send({ error: 'already_exists', message: `A current template already exists for '${parsed.data.type}' (id ${existing.id}). PATCH it instead.` })
 
+    const meta = resolveTemplateMetadata(parsed.data)
+    if ('missing' in meta) {
+      return reply.code(400).send({
+        error:   'validation',
+        message: `'${parsed.data.type}' is not in the catalogue, so ${meta.missing.join(', ')} must be provided in the request body.`,
+        missing: meta.missing,
+      })
+    }
+
     const row = await app.prisma.documentTemplate.create({
       data: {
         type:                     parsed.data.type,
-        label:                    parsed.data.label,
-        description:              parsed.data.description,
-        framework:                parsed.data.framework,
+        label:                    meta.label,
+        description:              meta.description,
+        framework:                meta.framework,
         sections:                 parsed.data.sections as unknown as object,
         ...(parsed.data.spec ? { spec: parsed.data.spec as unknown as object } : {}),
-        requiredSourceCategories: parsed.data.requiredSourceCategories,
+        requiredSourceCategories: meta.requiredSourceCategories,
         createdBy:                request.user!.id,
       },
     })
@@ -286,24 +328,37 @@ export const documentTemplatesRoutes: FastifyPluginAsync = async (app) => {
       if (!row) return reply.code(404).send({ error: 'template_not_found' })
       template = { id: row.id, type: row.type }
     } else {
-      if (!q.data.type || !q.data.label || !q.data.description || !q.data.framework) {
+      if (!q.data.type) {
         return reply.code(400).send({
           error:   'validation',
-          message: 'Pass either ?templateId=... OR all of ?type=&label=&description=&framework= to create a template on the fly.',
+          message: 'Pass either ?templateId=... OR ?type=... (plus label/description/framework when the type is not in the catalogue) to create a template on the fly.',
         })
       }
       const dup = await app.prisma.documentTemplate.findFirst({
         where: { type: q.data.type, isCurrent: true, retiredAt: null },
       })
       if (dup) return reply.code(409).send({ error: 'already_exists', message: `Template for '${q.data.type}' already exists. Pass ?templateId=${dup.id} to parse into it instead.` })
+      const meta = resolveTemplateMetadata({
+        type:        q.data.type,
+        label:       q.data.label,
+        description: q.data.description,
+        framework:   q.data.framework,
+      })
+      if ('missing' in meta) {
+        return reply.code(400).send({
+          error:   'validation',
+          message: `'${q.data.type}' is not in the catalogue, so ${meta.missing.join(', ')} must be provided in the query string.`,
+          missing: meta.missing,
+        })
+      }
       const row = await app.prisma.documentTemplate.create({
         data: {
           type:        q.data.type,
-          label:       q.data.label,
-          description: q.data.description,
-          framework:   q.data.framework,
+          label:       meta.label,
+          description: meta.description,
+          framework:   meta.framework,
           sections:    [] as unknown as object,
-          requiredSourceCategories: [],
+          requiredSourceCategories: meta.requiredSourceCategories,
           createdBy:   request.user!.id,
         },
       })

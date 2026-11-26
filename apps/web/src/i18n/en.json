@@ -706,7 +706,11 @@
       "flag_fk_score_raised": "Reading-grade rose above target",
       "flag_mcq_structure_invalid": "MCQ structure broken",
       "flag_content_past_expiry": "Content past expiry",
-      "flag_ha_response_structure_invalid": "HA response labels missing"
+      "flag_ha_response_structure_invalid": "HA response labels missing",
+      "flag_ctd_invalid_cross_ref": "Invented CTD cross-reference",
+      "flag_consent_disclosure_missing": "Consent / disclosure missing",
+      "flag_disclaimer_missing": "Disclaimer missing",
+      "flag_press_release_structure_invalid": "Press-release conventions dropped"
     },
     "audit_trail_panel": {
       "no_access": "You don't have access to this document's audit trail.",
@@ -1638,6 +1642,7 @@
       "return_doc_recorded_toast": "Your return is recorded. The document goes back to authoring when the others have finished: {{names}}.",
       "return_doc_recorded_toast_all": "Your return is recorded.",
       "return_doc_not_returnable": "This document can no longer be returned — it is not in review, in a CRM or awaiting signature.",
+      "return_doc_after_review_done": "You marked your review done, so you can no longer return the document in this review round.",
       "return_doc_failed": "Could not return the document. Please try again.",
       "crm_meeting": "CRM meeting →",
       "crm_summary_title": "CRM summary · {{ref}}",
@@ -3985,6 +3990,10 @@
       "approver_use_approve_title": "Approve the document first",
       "approver_use_approve_body": "Approvers approve and sign in one step. Open the Approver View, read the document and use Approve & E-sign. Your signature is recorded there, not on this page.",
       "approver_use_approve_cta": "Go to Approver View",
+      "switch_role_title": "Switch to {{role}} to approve",
+      "switch_role_body": "You're working as {{current}}. Approving and signing happens in the Approver View, which you get only when working as {{role}}. Switch now? The page reloads as {{role}} and opens the Approver View.",
+      "switch_role_confirm": "Switch to {{role}} and open",
+      "switch_role_cancel": "Cancel",
       "back_documents": "← Back to documents",
       "back_editor": "← Back to Editor",
       "back_reviewer_view": "← Back to Reviewer View",
@@ -4486,7 +4495,11 @@
       "flag_fk_score_raised": "Reading-grade rose above target",
       "flag_mcq_structure_invalid": "MCQ structure broken",
       "flag_content_past_expiry": "Content past expiry",
-      "flag_ha_response_structure_invalid": "HA response labels missing"
+      "flag_ha_response_structure_invalid": "HA response labels missing",
+      "flag_ctd_invalid_cross_ref": "Invented CTD cross-reference",
+      "flag_consent_disclosure_missing": "Consent / disclosure missing",
+      "flag_disclaimer_missing": "Disclaimer missing",
+      "flag_press_release_structure_invalid": "Press-release conventions dropped"
     },
     "checklist_item_badge": {
       "owner_label_r": "R",

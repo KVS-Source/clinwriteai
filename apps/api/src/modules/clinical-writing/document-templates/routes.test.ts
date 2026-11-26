@@ -96,3 +96,37 @@ describe('document templates: sections with hierarchy and a spec', () => {
     expect((await t.app.inject({ method: 'POST', url: '/', payload: { ...base, type: 'bad', sections: [{ id: 's1', number: '1', title: 'T', level: 0 }] } })).statusCode).toBe(400)
   })
 })
+
+describe('document templates: catalogue auto-derive on create', () => {
+  let t: ReturnType<typeof build>
+  beforeEach(async () => { t = build(); await t.ready })
+
+  it('type-only POST fills label / description / framework / requiredSourceCategories from the catalogue', async () => {
+    const res = await t.app.inject({ method: 'POST', url: '/', payload: { type: 'protocol' } })
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      type:                     'protocol',
+      label:                    'Protocol',
+      description:              'Study protocol — ICH E6(R3) GCP compliance.',
+      framework:                'ICH E6(R3)',
+      requiredSourceCategories: ['ib', 'regulatory'],
+    })
+  })
+
+  it('an explicit label wins over the catalogue; the other fields still come from the catalogue', async () => {
+    const res = await t.app.inject({ method: 'POST', url: '/', payload: { type: 'csr-full', label: 'CSR (custom)' } })
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      type:        'csr-full',
+      label:       'CSR (custom)',
+      framework:   'ICH E3',                                           // from catalogue
+      description: 'Full Clinical Study Report — ICH E3 structure.',   // from catalogue
+    })
+  })
+
+  it('a type outside the catalogue still needs label / description / framework (400 lists what is missing)', async () => {
+    const res = await t.app.inject({ method: 'POST', url: '/', payload: { type: 'bespoke-type' } })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ error: 'validation', missing: ['label', 'description', 'framework'] })
+  })
+})

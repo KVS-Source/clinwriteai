@@ -772,6 +772,14 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // A Reviewer who has marked their review done has given their verdict for this round: they can't also return it.
+    if (row.letter === 'C' && row.reviewedAt && (from === 'in_review' || from === 'crm_in_progress')) {
+      return reply.code(409).send({
+        error:   'review_already_done',
+        message: 'You marked your review done, so you can no longer return the document in this review round.',
+      })
+    }
+
     // An Approver can read the document from the day they are assigned, but decides only once it awaits signature.
     if (row.letter === 'A' && from !== 'pending_signature') {
       return reply.code(409).send({

@@ -34,6 +34,8 @@ import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleDistillPubTemplate } from './jobs/distill-pub-template.js'
 import { handleDistillMedTemplate } from './jobs/distill-med-template.js'
 import { handleDistillRegTemplate } from './jobs/distill-reg-template.js'
+import { handleDistillIdeationTemplate } from './jobs/distill-ideation-template.js'
+import { handleIndexCsrSource } from './jobs/index-csr-source.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
@@ -148,6 +150,13 @@ const handlers = {
   // Module D — same but for the regulatory-submission template library
   // (migration 105 Package R-2).
   'regulatory.distill_template':   handleDistillRegTemplate,
+  // Module E — same but for the ideation / communications template
+  // library (migration 105 Package E-2).
+  'ideation.distill_template':     handleDistillIdeationTemplate,
+  // Module D — CSR / source-document indexer (Package RD-1). One job
+  // per (submission, source doc); emits a CanonicalJsonEntry row the
+  // ai-suggest grounding helper reads.
+  'regulatory.index_csr_source':   handleIndexCsrSource,
   // Module C — one slide inserted into a MedSlideDeckJob via Claude.
   // Enqueued from the Content Editor's "+ New slide with AI" button.
   'med_content.ai_slide_draft': handleGenerateMedSlide,
@@ -198,6 +207,10 @@ const concurrency: Record<JobName, number> = {
   'publications.distill_template': 1,
   'med_content.distill_template':  1,
   'regulatory.distill_template':   1,
+  'ideation.distill_template':     1,
+  // Indexer is a pure regex pass + a single Postgres write; fine to
+  // parallelise modestly — a submission typically has 5-20 source docs.
+  'regulatory.index_csr_source':   3,
   // Slide generation: serial to keep provider pressure predictable — users
   // click "+ New slide with AI" one slide at a time anyway. Bump when
   // full-deck generation (20 slides at a time) lands.

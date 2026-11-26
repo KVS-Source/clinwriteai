@@ -154,6 +154,15 @@ describe('several Reviewers: the document moves only when all have finished', ()
     expect(res.json().error).toBe('row_rejected')
   })
 
+  it('a Reviewer who marked their review done cannot also return it', async () => {
+    const t = await twoReviewers()
+    await t.complete('c-1', 'u-rev')
+    const res = await t.reject('c-1', { note: 'Changed my mind.' }, 'u-rev')
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('review_already_done')
+    expect(t.doc.status).toBe('in_review')
+  })
+
   it('QC still sends it back straight away, whatever the Reviewers are doing', async () => {
     const qc = await twoReviewers('in_review')
     expect((await qc.reject('q-1', { note: 'Listings incomplete.' }, 'u-qc')).json()).toMatchObject({ document: { status: 'in_authoring' } })

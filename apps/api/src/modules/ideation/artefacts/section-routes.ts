@@ -335,4 +335,32 @@ export const ideationArtefactSectionRoutes: FastifyPluginAsync = async (app) => 
 
     return reply.code(202).send({ jobId, ideationArtefactId, state: 'enqueued' })
   })
+
+  // GET /ideation-artefacts/:id/ai-debug-steps (migration 105 Package E-7).
+  //
+  // Returns the per-artefact step log the ai-suggest retry wrapper
+  // (Package E-4) + initial-draft worker write via their step emitters.
+  // Parity sibling to the Clinical / Publication / Medical / Regulatory
+  // debug-steps endpoints. Consumed by IdeationAiDebugPanel (Package E-8).
+  app.get('/:id/ai-debug-steps', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const art = await app.prisma.ideationArtefact.findUnique({
+      where:  { id },
+      select: { id: true, ideationProjectId: true },
+    })
+    if (!art) return reply.code(404).send({ error: 'not_found' })
+
+    const steps = await app.prisma.aiDraftStep.findMany({
+      where:   { documentId: id },
+      orderBy: { timestamp: 'asc' },
+      select:  { id: true, kind: true, message: true, sectionId: true, details: true, elapsedMs: true, timestamp: true },
+      take:    500,
+    })
+    // BigInt id doesn't serialise through JSON.stringify — stringify so
+    // the client can hold the shape without BigInt errors.
+    return {
+      ideationArtefactId: id,
+      draftSteps:         steps.map(s => ({ ...s, id: String(s.id) })),
+    }
+  })
 }

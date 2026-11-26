@@ -59,6 +59,29 @@ export const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   // Dossier Impact / References). Soft — HA responses are
   // heterogeneous and retry loops don't reliably converge.
   'ha_response_structure_invalid': 15,
+  // Module D CTD structural cross-ref check (Package RD-2). Fired on
+  // ctd_m2_* docTypes when the rewrite invents a §X.Y.Z or "Section
+  // X.Y.Z" cross-ref that shares the document's CTD module top but
+  // isn't on the ICH canonical subsection list for that module.
+  // Soft — the full eCTD DTD validation is a vendor workstream; this
+  // is a lightweight catch for the common "invented 2.5.9" drift.
+  'ctd_invalid_cross_ref':         15,
+  // Module E consent / disclosure check (Package E-5). Fired on
+  // patient_story content when the rewrite drops every recognisable
+  // Consent / Disclosures / COI label. Higher weight than other soft
+  // flags — consent framing is an ethical / IRB / ICMJE obligation.
+  'consent_disclosure_missing':    20,
+  // Module E disclaimer check (Package E-5). Fired on
+  // scientific_exchange_note + congress_summary when the rewrite drops
+  // the non-promotional / sponsor-views boilerplate. Soft — wording
+  // varies and legal/MLR teams own the exact phrasing.
+  'disclaimer_missing':            15,
+  // Module E press-release structure check (Package E-5). Fired on
+  // press_release when fewer than 3 of 5 AP conventions (headline /
+  // dateline / body / boilerplate / contact) survive the rewrite.
+  // Soft — some channels drop elements legitimately (web-first,
+  // internal draft).
+  'press_release_structure_invalid': 10,
 }
 
 const AI_UNKNOWN_WEIGHT = 15

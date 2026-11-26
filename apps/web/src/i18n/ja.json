@@ -797,7 +797,11 @@
       "flag_fk_score_raised":    "読みやすさ指標が目標値を超過",
       "flag_mcq_structure_invalid": "MCQ 構造の不備",
       "flag_content_past_expiry":   "有効期限切れコンテンツ",
-      "flag_ha_response_structure_invalid": "HA 応答のラベル不足"
+      "flag_ha_response_structure_invalid": "HA 応答のラベル不足",
+      "flag_ctd_invalid_cross_ref": "CTD 参照の誤生成",
+      "flag_consent_disclosure_missing": "同意・開示の欠落",
+      "flag_disclaimer_missing": "免責事項の欠落",
+      "flag_press_release_structure_invalid": "プレスリリースの構造欠落"
     },
 
     "audit_trail_panel": {
@@ -1749,6 +1753,7 @@
       "return_doc_recorded_toast": "差し戻しを記録しました。他の担当者({{names}})が完了すると作成段階に戻ります。",
       "return_doc_recorded_toast_all": "差し戻しを記録しました。",
       "return_doc_not_returnable": "このドキュメントはもう差し戻せません — レビュー中、CRM 中、署名待ちのいずれでもありません。",
+      "return_doc_after_review_done": "レビュー完了済みのため、このレビューラウンドではドキュメントを差し戻せません。",
       "return_doc_failed": "ドキュメントを差し戻せませんでした。もう一度お試しください。",
       "review_due_days_remaining_one": "残り {{count}} 日",
       "review_due_days_remaining_other": "残り {{count}} 日",
@@ -4189,6 +4194,10 @@
       "approver_use_approve_title": "まず文書を承認してください",
       "approver_use_approve_body": "承認者は承認と署名を一度に行います。承認者ビューを開き、文書を確認して「承認して電子署名」を使用してください。署名はこのページではなく、そこで記録されます。",
       "approver_use_approve_cta": "承認者ビューへ",
+      "switch_role_title": "承認するには{{role}}に切り替えてください",
+      "switch_role_body": "現在{{current}}として作業中です。承認と署名は承認者ビューで行い、承認者ビューは{{role}}として作業しているときのみ表示されます。今すぐ切り替えますか？ページは{{role}}として再読み込みされ、承認者ビューが開きます。",
+      "switch_role_confirm": "{{role}}に切り替えて開く",
+      "switch_role_cancel": "キャンセル",
       "back_documents": "← ドキュメント一覧に戻る",
       "back_editor": "← エディターに戻る",
       "back_reviewer_view": "← レビューアービューに戻る",
@@ -4693,7 +4702,11 @@
       "flag_fk_score_raised": "読みやすさ指標が目標値を超過",
       "flag_mcq_structure_invalid": "MCQ 構造の不備",
       "flag_content_past_expiry": "有効期限切れコンテンツ",
-      "flag_ha_response_structure_invalid": "HA 応答のラベル不足"
+      "flag_ha_response_structure_invalid": "HA 応答のラベル不足",
+      "flag_ctd_invalid_cross_ref": "CTD 参照の誤生成",
+      "flag_consent_disclosure_missing": "同意・開示の欠落",
+      "flag_disclaimer_missing": "免責事項の欠落",
+      "flag_press_release_structure_invalid": "プレスリリースの構造欠落"
     },
 
     "checklist_item_badge": {

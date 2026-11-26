@@ -42,6 +42,14 @@ export type QueueJobName =
   | 'med_content.distill_template'
   // Module D regulatory-submission template PDF distiller — migration 105 Package R-2.
   | 'regulatory.distill_template'
+  // Module E ideation / communications template PDF distiller — migration 105 Package E-2.
+  | 'ideation.distill_template'
+  // Module D CSR / source-document indexer — Package RD-1. Aggregates
+  // structural identifiers (tables, sections, figures, study IDs,
+  // citation markers) across a source Document's section bodies and
+  // writes a CanonicalJsonEntry row that the ai-suggest route uses
+  // for cross-ref grounding.
+  | 'regulatory.index_csr_source'
   // Module C — medical-writing initial-draft + 85% loop.
   | 'med_content.ai_initial_draft'
   | 'med_content.ai_validation_pass'

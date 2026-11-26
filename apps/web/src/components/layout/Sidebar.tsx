@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { NavLink, useNavigate, useParams } from 'react-router-dom'
+import { NavLink, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
@@ -15,15 +15,6 @@ const MODULE_COLOURS: Record<string, string> = {
   'regulatory-writing':  '#B0200D',
   'ideation-publishing': '#0D9488',
   'platform':            '#1A3C5E',
-}
-
-// Two-letter badge per module, shown on the collapsed rail.
-const MODULE_MONOGRAMS: Record<string, string> = {
-  'clinical-writing':    'CW',
-  'scientific-writing':  'SW',
-  'medical-writing':     'MW',
-  'regulatory-writing':  'RW',
-  'ideation-publishing': 'IP',
 }
 
 // Platform section nav — items land as their sPM screens are built (PM00 §4).
@@ -195,7 +186,6 @@ const MODULE_NAV: Record<string, NavKey[]> = {
 export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, onToggle }: Props) {
   const { t }         = useTranslation()
   const { projectId } = useParams()
-  const navigate = useNavigate()
   const currentUser = usePlatformStore(s => s.currentUser)
   const accentColour = MODULE_COLOURS[activeModule] ?? '#2563EB'
 
@@ -306,49 +296,6 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
                 <RailLink key={item.href} to={item.href} end={item.href.endsWith(activeModule)} label={item.label} icon={item.icon} accent={accentColour} />
               ))}
             </nav>
-          </>
-        )}
-
-        {projectId && (
-          <>
-            <RailDivider />
-            <div className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="module-switch">
-              {Object.entries(MODULE_LABELS).map(([key, label]) => {
-                const colour = MODULE_COLOURS[key]
-                const isActive = key === activeModule
-                const moduleKey = MODULE_SLUG_TO_KEY[key as ModuleSlug]
-                const enabled = !!moduleKey && isModuleEnabled(moduleKey)
-                const available = canSeeModule(key)
-                const hint = !enabled
-                  ? t('component.sidebar.module_hint_off')
-                  : !available
-                    ? t('component.sidebar.module_hint_no_access')
-                    : isActive
-                      ? t('component.sidebar.module_hint_current')
-                      : t('component.sidebar.module_hint_switch')
-                return (
-                  <RailTip key={key} label={label} hint={hint}>
-                    <button
-                      type="button"
-                      onClick={() => available && navigate(`/projects/${projectId}/${key}`)}
-                      disabled={!available}
-                      aria-label={`${label}${isActive ? t('component.sidebar.module_aria_current_suffix') : ''}`}
-                      aria-current={isActive ? 'true' : undefined}
-                      data-module-switch={key}
-                      data-module-available={available}
-                      className={`${RAIL_BTN} text-[11px] font-bold tracking-tight ${available ? '' : 'cursor-not-allowed opacity-35'}`}
-                      style={{
-                        backgroundColor: `${colour}${isActive ? '55' : '26'}`,
-                        color: isActive ? '#fff' : '#CBD5E1',
-                        boxShadow: isActive ? `inset 0 0 0 1.5px ${colour}` : undefined,
-                      }}
-                    >
-                      {MODULE_MONOGRAMS[key]}
-                    </button>
-                  </RailTip>
-                )
-              })}
-            </div>
           </>
         )}
 
@@ -494,52 +441,6 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
               </NavLink>
             ))}
           </nav>
-        </div>
-      )}
-
-      {/* Module switcher — always lists all five modules so users can see what
-          the platform offers. A module that is switched off on this deployment
-          (VITE_MODULES_ENABLED) or not granted to the user is shown greyed out
-          and can't be opened, instead of being hidden or leading to a 503. */}
-      {projectId && (
-        <div className="mt-4 border-t border-slate-700 px-3 pt-3" data-sidebar-section="module-switch">
-          <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">{t('component.sidebar.section_switch_module')}</MonoLabel>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            {Object.entries(MODULE_LABELS).map(([key, label]) => {
-              const colour = MODULE_COLOURS[key]
-              const isActive = key === activeModule
-              const moduleKey = MODULE_SLUG_TO_KEY[key as ModuleSlug]
-              const enabled = !!moduleKey && isModuleEnabled(moduleKey)
-              const available = canSeeModule(key)
-              const why = !enabled
-                ? t('component.sidebar.module_hint_off')
-                : !available
-                  ? t('component.sidebar.module_hint_no_access_long')
-                  : undefined
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => available && navigate(`/projects/${projectId}/${key}`)}
-                  disabled={!available}
-                  title={why}
-                  data-module-switch={key}
-                  data-module-available={available}
-                  className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left ${
-                    !available
-                      ? 'cursor-not-allowed text-slate-600'
-                      : isActive ? 'text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <div className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: colour, opacity: available ? 1 : 0.35 }} />
-                  <span className="flex-1">{label}</span>
-                  {!available && <span className="font-mono text-[9px] uppercase tracking-wider text-slate-600">{!enabled ? t('component.sidebar.module_badge_off') : t('component.sidebar.module_badge_no_access')}</span>}
-                </button>
-              )
-            })}
-          </div>
         </div>
       )}
 

@@ -77,6 +77,9 @@ export function ReturnToAuthoring({ documentId, status, onReturned, onRecorded }
 
   if (!RETURNABLE_STATUSES.has(status) || !row) return null
 
+  // A Reviewer who marked their review done can't also return it in this round (the API refuses too).
+  const reviewDone = row.letter === 'C' && row.reviewedAt !== null && (status === 'in-review' || status === 'crm-in-progress')
+
   const errorMessage = returnMut.error instanceof ApiError && returnMut.error.status === 409
     ? t('page.reviewer_view.return_doc_not_returnable')
     : returnMut.isError ? t('page.reviewer_view.return_doc_failed') : null
@@ -86,8 +89,10 @@ export function ReturnToAuthoring({ documentId, status, onReturned, onRecorded }
       <button
         type="button"
         onClick={() => { returnMut.reset(); setOpen(true) }}
+        disabled={reviewDone}
+        title={reviewDone ? t('page.reviewer_view.return_doc_after_review_done') : undefined}
         data-action="return-to-authoring"
-        className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+        className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         style={{ backgroundColor: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }}
       >
         {t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : row.letter === 'A' ? 'page.reviewer_view.return_doc_button_a' : 'page.reviewer_view.return_doc_button')}

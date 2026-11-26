@@ -84,6 +84,7 @@ export class DocumentTypePolicyService {
         ichFramework:        input.ichFramework        ?? null,
         ichFrameworkNames:   input.ichFrameworkNames   ?? [],
         requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as object,
+        ...(input.referenceStyle ? { referenceStyle: input.referenceStyle } : {}),
         createdBy:           actorId,
         updatedBy:           actorId,
       },
@@ -113,6 +114,7 @@ export class DocumentTypePolicyService {
           requirements:        (input.requirements ?? (current.requirements ?? DEFAULT_POLICY_REQUIREMENTS)) as unknown as object,
           // The build plan comes only from a policy package; a new version keeps it.
           ...carriedBuildPlan(current),
+          referenceStyle:      input.referenceStyle ?? current.referenceStyle,
           createdBy:           actorId,
           updatedBy:           actorId,
         },
@@ -161,6 +163,7 @@ export class DocumentTypePolicyService {
           ichFramework:        current.ichFramework,
           ichFrameworkNames:   current.ichFrameworkNames,
           requirements:        current.requirements as object,
+          referenceStyle:      current.referenceStyle,
           buildPlan,
           buildPlanSource,
           createdBy:           actorId,
@@ -197,6 +200,7 @@ export class DocumentTypePolicyService {
         ...(input.ichFramework        !== undefined && { ichFramework:        input.ichFramework }),
         ...(input.ichFrameworkNames   !== undefined && { ichFrameworkNames:   input.ichFrameworkNames }),
         ...(input.requirements        !== undefined && { requirements:        input.requirements        as unknown as object }),
+        ...(input.referenceStyle      !== undefined && { referenceStyle:      input.referenceStyle }),
         updatedBy: actorId,
       },
     })

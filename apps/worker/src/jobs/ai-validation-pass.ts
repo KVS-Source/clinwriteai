@@ -37,6 +37,7 @@ import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { buildSourceBlocks, inputUsage } from './source-blocks.js'
 import { asBuildPlan, headingNumbers } from './build-plan.js'
 import { asFactSheet, factSheetBlock, type FactSheet } from './fact-sheet.js'
+import { finishSafely } from './finishing-run.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
@@ -289,6 +290,10 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         confidenceOverall, modelUsed, willStop: stop,
       },
     })
+
+  // The last pass: the build plan's finishing in code (cross-references, references, abbreviations, fact
+  // consistency), before the document is marked complete so nobody edits a section while code rewrites it.
+  if (stop) await finishSafely({ prisma, log }, { documentId, versionId, docType: job.data.type, actorId: job.data.actorId, steps })
 
   // --- Persist document roll-up + log this pass -------------------------
   const nextState: 'validating' | 'complete' = stop ? 'complete' : 'validating'

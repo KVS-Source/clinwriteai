@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "docType": "protocol",
-  "label": "Protocol build plan v2",
+  "label": "Protocol build plan v3",
   "rules": { "temperature": 0 },
   "factSheet": {
     "fields": [
@@ -106,6 +106,7 @@
     ]
   },
   "sourcePages": { "allBelowPages": 100, "budgetChars": 80000 },
+  "finishing": { "crossReferences": true, "references": true, "abbreviations": true, "factConsistency": true },
   "stages": [
     {
       "key": "objectives",

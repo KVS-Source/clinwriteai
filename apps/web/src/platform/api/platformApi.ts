@@ -1045,6 +1045,7 @@ export interface DocumentTypePolicy {
   /** The AI build plan, imported from a GenBioCa policy package; null = none. Read-only. */
   buildPlan?:          BuildPlanView | null
   buildPlanSource?:    BuildPlanSourceView | null
+  referenceStyle?:     ReferenceStyle
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1073,7 +1074,11 @@ export interface DocumentTypePolicyEditableFields {
   ichFramework?:        string | null
   ichFrameworkNames?:   string[]
   requirements?:        PolicyRequirements
+  referenceStyle?:      ReferenceStyle
 }
+
+/** How references are cited when code builds the References section. */
+export type ReferenceStyle = 'numbered' | 'author_year'
 
 export interface DocumentTypePolicyCreateBody extends DocumentTypePolicyEditableFields {
   docType:    string

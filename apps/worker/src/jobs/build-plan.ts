@@ -21,6 +21,7 @@ export interface BuildPlanForDraft {
   rules:       { temperature?: number }
   factSheet?:  { fields: Array<{ key: string; label: string; hint?: string }> }
   sourcePages?: { allBelowPages: number; budgetChars: number }
+  finishing?:  { crossReferences?: boolean; references?: boolean; abbreviations?: boolean; factConsistency?: boolean }
 }
 
 export interface PlannedSection<S> {
@@ -47,6 +48,7 @@ export function asBuildPlan(raw: unknown): BuildPlanForDraft | null {
     dependsOn: p.dependsOn && typeof p.dependsOn === 'object' ? p.dependsOn : {},
     rules: p.rules && typeof p.rules === 'object' ? p.rules : {},
     ...(p.factSheet && Array.isArray(p.factSheet.fields) && p.factSheet.fields.length ? { factSheet: p.factSheet } : {}),
+    ...(p.finishing && typeof p.finishing === 'object' ? { finishing: p.finishing } : {}),
     ...(p.sourcePages ? { sourcePages: { allBelowPages: p.sourcePages.allBelowPages ?? 100, budgetChars: p.sourcePages.budgetChars ?? 80_000 } } : {}),
   }
 }

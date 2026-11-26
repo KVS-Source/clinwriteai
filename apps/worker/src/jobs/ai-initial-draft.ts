@@ -36,6 +36,8 @@ import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind, type Sourc
 import { asBuildPlan, earlierSectionsFor, orderByPlan, planPromptBlock, type PlannedSection } from './build-plan.js'
 import { asFactSheet, factSheetBlock, factSheetPrompt, indexSources, parseFactAnswer, sameSources, verifyFacts, type FactSheet, type IndexedSource } from './fact-sheet.js'
 import { pageBlocks, rankPages, scannedPages } from './source-pages.js'
+import { markerInstructions } from './finishing.js'
+import { finishSafely } from './finishing-run.js'
 import { onlyPages } from './source-blocks.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
@@ -727,6 +729,9 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       details: { totalPages, budgetChars: buildPlan!.sourcePages!.budgetChars },
     })
   }
+  // Cross-references and references as markers that code resolves after drafting (finishing.ts).
+  const markers = buildPlan?.finishing ? markerInstructions(buildPlan.finishing, allSections.map(s => ({ number: s.number, title: s.title }))) : ''
+
   /** What a section is sent from the sources: every file, or (pages mode) its relevant pages. */
   const blocksFor = (title: string, context: string): SourceBlocks => {
     if (!pagesMode || !indexed) return sourceBlocks
@@ -845,7 +850,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
         sourceBlocks: blocksFor(sec.title, `${sectionTemplateInstructions ?? ''} ${sectionTemplateGuidance ?? ''}`),
         planBlock: buildPlan
-          ? [factSheet ? factSheetBlock(factSheet) : '', planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })].filter(Boolean).join('\n\n')
+          ? [factSheet ? factSheetBlock(factSheet) : '', markers, planPromptBlock({ earlier: earlierSectionsFor(planned, planIndex, id => contentById.get(id)), rules: item.rules })].filter(Boolean).join('\n\n')
           : undefined,
         temperature: buildPlan?.rules.temperature,
         sectionTemplateFormatRules,
@@ -1035,7 +1040,8 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       log.warn({ err, documentId }, 'ai_initial_draft: failed to enqueue validation pass — draft stands')
       // If we can't enqueue the validator, mark the chain as complete so
       // the SPA stops polling. The sections ARE drafted at this point —
-      // only the critique/consistency loop didn't run.
+      // only the critique/consistency loop didn't run. Code finishing still runs, so no marker is left behind.
+      await finishSafely({ prisma, log }, { documentId, versionId, docType: type, actorId: job.data.actorId, steps })
       await prisma.document.update({
         where: { id: documentId },
         data:  { aiDraftState: 'complete' },

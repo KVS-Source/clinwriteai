@@ -162,6 +162,8 @@ model DocumentTypePolicy {
   // NULL = no plan (drafting as before). buildPlanSource: { packageId, packageVersion, sha256, importedAt, importedBy }.
   buildPlan           Json?
   buildPlanSource     Json?
+  // How references are cited when code builds the References section (migration 110): numbered | author_year.
+  referenceStyle      String    @default("numbered")
 
   effectiveDate       DateTime  @default(now())
   supersededBy        String?                                           // → next version's id

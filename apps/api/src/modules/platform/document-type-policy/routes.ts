@@ -61,6 +61,7 @@ interface PolicyRow {
   requirements:        unknown
   buildPlan?:          unknown
   buildPlanSource?:    unknown
+  referenceStyle?:     string
   effectiveDate:       Date
   supersededBy:        string | null
   retiredAt:           Date | null
@@ -91,6 +92,7 @@ function shape(row: PolicyRow) {
     // Read-only here: set by importing a GenBioCa policy package (policy-packages/).
     buildPlan:           row.buildPlan ?? null,
     buildPlanSource:     row.buildPlanSource ?? null,
+    referenceStyle:      row.referenceStyle ?? 'numbered',
     effectiveDate:       row.effectiveDate.toISOString(),
     supersededBy:        row.supersededBy,
     retiredAt:           row.retiredAt?.toISOString() ?? null,

@@ -27,7 +27,7 @@ const stageSchema = z.object({
   }).strict().optional(),
 }).strict()
 
-export const BUILT_BY_CODE_KINDS = ['references'] as const
+export const BUILT_BY_CODE_KINDS = ['references', 'abbreviations', 'toc'] as const
 
 /** Sections a document of this type is expected to have; a template without one gets a warning. */
 const expectedSectionSchema = z.object({
@@ -52,6 +52,17 @@ export const buildPlanSchema = z.object({
       label: z.string().trim().min(1).max(80),
       hint:  z.string().trim().max(200).optional(),
     }).strict()).min(1).max(60),
+  }).strict().optional(),
+  /**
+   * Done by code once drafting and checking end (worker finishing.ts): cross-references written as [XREF] markers
+   * become section numbers, references written as [REF] markers are found in the evidence, numbered and listed, the
+   * abbreviations are checked, and the fact-sheet values are compared across sections.
+   */
+  finishing: z.object({
+    crossReferences: z.boolean().optional(),
+    references:      z.boolean().optional(),
+    abbreviations:   z.boolean().optional(),
+    factConsistency: z.boolean().optional(),
   }).strict().optional(),
   /** Long sources: each section gets only its relevant pages (worker source-pages.ts). */
   sourcePages: z.object({

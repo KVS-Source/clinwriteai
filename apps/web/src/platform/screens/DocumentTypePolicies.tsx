@@ -28,6 +28,7 @@ import {
   platformApi,
   type BuildPlanView,
   type BuildPlanSourceView,
+  type ReferenceStyle,
   type DocumentTypePolicy,
   type BestPracticeDigest,
   type AiPromptRecord,
@@ -403,6 +404,13 @@ function AssociationsPanel({
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
+  const saveReferenceStyle = useMutation({
+    mutationFn: (referenceStyle: ReferenceStyle) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { referenceStyle }),
+    onSuccess: () => { setActionInfo('Reference style saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const saveIchPins = useMutation({
     mutationFn: (names: string[]) =>
       platformApi.updateDocumentTypePolicy(policy.docType, { ichFrameworkNames: names }),
@@ -479,6 +487,28 @@ function AssociationsPanel({
         disabled={saveRequirements.isPending}
         onChange={next => saveRequirements.mutate(next)}
       />
+
+      <section className="rounded-md border border-slate-200 bg-white p-3" data-section="reference-style">
+        <h3 className="text-[13px] font-semibold text-slate-900">Reference style</h3>
+        <p className="mt-1 text-[12px] text-slate-500">
+          How the AI drafter&rsquo;s references are cited when the References section is built. Only references found in the evidence sources are listed.
+        </p>
+        <div className="mt-2 flex gap-4 text-[12px] text-slate-800" role="radiogroup" aria-label="Reference style">
+          {([['numbered', 'Numbered: [1], listed in order of first use'], ['author_year', 'Author-year: (Smith 2021), listed alphabetically']] as const).map(([value, label]) => (
+            <label key={value} className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name={`reference-style-${policy.docType}`}
+                checked={(policy.referenceStyle ?? 'numbered') === value}
+                disabled={saveReferenceStyle.isPending}
+                onChange={() => saveReferenceStyle.mutate(value)}
+                data-reference-style={value}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </section>
 
       <BuildPlanCard plan={policy.buildPlan ?? null} source={policy.buildPlanSource ?? null} />
 

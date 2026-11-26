@@ -31,9 +31,13 @@ export function fillSignatureBlockHtml(html: string, signatures: BlockSignature[
       const tr = body.ownerDocument.createElement('tr')
       heads.forEach((_, i) => {
         const td = body.ownerDocument.createElement('td')
-        const p = body.ownerDocument.createElement('p')
-        p.textContent = i === role ? s.role : i === name ? s.name : i === signature ? s.signature : ''
-        td.appendChild(p)
+        // One paragraph per line, so a name and its job title (or a signature's meaning, time and id) stack.
+        const text = i === role ? s.role : i === name ? s.name : i === signature ? s.signature : ''
+        for (const line of text.split('\n')) {
+          const p = body.ownerDocument.createElement('p')
+          p.textContent = line
+          td.appendChild(p)
+        }
         tr.appendChild(td)
       })
       parent.appendChild(tr)

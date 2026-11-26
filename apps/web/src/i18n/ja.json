@@ -497,8 +497,8 @@
       "progress_summary":              "{{total}} 件中 {{complete}} 件完了",
       "progress_summary_with_waived":  "{{total}} 件中 完了 {{complete}} 件 · 免除 {{waived}} 件",
 
-      "mandatory_banner_one":          "必須項目 {{count}} 件が未完了 — レビューに提出をブロックしています。",
-      "mandatory_banner_other":        "必須項目 {{count}} 件が未完了 — レビューに提出をブロックしています。",
+      "mandatory_banner_one":          "必須項目 {{count}} 件が未完了 — 署名の前に完了が必要です。",
+      "mandatory_banner_other":        "必須項目 {{count}} 件が未完了 — 署名の前に完了が必要です。",
 
       "filter_items_aria":             "項目をフィルター",
       "filter_all":                    "すべて",
@@ -4269,6 +4269,7 @@
       "meaning_reviewed": "レビュー",
       "meaning_approved": "承認",
       "meaning_acknowledged": "確認",
+      "signed_electronically": "{{meaning}} — 電子署名済み",
       "outcome_met": "充足",
       "outcome_waived": "免除",
       "outcome_not_completed": "未完了",

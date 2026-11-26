@@ -277,6 +277,9 @@ export interface SignatureRecord {
   authMethod?: string
   documentHash?: string
   version_at_signing?: string
+  /** The signer's department and job title as they are now (printed in the signature block, as in the PDF). */
+  signerDepartment?: string | null
+  signerTitle?: string | null
 }
 
 export interface CRMMeeting {

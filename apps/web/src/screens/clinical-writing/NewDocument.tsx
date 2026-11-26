@@ -106,7 +106,11 @@ export function NewDocumentForm({
   const [targetCompletionDate, setTargetCompletionDate] = useState('')
   const [description,          setDescription]          = useState('')
   const [sourceIds,            setSourceIds]            = useState<string[]>(initialSourceIds ?? [])
-  const [showAllCategories,    setShowAllCategories]    = useState(false)
+  // Step 2 filter bar. 'default' = the categories this document type needs (or what was just uploaded);
+  // 'all' is what the "Show all categories" checkbox ticks; anything else is one source category.
+  const [categoryFilter,       setCategoryFilter]       = useState<string>('default')
+  const [sourceSearch,         setSourceSearch]         = useState('')
+  const showAllCategories = categoryFilter === 'all'
   // Sources uploaded from this wizard (via "+ Upload source").
   const [uploadedHere,         setUploadedHere]         = useState<string[]>([])
   // What each chosen source is for: evidence (this study's facts) or example (structure and wording only).
@@ -176,18 +180,38 @@ export function NewDocumentForm({
     const add = (cur: string[]) => [...new Set([...cur, ...uploadedSourceIds])]
     setSourceIds(add)
     setUploadedHere(add)
-    setShowAllCategories(false)
+    setCategoryFilter('default')
+    setSourceSearch('')
   }, [uploadedSourceIds])
 
   // After an upload from this wizard the list shows the source(s) uploaded here
   // plus everything selected; otherwise the recommended categories plus
   // everything selected. "Show all categories" lists every source.
-  const filteredSources = useMemo(() => {
-    if (showAllCategories) return sources
+  const categoryMatches = useMemo(() => {
+    if (categoryFilter === 'all') return sources
+    if (categoryFilter !== 'default') return sources.filter(s => s.category === categoryFilter)
     if (uploadedHere.length > 0) return sources.filter(s => uploadedHere.includes(s.id) || sourceIds.includes(s.id))
     if (!recommendedCategories) return sources
     return sources.filter(s => recommendedSet.has(s.category) || sourceIds.includes(s.id))
-  }, [sources, showAllCategories, uploadedHere, recommendedCategories, recommendedSet, sourceIds])
+  }, [sources, categoryFilter, uploadedHere, recommendedCategories, recommendedSet, sourceIds])
+  const filteredSources = useMemo(() => {
+    const term = sourceSearch.trim().toLowerCase()
+    if (!term) return categoryMatches
+    return categoryMatches.filter(s => `${s.title} ${s.fileName}`.toLowerCase().includes(term))
+  }, [categoryMatches, sourceSearch])
+  const categoryOptions = useMemo(
+    () => [...new Set(sources.map(s => s.category))].sort((a, b) => sourceCategoryLabel(a).localeCompare(sourceCategoryLabel(b))),
+    [sources],
+  )
+  const hasDefaultFilter = uploadedHere.length > 0 || !!recommendedCategories
+
+  // "Select all" acts on the rows on screen only; picks hidden by a filter stay picked.
+  const visibleSelectedCount = filteredSources.filter(s => sourceIds.includes(s.id)).length
+  const allVisibleSelected = filteredSources.length > 0 && visibleSelectedCount === filteredSources.length
+  const toggleAllVisible = () => {
+    const visible = filteredSources.map(s => s.id)
+    setSourceIds(cur => (allVisibleSelected ? cur.filter(id => !visible.includes(id)) : [...new Set([...cur, ...visible])]))
+  }
 
   // Sources selected outside the recommended set stay selected and listed —
   // flag the count so the user can act.
@@ -428,7 +452,7 @@ export function NewDocumentForm({
       </div>
 
       {/* Step body */}
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex flex-1 flex-col overflow-y-auto p-5">
         {step === 1 && (
           <section className="flex flex-col gap-4" data-step-body="type">
             <div>
@@ -441,7 +465,7 @@ export function NewDocumentForm({
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.document_type_label')}</span>
               <select
                 value={type}
-                onChange={e => setType(e.currentTarget.value as DocumentType)}
+                onChange={e => { setType(e.currentTarget.value as DocumentType); setCategoryFilter('default'); setSourceSearch('') }}
                 className="h-10 rounded-md border border-slate-300 px-3 text-[13px]"
                 data-field="type"
               >
@@ -486,15 +510,15 @@ export function NewDocumentForm({
         )}
 
         {step === 2 && (
-          <section className="flex flex-col gap-4" data-step-body="sources">
+          <section className="flex min-h-0 flex-1 flex-col gap-3" data-step-body="sources">
             <div>
               <h3 className="text-[14px] font-semibold text-slate-900">{t('page.new_document.step2_title')}</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
                 {t('page.new_document.step2_hint')}
-                {uploadedHere.length > 0 && !showAllCategories && (
+                {uploadedHere.length > 0 && categoryFilter === 'default' && (
                   <> {t('page.new_document.step2_showing_uploaded_prefix')} <span className="font-semibold">{t('page.new_document.show_all_categories')}</span> {t('page.new_document.step2_showing_uploaded_suffix')}</>
                 )}
-                {recommendedCategories && !showAllCategories && uploadedHere.length === 0 && (
+                {recommendedCategories && categoryFilter === 'default' && uploadedHere.length === 0 && (
                   <> {t('page.new_document.step2_filtered_prefix')} <span className="font-semibold">{recommendedCategories.map(c => sourceCategoryLabel(c)).join(' · ')}</span> {t('page.new_document.step2_filtered_suffix', { type: selectedTypeMeta?.label ?? '' })}</>
                 )}
               </p>
@@ -514,7 +538,7 @@ export function NewDocumentForm({
                 )}
                 <button
                   type="button"
-                  onClick={() => setShowAllCategories(true)}
+                  onClick={() => { setCategoryFilter('all'); setSourceSearch('') }}
                   className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                   title={t('page.new_document.upload_existing_title')}
                   data-action="pick-existing-source"
@@ -527,7 +551,7 @@ export function NewDocumentForm({
                   <input
                     type="checkbox"
                     checked={showAllCategories}
-                    onChange={e => setShowAllCategories(e.currentTarget.checked)}
+                    onChange={e => setCategoryFilter(e.currentTarget.checked ? 'all' : 'default')}
                   />
                   {t('page.new_document.show_all_categories')}
                 </label>
@@ -543,16 +567,69 @@ export function NewDocumentForm({
               </div>
             )}
 
+            {sources.length > 0 && (
+              <div className="flex flex-col gap-2" data-source-filters>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    type="search"
+                    value={sourceSearch}
+                    onChange={e => setSourceSearch(e.currentTarget.value)}
+                    // Enter must not submit the wizard form.
+                    onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
+                    placeholder={t('page.new_document.source_search_placeholder')}
+                    aria-label={t('page.new_document.source_search_placeholder')}
+                    maxLength={200}
+                    className="h-8 min-w-[160px] flex-1 rounded-md border border-slate-300 px-3 text-[12px]"
+                    data-field="source-search"
+                  />
+                  <select
+                    value={categoryFilter === 'default' && !hasDefaultFilter ? 'all' : categoryFilter}
+                    onChange={e => setCategoryFilter(e.currentTarget.value)}
+                    aria-label={t('page.new_document.source_category_label')}
+                    className="h-8 max-w-full rounded-md border border-slate-300 bg-white px-2 text-[12px]"
+                    data-field="source-category"
+                  >
+                    {hasDefaultFilter && (
+                      <option value="default">
+                        {t(uploadedHere.length > 0 ? 'page.new_document.category_uploaded' : 'page.new_document.category_recommended')}
+                      </option>
+                    )}
+                    <option value="all">{t('page.new_document.category_all')}</option>
+                    {categoryOptions.map(c => <option key={c} value={c}>{sourceCategoryLabel(c)}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 pl-[11px]">
+                      <input
+                        type="checkbox"
+                        ref={el => { if (el) el.indeterminate = visibleSelectedCount > 0 && !allVisibleSelected }}
+                        checked={allVisibleSelected}
+                        disabled={filteredSources.length === 0}
+                        onChange={toggleAllVisible}
+                        data-action="select-all-sources"
+                      />
+                      <span className="font-semibold text-slate-700">{t('page.new_document.select_all')}</span>
+                    </label>
+                    <span data-selected-count>{t('page.new_document.selected_count', { count: sourceIds.length })}</span>
+                  </div>
+                  <span aria-live="polite" data-showing-count>
+                    {t('page.new_document.showing_count', { shown: filteredSources.length, total: sources.length })}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {filteredSources.length === 0 ? (
               <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
                 <p className="text-[12px] text-slate-600">
                   {sources.length === 0
                     ? t('page.new_document.no_sources_library')
-                    : t('page.new_document.no_sources_match_category')}
+                    : t('page.new_document.no_sources_match')}
                 </p>
               </div>
             ) : (
-              <div className="flex max-h-[55vh] flex-col gap-1.5 overflow-y-auto">
+              <div className="flex min-h-[160px] flex-1 flex-col gap-1.5 overflow-y-auto" data-source-list>
                 {filteredSources.map(src => (
                   <SourcePickRow
                     key={src.id}
@@ -566,11 +643,9 @@ export function NewDocumentForm({
               </div>
             )}
 
-            <div className="flex items-center justify-between text-[11px]">
-              <span className={sourceIds.length === 0 ? 'text-rose-600' : 'text-slate-600'}>
-                {sourceIds.length === 0
-                  ? t('page.new_document.select_one_source_hint')
-                  : t('page.new_document.selected_count', { count: sourceIds.length })}
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-rose-600">
+                {sourceIds.length === 0 && t('page.new_document.select_one_source_hint')}
               </span>
               {outOfScopeSelectedCount > 0 && (
                 <span className="text-amber-600">

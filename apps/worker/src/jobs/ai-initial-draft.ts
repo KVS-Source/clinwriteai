@@ -38,6 +38,7 @@ import { asFactSheet, factSheetBlock, factSheetPrompt, indexSources, parseFactAn
 import { pageBlocks, rankPages, scannedPages } from './source-pages.js'
 import { markerInstructions } from './finishing.js'
 import { finishSafely } from './finishing-run.js'
+import { loadCostGuard } from './cost-guard.js'
 import { onlyPages } from './source-blocks.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
@@ -668,6 +669,17 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       })
   }
 
+  // --- AI cost limit (set by the PM at New Document) --------------------------
+  // Before each AI call: would what has been spent plus a call like the last one pass the limit? Then pause.
+  const costGuard = await loadCostGuard(prisma, documentId)
+  const pauseForCost = async (drafted: number) => {
+    await prisma.document.update({ where: { id: documentId }, data: { aiDraftState: 'paused' } }).catch(() => undefined)
+    log.info({ documentId, spentUsd: costGuard!.spentUsd, limitUsd: costGuard!.limitUsd }, 'ai_initial_draft: cost limit reached — paused')
+    await steps.emit('job_paused', costGuard!.describe(), {
+      details: { reason: 'cost_limit', spentUsd: costGuard!.spentUsd, limitUsd: costGuard!.limitUsd, drafted },
+    })
+  }
+
   // --- Study fact sheet and the page index (build plan) ---------------------
   // The facts every section must use, extracted once from the evidence with quotes that code checks; and, for long
   // sources, each section's relevant pages. Neither stops the draft: without them it drafts from the sources as above.
@@ -682,11 +694,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       factSheet = stored
       await steps.emit('prompt_assembled', `Study fact sheet reused from the earlier run: ${countFacts(stored!)}.`, { details: { factSheet: 'reused' } })
     } else {
+      if (costGuard?.reached) {
+        await pauseForCost(0)
+        return { documentId, sectionsTotal: sections.length, drafted: 0, skipped: 0, errored: [] }
+      }
       try {
         const result = await extractFactSheet({
           apiKey, model: resolvedModel, sourceBlocks, fields: buildPlan.factSheet.fields, indexed,
           temperature: buildPlan.rules.temperature, abortSignal: abortController.signal,
         })
+        costGuard?.add({ model: resolvedModel, inputTokens: result.inputTokens, cachedTokens: result.cachedTokens, outputTokens: result.outputTokens })
         factSheet = { extractedAt: new Date().toISOString(), model: resolvedModel, sourceIds: sourcePdfs.map(p => p.id), facts: result.facts }
         await prisma.document.update({ where: { id: documentId }, data: { factSheet: factSheet as unknown as object } })
         await steps.emit('prompt_assembled', `Study fact sheet: ${countFacts(factSheet)}. Every section uses these values.`, {
@@ -836,6 +853,10 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       report.skipped++
       continue
     }
+    if (costGuard?.reached) {
+      await pauseForCost(report.drafted)
+      return { documentId, sectionsTotal: sections.length, drafted: report.drafted, skipped: report.skipped, errored: report.errored }
+    }
     try {
       await steps.emit('section_start',
         `§${sec.number} ${sec.title} — starting AI call with ${sourcePdfs.length} source${sourcePdfs.length === 1 ? '' : 's'}.`, {
@@ -954,6 +975,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
 
       report.drafted++
       contentById.set(sec.id, contentHtml)
+      if (engine !== 'stub') costGuard?.add({ model: resolvedModel, inputTokens, cachedTokens, outputTokens })
       const missing = extractMissingItems(contentHtml)
       log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')
       await steps.emit('section_committed',

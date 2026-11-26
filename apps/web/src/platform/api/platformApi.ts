@@ -1046,6 +1046,7 @@ export interface DocumentTypePolicy {
   buildPlan?:          BuildPlanView | null
   buildPlanSource?:    BuildPlanSourceView | null
   referenceStyle?:     ReferenceStyle
+  costEstimateEnabled?: boolean
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1075,6 +1076,8 @@ export interface DocumentTypePolicyEditableFields {
   ichFrameworkNames?:   string[]
   requirements?:        PolicyRequirements
   referenceStyle?:      ReferenceStyle
+  /** Show the AI cost estimate (and an optional cost limit) at New Document. */
+  costEstimateEnabled?: boolean
 }
 
 /** How references are cited when code builds the References section. */
@@ -1189,6 +1192,8 @@ export interface LocalisationSettings {
   dateFormat?: string                     // e.g. 'yyyy-MM-dd'
   timeFormat?: '24h' | '12h'
   currency?:   string                     // ISO-4217
+  /** 1 US dollar in `currency`: AI costs (billed in USD) are shown in the local currency with it. */
+  usdRate?:    number
 }
 
 // Migration 96: voice + sso sections. API keys for voice providers and

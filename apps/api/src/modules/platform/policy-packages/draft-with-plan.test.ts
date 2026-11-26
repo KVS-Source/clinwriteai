@@ -41,13 +41,13 @@ vi.mock('../../../../../worker/src/jobs/policy-prompt.js', () => ({
 }))
 vi.mock('../../../../../worker/src/jobs/ai-draft-step.js', () => ({ createStepLogger: () => ({ emit: async () => undefined }) }))
 
-function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown } = {}) {
+function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown; aiCostLimit?: unknown } = {}) {
   const written: string[] = []
   const updates: Array<Record<string, unknown>> = []
   const prisma = {
     document: {
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return {} }),
-      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null, factSheet: opts.factSheet ?? null })),
+      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null, factSheet: opts.factSheet ?? null, aiCostLimit: opts.aiCostLimit ?? null })),
     },
     project: { findUnique: async () => null },
     documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: opts.plan ?? PLAN })) },
@@ -59,6 +59,9 @@ function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factS
       update: vi.fn(async ({ where }: { where: { id: string } }) => { written.push(where.id.replace('row-s', '')); return {} }),
     },
     editHistory: { create: async () => ({}) },
+    rateCardVersion: { findFirst: async () => ({ id: 'rc', entries: [{ model: 'claude-sonnet-4-6', inputPer1M: 3, outputPer1M: 15, cachedInputPer1M: 0.3 }] }) },
+    platformSettings: { findUnique: async () => ({ localisation: { currency: 'INR', usdRate: 84 } }) },
+    aiDraftStep: { findMany: async () => [] },
     aiSectionDraftTrace: { create: async () => ({}) },
     $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
   }
@@ -159,5 +162,22 @@ describe('drafting with the Protocol build plan', () => {
     expect(callFor('5.1').titles).toEqual(['Synopsis (its pages 3, no text)', 'Synopsis (pages 1)'])
     expect(callFor('10.1').titles).toContain('Synopsis (pages 2)')
     expect(callFor('10.1').titles).not.toContain('Synopsis (pages 1)')
+  })
+
+  it('with a cost limit the draft pauses before the AI call that would pass it, and says why', async () => {
+    state.pdf = await pdf(['Protocol MP-301 is a study of Moonazumab in adults with moderate asthma.'])
+    state.factAnswer = JSON.stringify([{ key: 'protocol_number', value: 'MP-301', source: 1, page: 1, quote: 'Protocol MP-301 is a study of Moonazumab' }])
+    const { written, updates, done } = run(2, { aiCostLimit: { usd: 0.0015, amount: 0.126, currency: 'INR', usdRate: 84 } })
+    expect(await done).toMatchObject({ drafted: 0 })
+    // The fact sheet call (0.00105 USD) ran; a second call like it would pass 0.0015, so no section was drafted.
+    expect(state.calls).toHaveLength(1)
+    expect(written).toEqual([])
+    expect(updates.at(-1)).toEqual({ aiDraftState: 'paused' })
+  })
+
+  it('without a limit nothing is paused for cost', async () => {
+    const { written, done } = run(2)
+    await done
+    expect(written).toHaveLength(50)
   })
 })

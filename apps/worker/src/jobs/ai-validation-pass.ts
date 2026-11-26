@@ -38,6 +38,7 @@ import { buildSourceBlocks, inputUsage } from './source-blocks.js'
 import { asBuildPlan, headingNumbers } from './build-plan.js'
 import { asFactSheet, factSheetBlock, type FactSheet } from './fact-sheet.js'
 import { finishSafely } from './finishing-run.js'
+import { loadCostGuard } from './cost-guard.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
@@ -183,6 +184,13 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
   let modelUsed: string | null = null
   const apiKey = await resolveAnthropicKey(prisma)
   const hasDraftedContent = rows.some(r => stripTags(r.contentHtml ?? '').length >= MIN_CONTENT_CHARS)
+  // The AI cost limit: pause before this pass's AI call would pass it (cost-guard.ts). Resume starts again here.
+  const costGuard = apiKey && hasDraftedContent ? await loadCostGuard(prisma, documentId) : null
+  if (costGuard?.reached) {
+    await prisma.document.update({ where: { id: documentId }, data: { aiDraftState: 'paused' } }).catch(() => undefined)
+    await steps.emit('job_paused', costGuard.describe(), { details: { reason: 'cost_limit', spentUsd: costGuard.spentUsd, limitUsd: costGuard.limitUsd, iteration } })
+    return { documentId, iteration, paused: 'cost_limit' }
+  }
   if (apiKey && hasDraftedContent) {
     try {
       const project = await prisma.project.findUnique({

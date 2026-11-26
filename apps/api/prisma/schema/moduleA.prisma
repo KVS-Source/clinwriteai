@@ -60,6 +60,8 @@ model Document {
   aiDraftState           String?   @map("ai_draft_state")
   // Study fact sheet (migration 109): facts extracted from the evidence with file, page and quote, checked by code.
   factSheet              Json?     @map("fact_sheet")
+  // AI drafting cost limit (migration 111): { usd, amount, currency, usdRate, setBy, setAt }; null = none.
+  aiCostLimit            Json?     @map("ai_cost_limit")
   // 0–100 roll-up (average of per-section aiConfidence). Updated at the
   // end of every validation pass. Null until the first pass runs.
   aiConfidenceOverall    Int?      @map("ai_confidence_overall")

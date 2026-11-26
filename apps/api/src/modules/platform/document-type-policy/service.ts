@@ -85,6 +85,7 @@ export class DocumentTypePolicyService {
         ichFrameworkNames:   input.ichFrameworkNames   ?? [],
         requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as object,
         ...(input.referenceStyle ? { referenceStyle: input.referenceStyle } : {}),
+        ...(input.costEstimateEnabled !== undefined ? { costEstimateEnabled: input.costEstimateEnabled } : {}),
         createdBy:           actorId,
         updatedBy:           actorId,
       },
@@ -115,6 +116,7 @@ export class DocumentTypePolicyService {
           // The build plan comes only from a policy package; a new version keeps it.
           ...carriedBuildPlan(current),
           referenceStyle:      input.referenceStyle ?? current.referenceStyle,
+          costEstimateEnabled: input.costEstimateEnabled ?? current.costEstimateEnabled,
           createdBy:           actorId,
           updatedBy:           actorId,
         },
@@ -164,6 +166,7 @@ export class DocumentTypePolicyService {
           ichFrameworkNames:   current.ichFrameworkNames,
           requirements:        current.requirements as object,
           referenceStyle:      current.referenceStyle,
+          costEstimateEnabled: current.costEstimateEnabled,
           buildPlan,
           buildPlanSource,
           createdBy:           actorId,
@@ -201,6 +204,7 @@ export class DocumentTypePolicyService {
         ...(input.ichFrameworkNames   !== undefined && { ichFrameworkNames:   input.ichFrameworkNames }),
         ...(input.requirements        !== undefined && { requirements:        input.requirements        as unknown as object }),
         ...(input.referenceStyle      !== undefined && { referenceStyle:      input.referenceStyle }),
+        ...(input.costEstimateEnabled !== undefined && { costEstimateEnabled: input.costEstimateEnabled }),
         updatedBy: actorId,
       },
     })

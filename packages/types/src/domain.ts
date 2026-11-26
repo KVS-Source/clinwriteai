@@ -403,6 +403,8 @@ export interface CreateDocumentBody {
   sourceUploadIds?: string[]
   /** What each source is for: 'evidence' (this study's facts) or 'example' (structure and wording only). Default evidence. */
   sourceRoles?: Record<string, 'evidence' | 'example'>
+  /** AI drafting cost limit in the install's currency; only used when the policy's cost estimate is on. */
+  aiCostLimit?: { amount: number }
   /**
    * When true, the server enqueues a clinical.ai_initial_draft BullMQ
    * job after creating the document — the worker drafts every section

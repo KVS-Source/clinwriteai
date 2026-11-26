@@ -29,7 +29,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { BestPractice, CreateDocumentBody, DocumentType } from '@platform/types'
 import { documentsApi, type DocumentTemplate } from '../../api'
-import type { SourceDocument, SourceRole } from '../../api/documents'
+import type { CostEstimate, SourceDocument, SourceRole } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { assignableUsersApi } from '../../api/raci'
 import { AssigneeCombobox, type AssigneeOption } from '../../components/raci/AssigneeCombobox'
@@ -112,6 +112,8 @@ export function NewDocumentForm({
   // What each chosen source is for: evidence (this study's facts) or example (structure and wording only).
   // Unset = the suggestion: example when the upload check found it looks like a sample, else evidence.
   const [roles,                setRoles]                = useState<Record<string, SourceRole>>({})
+  // Optional AI cost limit, in the install's currency (only when the policy shows the cost estimate).
+  const [costLimit,            setCostLimit]            = useState('')
   // Step 4 — every new document is drafted by AI from its sources (CW-056: there is
   // no "Create blank"; step 2 already requires at least one source).
   // Author's free-text prompt to the AI drafter. Max 2000 chars enforced
@@ -293,6 +295,17 @@ export function NewDocumentForm({
   })
   const sourceCheckBlocks = !!sourceCheck.data && !sourceCheck.data.ok
 
+  // Step 4: the AI drafting cost estimate, when the document type's policy shows it.
+  const costEstimate = useQuery({
+    queryKey: ['cost-estimate', projectId, type, sourcesWithRoles],
+    queryFn:  () => documentsApi.costEstimate(projectId, { type, sources: sourcesWithRoles }),
+    enabled:  step === 4 && !!policy?.costEstimateEnabled,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const costLimitAmount = Number(costLimit)
+  const costLimitValid = costLimit.trim() === '' || (Number.isFinite(costLimitAmount) && costLimitAmount > 0)
+
   const create = useMutation({
     mutationFn: () => {
       const body: CreateDocumentBody = {
@@ -303,6 +316,7 @@ export function NewDocumentForm({
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
         sourceRoles: sourceIds.length ? Object.fromEntries(sourcesWithRoles.map(s => [s.uploadId, s.role])) : undefined,
+        aiCostLimit: policy?.costEstimateEnabled && costLimit.trim() !== '' && costLimitValid ? { amount: costLimitAmount } : undefined,
         // AI drafting runs when the platform has an AI engine configured;
         // otherwise create a blank document (the author drafts by hand).
         // The API also refuses aiDraft=true when AI is off, so this flag
@@ -338,6 +352,7 @@ export function NewDocumentForm({
   const canAdvanceFromStep4 = !requirements.requirePurpose || !aiReady || aiInstructions.trim().length > 0
   const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && canAdvanceFromStep4 && !create.isPending
                             && !(sourceIds.length > 0 && (sourceCheck.isFetching || sourceCheckBlocks))
+                            && costLimitValid
 
   const next = () => {
     if (step === 1 && canAdvanceFromStep1) setStep(2)
@@ -657,6 +672,17 @@ export function NewDocumentForm({
               t={t}
             />
 
+            {policy?.costEstimateEnabled && (
+              <CostEstimateCard
+                loading={costEstimate.isFetching}
+                failed={costEstimate.isError}
+                estimate={costEstimate.data}
+                limit={costLimit}
+                limitValid={costLimitValid}
+                onLimit={setCostLimit}
+              />
+            )}
+
             {sourceIds.length > 0 && (
               <SourceCheckPanel loading={sourceCheck.isFetching} failed={sourceCheck.isError} result={sourceCheck.data} />
             )}
@@ -782,6 +808,52 @@ function SourcePickRow({ src, selected, role, onToggle, onRole }: {
           <span className="text-[11px] text-slate-500">{t(`page.new_document.role_${role}_hint`)}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Step 4: the AI drafting cost estimate and the optional cost limit (policy: cost estimate on). */
+function CostEstimateCard({ loading, failed, estimate, limit, limitValid, onLimit }: {
+  loading: boolean
+  failed: boolean
+  estimate: CostEstimate | undefined
+  limit: string
+  limitValid: boolean
+  onLimit: (v: string) => void
+}) {
+  const { t } = useTranslation()
+  const ready = estimate && estimate.enabled && estimate.available ? estimate : null
+  const currency = ready?.currency ?? ''
+  const money = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-[12px]" data-cost-estimate>
+      <p className="font-semibold text-slate-900">{t('page.new_document.cost_title')}</p>
+      {loading && <p className="mt-1 text-slate-500">{t('page.new_document.cost_loading')}</p>}
+      {!loading && (failed || !ready) && <p className="mt-1 text-slate-500" data-cost-estimate-state="unavailable">{t('page.new_document.cost_unavailable')}</p>}
+      {!loading && ready && (
+        <>
+          <p className="mt-1 text-[14px] font-semibold text-slate-900" data-cost-estimate-range>
+            {money(ready.low)} – {money(ready.high)}
+          </p>
+          <p className="mt-0.5 text-slate-600">
+            {t('page.new_document.cost_basis', { sections: ready.basis.sections, minLow: ready.minutesLow, minHigh: ready.minutesHigh })}
+          </p>
+          {ready.rateMissing && <p className="mt-1 text-amber-700">{t('page.new_document.cost_rate_missing')}</p>}
+        </>
+      )}
+      <label className="mt-3 block" data-field="cost-limit">
+        <span className="block font-medium text-slate-700">{t('page.new_document.cost_limit_label', { currency: currency || '' }).trim()}</span>
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={limit}
+          onChange={e => onLimit(e.currentTarget.value)}
+          placeholder={ready ? String(Math.ceil(ready.high)) : ''}
+          className={`mt-1 w-40 rounded-md border px-3 py-1.5 text-[13px] ${limitValid ? 'border-slate-300' : 'border-rose-400'}`}
+        />
+        <span className="mt-1 block text-[11px] text-slate-500">{t('page.new_document.cost_limit_hint')}</span>
+      </label>
     </div>
   )
 }

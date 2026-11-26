@@ -411,6 +411,13 @@ function AssociationsPanel({
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
+  const saveCostEstimate = useMutation({
+    mutationFn: (costEstimateEnabled: boolean) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { costEstimateEnabled }),
+    onSuccess: () => { setActionInfo('Cost estimate setting saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const saveIchPins = useMutation({
     mutationFn: (names: string[]) =>
       platformApi.updateDocumentTypePolicy(policy.docType, { ichFrameworkNames: names }),
@@ -508,6 +515,26 @@ function AssociationsPanel({
             </label>
           ))}
         </div>
+      </section>
+
+      <section className="rounded-md border border-slate-200 bg-white p-3" data-section="cost-estimate">
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={policy.costEstimateEnabled ?? false}
+            disabled={saveCostEstimate.isPending}
+            onChange={e => saveCostEstimate.mutate(e.currentTarget.checked)}
+            data-field="cost-estimate-enabled"
+          />
+          <span>
+            <span className="block text-[13px] font-semibold text-slate-900">Show the AI cost estimate at New Document</span>
+            <span className="block text-[12px] text-slate-500">
+              The project manager sees the estimated AI drafting cost and may set a cost limit for the document. The draft pauses
+              when it would pass the limit; the limit can be raised in AI Debug, then the draft resumed.
+            </span>
+          </span>
+        </label>
       </section>
 
       <BuildPlanCard plan={policy.buildPlan ?? null} source={policy.buildPlanSource ?? null} />

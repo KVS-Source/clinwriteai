@@ -132,6 +132,23 @@ export function LocalisationTab() {
             listId="currency-list"
             maxLength={3}
           />
+          {draft.currency && draft.currency.toUpperCase() !== 'USD' && (
+            <label className="block" data-field="usd-rate">
+              <span className="block text-[12px] font-medium text-slate-700">1 US dollar in {draft.currency.toUpperCase()}</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={draft.usdRate ?? ''}
+                onChange={e => field('usdRate')(e.target.value === '' ? undefined : Number(e.target.value))}
+                placeholder="e.g. 84"
+                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[13px] placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+              />
+              <span className="mt-1 block text-[11px] text-slate-500">
+                AI costs are billed in US dollars; this rate shows them in {draft.currency.toUpperCase()}. Without it they are shown in USD. Update it when the rate moves.
+              </span>
+            </label>
+          )}
         </div>
       )}
 

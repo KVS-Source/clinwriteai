@@ -174,8 +174,9 @@ export function parseBuildPlan(raw: unknown): { ok: true; plan: BuildPlan } | { 
 
 /** Section numbers a plan keeps out of AI drafting: main headings and code-built sections. Empty without a plan. */
 export function numbersNotDraftedByAi(rawPlan: unknown, numbers: string[]): Set<string> {
-  if (rawPlan == null) return new Set()
-  const parsed = buildPlanSchema.safeParse(rawPlan)
-  if (!parsed.success) return new Set()
-  return new Set([...headingNumbers(numbers.map(number => ({ number, title: '' }))), ...parsed.data.builtByCode.map(s => s.number)])
+  if (rawPlan == null || typeof rawPlan !== 'object') return new Set()
+  // Read loosely (like the worker): a stored plan was validated when it was imported.
+  const built = (rawPlan as { builtByCode?: unknown }).builtByCode
+  const codeBuilt = Array.isArray(built) ? built.flatMap(b => (b && typeof (b as { number?: unknown }).number === 'string' ? [(b as { number: string }).number] : [])) : []
+  return new Set([...headingNumbers(numbers.map(number => ({ number, title: '' }))), ...codeBuilt])
 }

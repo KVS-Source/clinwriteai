@@ -23,6 +23,7 @@ import {
   type PreflightIssue,
 } from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
+import { documentsApi } from '../../api/documents'
 import {
   useAiDebugLayout,
   AI_DEBUG_COLLAPSED_PX,
@@ -129,6 +130,8 @@ interface DebugData {
   sectionDraftTraces?: DebugSectionTrace[]
   /** The study fact sheet the sections were drafted with (build plan); null without one. */
   factSheet?: DebugFactSheet | null
+  /** AI spend so far and the document's cost limit, in the install's currency. */
+  cost?: DebugCost
   draftSteps?:        DebugDraftStep[]
   buildSummary?:      DebugBuildSummary
   auditTail?:         DebugAudit[]
@@ -705,6 +708,13 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               {/* STATUS CARD */}
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />
 
+              {/* COST — spent so far against the document's limit; a PM can change the limit */}
+              {data.cost && (data.cost.limit || data.cost.canSetLimit) && (
+                <Section title="AI cost">
+                  <CostLimitBox documentId={documentId} cost={data.cost} />
+                </Section>
+              )}
+
               {/* STUDY FACT SHEET — the checked facts every section was drafted with */}
               {data.factSheet && data.factSheet.facts.length > 0 && (
                 <Section title={`Study fact sheet (${data.factSheet.facts.filter(f => f.status === 'verified').length} of ${data.factSheet.facts.length} checked)`}>
@@ -984,6 +994,71 @@ function AiDebugDraftingFooter({
 }
 
 // ---- Sub-components ----------------------------------------------------
+
+interface DebugCost {
+  currency: string
+  rateMissing: boolean
+  spent: number
+  spentUsd: number
+  limit: { amount: number; usd: number } | null
+  /** Spent plus a call like the last one would pass the limit: the draft pauses before its next AI call. */
+  reached?: boolean
+  canSetLimit: boolean
+}
+
+/** Spent so far against the limit. A PM sets, raises or removes the limit; the draft pauses before passing it. */
+function CostLimitBox({ documentId, cost }: { documentId: string; cost: DebugCost }) {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState('')
+  const save = useMutation({
+    mutationFn: (amount: number | null) => documentsApi.setAiCostLimit(documentId, amount),
+    onSuccess: () => {
+      setDraft('')
+      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+    },
+  })
+  const money = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cost.currency}`
+  const amount = Number(draft)
+  const valid = draft.trim() !== '' && Number.isFinite(amount) && amount > 0
+  const reached = cost.reached ?? (!!cost.limit && cost.spent >= cost.limit.amount)
+  return (
+    <div className="text-[12px]" data-cost-limit>
+      <p className="text-slate-800">
+        Spent so far: <span className="font-semibold">{money(cost.spent)}</span>
+        {cost.limit ? <> of a <span className="font-semibold">{money(cost.limit.amount)}</span> limit</> : ' (no limit)'}
+      </p>
+      {reached && <p className="mt-1 text-amber-800" data-cost-limit-reached>The limit is reached: the draft pauses before its next AI call. Raise the limit, then Resume.</p>}
+      {cost.rateMissing && <p className="mt-1 text-[11px] text-slate-500">Shown in US dollars: no exchange rate is set for the install’s currency.</p>}
+      {cost.canSetLimit && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={draft}
+            onChange={e => setDraft(e.currentTarget.value)}
+            placeholder={cost.limit ? String(Math.ceil(cost.limit.amount * 1.5)) : 'Amount'}
+            aria-label={`New cost limit in ${cost.currency}`}
+            className="w-32 rounded-md border border-slate-300 px-2 py-1 text-[12px]"
+            data-field="new-cost-limit"
+          />
+          <button type="button" disabled={!valid || save.isPending} onClick={() => save.mutate(amount)}
+            className="rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50" data-action="save-cost-limit">
+            {cost.limit ? 'Change limit' : 'Set limit'}
+          </button>
+          {cost.limit && (
+            <button type="button" disabled={save.isPending} onClick={() => save.mutate(null)}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 disabled:opacity-50" data-action="remove-cost-limit">
+              Remove limit
+            </button>
+          )}
+          {save.isError && <span className="text-rose-700">Could not save the limit.</span>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface DebugFactSheet {
   extractedAt: string

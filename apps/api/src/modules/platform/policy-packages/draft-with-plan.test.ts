@@ -109,7 +109,8 @@ describe('drafting with the Protocol build plan', () => {
     expect(prompt('7.1')).toContain('[XREF: <section number>]')
     expect(prompt('7.1')).toContain('1.3 Schedule of Activities')
     expect(prompt('2.1')).toContain('[REF: <first author surname> <year>')
-    expect(state.calls.every(c => c.temperature === 0)).toBe(true)
+    // Never sent: the API version the SDK uses rejects sampling parameters, which failed every call on demo.
+    expect(state.calls.every(c => c.temperature === undefined)).toBe(true)
   })
 
   it('a document created before the plan drafts every section in the template’s order, as before', async () => {

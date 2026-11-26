@@ -18,6 +18,7 @@ export interface BuildPlanForDraft {
   stages:      Array<{ key: string; label: string; sections: PlanSectionRef[]; rules?: { exampleWording?: boolean; noNewFacts?: boolean } }>
   builtByCode: Array<PlanSectionRef & { kind: string }>
   dependsOn:   Record<string, '*' | string[]>
+  /** temperature is not sent: the API version the SDK uses rejects sampling parameters (it would fail every call). */
   rules:       { temperature?: number }
   factSheet?:  { fields: Array<{ key: string; label: string; hint?: string }> }
   sourcePages?: { allBelowPages: number; budgetChars: number }

@@ -19,7 +19,9 @@ import { holdsRole } from '../config/roles'
 //  - An Approver-only person who is not a PM gets the CRM tab while invited to a scheduled or running meeting.
 // undefined while the answer is loading; a failed lookup leaves both tabs open (the server
 // still decides what each screen may do).
-export type DocumentTabAccess = { editor: boolean; review: boolean; crm: boolean; approverOnly: boolean }
+// reviewSideOnly: a Reviewer, QC or Approver who is not also an Author and is not working as PM — their
+// Reviewer / Approver View stays open while the document awaits signature.
+export type DocumentTabAccess = { editor: boolean; review: boolean; crm: boolean; approverOnly: boolean; reviewSideOnly: boolean }
 
 export function useDocumentTabAccess(documentId: string | undefined): DocumentTabAccess | undefined {
   const { data: me, isLoading: meLoading } = useCurrentUser()
@@ -66,5 +68,6 @@ export function tabAccessForLetters(letters: ReadonlySet<string>, opts: { pm?: b
     crm: author || !reviewSide || !!opts.pm,
     // Not for a PM: no "Approver View" tab or approve panel while working as PM.
     approverOnly: approverOnly && !opts.pm,
+    reviewSideOnly: reviewSide && !author && !opts.pm,
   }
 }

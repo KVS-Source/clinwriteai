@@ -88,11 +88,12 @@ test('QC gets its own label, and the last person finishing is told what happens 
   await expect(page.locator('[data-review-progress]')).toContainText('2 of 2')
 })
 
-test('when the last completion moves the document on, its status refreshes and the page follows', async ({ page }) => {
+test('when the last completion moves the document on, the reviewer stays in their Reviewer View', async ({ page }) => {
   await open(page, [row('c1', ME, 'Me', 'C')], { status: 'crm-in-progress', movesOn: true })
   await action(page).click({ timeout: 30_000 })
   await page.locator('[data-action="confirm-complete-review"]').click()
-  await expect(page).toHaveURL(/\/sign$/, { timeout: 30_000 })
+  await expect(action(page)).toHaveCount(0, { timeout: 30_000 })
+  await expect(page).toHaveURL(/\/review$/)
 })
 
 test('someone not reviewing sees who has finished, but no button', async ({ page }) => {

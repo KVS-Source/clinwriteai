@@ -62,10 +62,10 @@ export function DocumentLayout() {
   // Author (R) has no Reviewer View and Reviewer (C) has no Editor; hidden, not greyed.
   const tabAccess = useDocumentTabAccess(documentId)
 
-  // An Approver (A only) acts in the Approver View while the document awaits signature (approve it
-  // or reject it back to the author), so that tab stays open for them at that status.
-  const approverReviewOpen = tabAccess?.approverOnly === true && status === 'pending-signature'
-  const reviewDisabled = d.review && !approverReviewOpen
+  // A Reviewer or Approver (not also an Author) keeps their view while the document awaits signature: an
+  // Approver approves or rejects there, so that tab stays open for them at that status.
+  const reviewViewOpen = tabAccess?.reviewSideOnly === true && status === 'pending-signature'
+  const reviewDisabled = d.review && !reviewViewOpen
 
   const lockReason =
     status === 'signed' ? t('component.document_layout.lock_signed')

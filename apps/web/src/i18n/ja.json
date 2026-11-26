@@ -797,7 +797,11 @@
       "flag_fk_score_raised":    "読みやすさ指標が目標値を超過",
       "flag_mcq_structure_invalid": "MCQ 構造の不備",
       "flag_content_past_expiry":   "有効期限切れコンテンツ",
-      "flag_ha_response_structure_invalid": "HA 応答のラベル不足"
+      "flag_ha_response_structure_invalid": "HA 応答のラベル不足",
+      "flag_ctd_invalid_cross_ref": "CTD 参照の誤生成",
+      "flag_consent_disclosure_missing": "同意・開示の欠落",
+      "flag_disclaimer_missing": "免責事項の欠落",
+      "flag_press_release_structure_invalid": "プレスリリースの構造欠落"
     },
 
     "audit_trail_panel": {
@@ -4682,7 +4686,11 @@
       "flag_fk_score_raised": "読みやすさ指標が目標値を超過",
       "flag_mcq_structure_invalid": "MCQ 構造の不備",
       "flag_content_past_expiry": "有効期限切れコンテンツ",
-      "flag_ha_response_structure_invalid": "HA 応答のラベル不足"
+      "flag_ha_response_structure_invalid": "HA 応答のラベル不足",
+      "flag_ctd_invalid_cross_ref": "CTD 参照の誤生成",
+      "flag_consent_disclosure_missing": "同意・開示の欠落",
+      "flag_disclaimer_missing": "免責事項の欠落",
+      "flag_press_release_structure_invalid": "プレスリリースの構造欠落"
     },
 
     "checklist_item_badge": {

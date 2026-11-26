@@ -34,6 +34,12 @@ interface SectionTemplate {
   id:     string
   number: string
   title:  string
+  // Package E-6 — snapshotted per-section template guidance from
+  // IdeationArtefactSection.templateInstructions / .templateGuidance
+  // (populated by section-service at create). Threaded into the
+  // system prompt so the initial draft follows the authored intent.
+  templateInstructions?: string | null
+  templateGuidance?:     string | null
 }
 
 interface SourcePdfPayload {
@@ -92,6 +98,21 @@ async function draftWithClaude(args: {
     ? `Regulatory track: ${args.policy.channelHint}. Keep the tone + content appropriate to that channel (KOL = formal scientific exchange; HCP = concise clinical message; patient = plain language; press = headline-oriented factual claims).`
     : ''
 
+  // Package E-6: TEMPLATE GUIDANCE block from the snapshotted
+  // instructions + guidance on the section row.
+  const tIns  = (args.section.templateInstructions ?? '').trim()
+  const tGuid = (args.section.templateGuidance     ?? '').trim()
+  const templateGuidanceBlock = tIns || tGuid
+    ? [
+        ``,
+        `TEMPLATE GUIDANCE for this section (from the template authored for ${args.docType}):`,
+        tIns  ? `  Content requirements:\n    ${tIns.replace(/\n/g, '\n    ')}` : '',
+        tGuid ? `  Writing guidance:\n    ${tGuid.replace(/\n/g, '\n    ')}` : '',
+        `Follow these precisely — they are the template's authored intent for this section.`,
+        ``,
+      ].filter(Boolean).join('\n')
+    : ''
+
   const system = [
     `You are drafting a single section of a ideation / KOL engagement artefact.`,
     `Document type: ${args.docType} (KOL brief, patient story, HCP insight report, medical affairs narrative, press release, or congress summary).`,
@@ -105,6 +126,7 @@ async function draftWithClaude(args: {
     SECTION_GROUNDING_RULES,
     authorBlock,
     policySection,
+    templateGuidanceBlock,
   ].filter(Boolean).join('\n')
 
   const pdfBlocks = args.sourcePdfs.map(p => ({
@@ -265,7 +287,11 @@ export const handleAiInitialDraftIdeationArtefact: JobHandler<IdeationAiInitialD
 
   const existing = await prisma.ideationArtefactSection.findMany({
     where:  { ideationArtefactVersionId: doc.currentVersionId },
-    select: { id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
+    select: {
+      id: true, sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true,
+      // Package E-6: snapshotted guidance for the initial-draft prompt.
+      templateInstructions: true, templateGuidance: true,
+    },
   })
   const targetSet = targetSectionIds && targetSectionIds.length > 0 ? new Set(targetSectionIds) : null
   const sections = targetSet ? existing.filter(s => targetSet.has(s.sectionId)) : existing
@@ -277,7 +303,13 @@ export const handleAiInitialDraftIdeationArtefact: JobHandler<IdeationAiInitialD
       report.skipped++
       continue
     }
-    const template: SectionTemplate = { id: sec.sectionId, number: sec.sectionNumber, title: sec.sectionTitle }
+    const template: SectionTemplate = {
+      id:                   sec.sectionId,
+      number:               sec.sectionNumber,
+      title:                sec.sectionTitle,
+      templateInstructions: sec.templateInstructions,
+      templateGuidance:     sec.templateGuidance,
+    }
     try {
       const { contentHtml, engine } = await draftSection({
         section:        template,

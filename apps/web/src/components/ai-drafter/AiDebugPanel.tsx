@@ -242,6 +242,12 @@ const FLAG_LABELS: Record<string, string> = {
   'content_past_expiry':      'Content item is past its expiry date — re-approve before the next MLR submission',
   // Module D HA response structure (Package R-5).
   'ha_response_structure_invalid': 'HA response is missing conventional labels (Question / Response / Rationale / Dossier Impact / References)',
+  // Module D CTD invented cross-ref (Package RD-2).
+  'ctd_invalid_cross_ref':         'AI invented a §X.Y.Z cross-reference that is not on the ICH canonical subsection list for this CTD module',
+  // Module E content-type-aware soft flags (Package E-5).
+  'consent_disclosure_missing':    'Patient story is missing a recognisable Consent / Disclosure section',
+  'disclaimer_missing':            'Scientific-exchange or congress content is missing the non-promotional / sponsor-views disclaimer',
+  'press_release_structure_invalid': 'Press-release conventions dropped (fewer than 3 of 5 of headline / dateline / body / boilerplate / contact)',
 }
 
 const DROP_REASON_LABELS: Record<string, string> = {

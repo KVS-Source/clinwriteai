@@ -5,8 +5,9 @@
 // creation; upsert section content on save; bump new version;
 // score aiConfidence + aiFlags (worker hook).
 
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
+import { extractManifest } from '../../clinical-writing/documents/must-preserve.js'
 
 export interface IdeationArtefactSectionPayload {
   sectionId:     string
@@ -21,6 +22,15 @@ export interface IdeationArtefactInitialiseArgs {
   sections:             IdeationArtefactSectionPayload[]
   /** docType for SectionTemplate snapshot (migration 90). */
   docType?:             string
+  /** IdeationArtefactTemplate.id resolved at create. Snapshots
+   *  formatRules + instructions + guidance per section onto the new
+   *  IdeationArtefactSection rows (migration 105 Package E-3). */
+  templateId?:          string
+  /** Pinned IdeationAiPromptRecord id. Snapshots the per-section
+   *  sectionRules slice so later in-place edits to the pinned record
+   *  can't silently flow through to in-flight artefacts' regenerate
+   *  calls. */
+  aiPromptRecordId?:    string
 }
 
 export function hashIdeationArtefactSections(sections: IdeationArtefactSectionPayload[]): string {
@@ -55,24 +65,74 @@ export async function initialiseIdeationArtefactVersion(
     },
   })
   if (args.sections.length > 0) {
-    // Per-section snapshot fields (templateFormatRules / templateInstructions
-    // / templateGuidance / aiPromptSectionRules / mustPreserveManifest —
-    // migrations 94 + 104) are populated by the clinical distill-template
-    // worker only. Ideation & Publishing has no ai-suggest endpoint
-    // today, so these stay null; they wire in when the ideation distiller
-    // and ai-suggest endpoint ship.
+    // Per-section snapshot fields (migrations 94 + 105). Mirror Clinical
+    // + Publication + Medical + Regulatory section-services:
+    //   - templateFormatRules  : from IdeationArtefactTemplate.sections[].formatRules
+    //   - templateInstructions : from IdeationArtefactTemplate.sections[].instructions
+    //   - templateGuidance     : from IdeationArtefactTemplate.sections[].guidance
+    //   - aiPromptSectionRules : from the pinned IdeationAiPromptRecord's
+    //                            sectionRules[sectionId], deep-cloned
+    //   - mustPreserveManifest : extractManifest(contentHtml) at create
+    const rulesBySection        = new Map<string, string>()
+    const instructionsBySection = new Map<string, string>()
+    const guidanceBySection     = new Map<string, string>()
+    if (args.templateId) {
+      try {
+        const tpl = await tx.ideationArtefactTemplate.findUnique({
+          where:  { id: args.templateId },
+          select: { sections: true },
+        })
+        if (tpl?.sections && Array.isArray(tpl.sections)) {
+          for (const raw of tpl.sections as Array<Record<string, unknown>>) {
+            const id = typeof raw.id === 'string' ? raw.id : null
+            if (!id) continue
+            const rules        = typeof raw.formatRules  === 'string' ? raw.formatRules.trim()  : ''
+            const instructions = typeof raw.instructions === 'string' ? raw.instructions.trim() : ''
+            const guidance     = typeof raw.guidance     === 'string' ? raw.guidance.trim()     : ''
+            if (rules.length        > 0) rulesBySection.set(id, rules)
+            if (instructions.length > 0) instructionsBySection.set(id, instructions)
+            if (guidance.length     > 0) guidanceBySection.set(id, guidance)
+          }
+        }
+      } catch { /* missing template → snapshots stay null */ }
+    }
+
+    const aiPromptRulesBySection = new Map<string, unknown>()
+    if (args.aiPromptRecordId) {
+      try {
+        const pinned = await tx.ideationAiPromptRecord.findUnique({
+          where:  { id: args.aiPromptRecordId },
+          select: { sectionRules: true },
+        })
+        const sectionRules = pinned?.sectionRules as Record<string, unknown> | null | undefined
+        if (sectionRules && typeof sectionRules === 'object' && !Array.isArray(sectionRules)) {
+          for (const s of args.sections) {
+            const slice = sectionRules[s.sectionId]
+            if (slice !== undefined) aiPromptRulesBySection.set(s.sectionId, JSON.parse(JSON.stringify(slice)))
+          }
+        }
+      } catch { /* missing pinned prompt → snapshots stay null */ }
+    }
+
     await tx.ideationArtefactSection.createMany({
-      data: args.sections.map(s => ({
-        ideationArtefactVersionId: version.id,
-        sectionId:            s.sectionId,
-        sectionNumber:        s.sectionNumber,
-        sectionTitle:         s.sectionTitle,
-        contentHtml:          s.contentHtml ?? '',
-        wordCount:            wordsIn(s.contentHtml ?? ''),
-        templateFormatRules:  null,
-        templateInstructions: null,
-        templateGuidance:     null,
-      })),
+      data: args.sections.map(s => {
+        const html = s.contentHtml ?? ''
+        const manifest = extractManifest(html)
+        const promptRules = aiPromptRulesBySection.get(s.sectionId)
+        return {
+          ideationArtefactVersionId: version.id,
+          sectionId:            s.sectionId,
+          sectionNumber:        s.sectionNumber,
+          sectionTitle:         s.sectionTitle,
+          contentHtml:          html,
+          wordCount:            wordsIn(html),
+          templateFormatRules:  rulesBySection.get(s.sectionId)        ?? null,
+          templateInstructions: instructionsBySection.get(s.sectionId) ?? null,
+          templateGuidance:     guidanceBySection.get(s.sectionId)     ?? null,
+          aiPromptSectionRules: (promptRules ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+          mustPreserveManifest: (manifest    ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
+        }
+      }),
     })
   }
   await tx.ideationArtefact.update({

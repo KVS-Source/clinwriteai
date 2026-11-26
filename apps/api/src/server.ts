@@ -354,6 +354,11 @@ async function buildServer() {
     await import('./modules/regulatory-writing/templates/template-parse-routes.js')
   await app.register(regulatoryDocumentTemplateParseRoutes, { prefix: '/regulatory-document-templates' })
 
+  // Migration 105 Package E-2 — ideation template PDF distiller endpoint.
+  const { ideationArtefactTemplateParseRoutes } =
+    await import('./modules/ideation/templates/template-parse-routes.js')
+  await app.register(ideationArtefactTemplateParseRoutes, { prefix: '/ideation-artefact-templates' })
+
   // Ideation Policy admin (Phase M-E.1, migration 87) — mirror of the
   // regulatory policy stack scoped to ideation / KOL engagement
   // doctypes (kol_engagement_brief, patient_story, hcp_insight_report,

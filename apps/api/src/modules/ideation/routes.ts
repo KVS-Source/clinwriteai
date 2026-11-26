@@ -378,11 +378,13 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
     }
 
     let sectionPayload: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string }> = []
+    let resolvedTemplateId: string | null = null
     if (docType) {
       const policyForTemplate = policyPin
         ? await app.prisma.ideationTypePolicy.findUnique({ where: { id: policyPin.id } })
         : null
       if (policyForTemplate?.templateId) {
+        resolvedTemplateId = policyForTemplate.templateId
         const tmpl = await app.prisma.ideationArtefactTemplate.findUnique({ where: { id: policyForTemplate.templateId } })
         const tmplSections = (tmpl?.sections as unknown as Array<{ id: string; number?: string; title: string }>) ?? []
         if (tmplSections.length > 0) {
@@ -429,6 +431,10 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
           actorId:            request.user!.id,
           sections:           sectionPayload,
           docType:            docType ?? undefined,                 // migration 90: SectionTemplate snapshot
+          // Migration 105 Package E-3 — snapshot template guidance +
+          // pinned AI prompt rules + must-preserve manifest per section.
+          templateId:         resolvedTemplateId ?? undefined,
+          aiPromptRecordId:   promptPin?.id      ?? undefined,
         })
       }
       return artefact

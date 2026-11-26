@@ -108,21 +108,19 @@ function resolveTemplateMetadata(input: {
   requiredSourceCategories?: string[]
 }): { entry: CatalogueEntry | undefined; label: string; description: string; framework: string; requiredSourceCategories: string[] } | { missing: string[] } {
   const entry = catalogueEntry(input.type)
-  const label       = input.label       ?? entry?.label
-  const description = input.description ?? entry?.description
-  const framework   = input.framework   ?? entry?.framework
-  if (label === undefined || description === undefined || framework === undefined) {
-    const missing: string[] = []
-    if (label       === undefined) missing.push('label')
-    if (description === undefined) missing.push('description')
-    if (framework   === undefined) missing.push('framework')
-    return { missing }
-  }
+  const label:       string | undefined = input.label       ?? entry?.label
+  const description: string | undefined = input.description ?? entry?.description
+  const framework:   string | undefined = input.framework   ?? entry?.framework
+  const missing: string[] = []
+  if (label       === undefined) missing.push('label')
+  if (description === undefined) missing.push('description')
+  if (framework   === undefined) missing.push('framework')
+  if (missing.length > 0) return { missing }
   return {
     entry,
-    label,
-    description,
-    framework,
+    label:       label!,
+    description: description!,
+    framework:   framework!,
     requiredSourceCategories: input.requiredSourceCategories ?? entry?.requiredSourceCategories ?? [],
   }
 }

@@ -16,6 +16,7 @@ import {
   type IdeaArtefactSectionLockHolder,
   type IdeaArtefactCommentRow,
 } from "../../modules/ideation-publishing/api/ideationPublishing"
+import { IdeationAiDebugButton } from '../../components/ai-drafter/IdeationAiDebugPanel'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -142,7 +143,10 @@ export function IdeationArtefactLiveEditor() {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <AiDraftStateBadge state={aiDraftState} />
+          <div className="flex items-center gap-2">
+            <AiDraftStateBadge state={aiDraftState} />
+            {ideationArtefactId && <IdeationAiDebugButton ideationArtefactId={ideationArtefactId} />}
+          </div>
           <button
             type="button"
             onClick={() => startDraft.mutate()}

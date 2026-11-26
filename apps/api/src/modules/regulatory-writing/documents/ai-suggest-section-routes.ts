@@ -29,6 +29,7 @@ import { buildRegulatoryAttachedContext } from './must-preserve-reg.js'
 // cap logic the helper encapsulates).
 import { checkModule5Gate, MODULE_5_READONLY_FORBIDDEN } from './ectd-gate.js'
 import { validateHaResponseStructure, isHaGatedType } from './ha-structure-validator.js'
+import { validateCtdStructure, isCtdGatedType } from './ctd-structure-validator.js'
 
 const writeGate = requireAuth({ modules: ['D'] })
 
@@ -322,6 +323,19 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
         }
       }
 
+      // Package RD-2: CTD invented-cross-ref soft validator. Fires on
+      // ctd_m2_* content when the AI invented a §X.Y.Z that shares
+      // the document's module top but isn't on the ICH canonical
+      // subsection list (e.g. §2.5.9 on a M2.5 doc).
+      let ctdStructureTrace: ReturnType<typeof validateCtdStructure> | null = null
+      if (isCtdGatedType(doc.docType)) {
+        ctdStructureTrace = validateCtdStructure(validation.html, currentContent ?? '', doc.docType)
+        if (ctdStructureTrace.gated && !ctdStructureTrace.structurallyValid
+            && !flagsWithExtra.includes('ctd_invalid_cross_ref')) {
+          flagsWithExtra.push('ctd_invalid_cross_ref')
+        }
+      }
+
       // Package R-4: persist aiConfidence + aiFlags on the section row
       // so the existing RegulatoryDocumentLiveEditor badge + flag
       // chips reflect the retry outcome + the HA soft flag.
@@ -364,6 +378,8 @@ export const regulatoryDocumentAiSuggestSectionRoutes: FastifyPluginAsync = asyn
           validatorRetried:     validation.retried,
           // Package R-5: HA structure trace (null for non-HA types).
           haStructureTrace:     haStructureTrace,
+          // Package RD-2: CTD invented-cross-ref trace (null for non-CTD).
+          ctdStructureTrace:    ctdStructureTrace,
           validatorTrace:       validation.trace.map(t => ({
             attempt: t.attempt,
             flags:   t.flags.map(f => ({ code: f.code, severity: f.severity })),

@@ -67,6 +67,12 @@ const FLAG_LABEL_KEYS: Record<string, string> = {
   'content_past_expiry':    'page.ai_drafting_report_panel.flag_content_past_expiry',
   // Module D HA structure (Package R-5).
   'ha_response_structure_invalid': 'page.ai_drafting_report_panel.flag_ha_response_structure_invalid',
+  // Module D CTD invented-cross-ref (Package RD-2).
+  'ctd_invalid_cross_ref':         'page.ai_drafting_report_panel.flag_ctd_invalid_cross_ref',
+  // Module E content-type-aware soft flags (Package E-5).
+  'consent_disclosure_missing':    'page.ai_drafting_report_panel.flag_consent_disclosure_missing',
+  'disclaimer_missing':            'page.ai_drafting_report_panel.flag_disclaimer_missing',
+  'press_release_structure_invalid': 'page.ai_drafting_report_panel.flag_press_release_structure_invalid',
 }
 
 interface Props {

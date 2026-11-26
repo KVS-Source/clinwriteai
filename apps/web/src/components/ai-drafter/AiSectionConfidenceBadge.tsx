@@ -34,6 +34,12 @@ const FLAG_KEY: Record<string, string> = {
   'content_past_expiry':    'flag_content_past_expiry',
   // Module D HA structure (Package R-5).
   'ha_response_structure_invalid': 'flag_ha_response_structure_invalid',
+  // Module D CTD invented-cross-ref (Package RD-2).
+  'ctd_invalid_cross_ref':         'flag_ctd_invalid_cross_ref',
+  // Module E content-type-aware soft flags (Package E-5).
+  'consent_disclosure_missing':    'flag_consent_disclosure_missing',
+  'disclaimer_missing':            'flag_disclaimer_missing',
+  'press_release_structure_invalid': 'flag_press_release_structure_invalid',
 }
 
 function friendlyFlag(code: string, t: TFunction): string {

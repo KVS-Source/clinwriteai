@@ -41,7 +41,7 @@ vi.mock('../../../../../worker/src/jobs/policy-prompt.js', () => ({
 }))
 vi.mock('../../../../../worker/src/jobs/ai-draft-step.js', () => ({ createStepLogger: () => ({ emit: async () => undefined }) }))
 
-function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown; aiCostLimit?: unknown } = {}) {
+function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown; aiCostLimit?: unknown; existing?: Record<string, string> } = {}) {
   const written: string[] = []
   const updates: Array<Record<string, unknown>> = []
   const prisma = {
@@ -55,7 +55,7 @@ function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factS
     documentUpload: { findMany: async () => [{ id: 'u1', title: 'Synopsis', fileName: 'syn.pdf', sourceCategory: 'protocol', blobKey: 'k', contentType: 'application/pdf' }] },
     documentSource: { findMany: async () => [] },
     sectionContent: {
-      findMany: async () => TEMPLATE.map(s => ({ id: `row-${s.id}`, sectionId: s.id, contentHtml: '', templateFormatRules: null, templateInstructions: null, templateGuidance: null })),
+      findMany: async () => TEMPLATE.map(s => ({ id: `row-${s.id}`, sectionId: s.id, contentHtml: opts.existing?.[s.number] ?? '', templateFormatRules: null, templateInstructions: null, templateGuidance: null })),
       update: vi.fn(async ({ where }: { where: { id: string } }) => { written.push(where.id.replace('row-s', '')); return {} }),
     },
     editHistory: { create: async () => ({}) },
@@ -180,5 +180,19 @@ describe('drafting with the Protocol build plan', () => {
     const { written, done } = run(2)
     await done
     expect(written).toHaveLength(50)
+  })
+
+  it('starting again after a failure keeps what was drafted and drafts only the empty sections, in the plan order', async () => {
+    // As if the first run drafted the objectives and 4.1 before it failed.
+    const existing = { '3.1': '<p>Earlier 3.1</p>', '3.2': '<p>Earlier 3.2</p>', '3.3': '<p>Earlier 3.3</p>', '4.1': '<p>Earlier 4.1</p>' }
+    const { written, done } = run(2, { existing })
+    await done
+    expect(written).toHaveLength(46)
+    for (const n of Object.keys(existing)) expect(written).not.toContain(n)
+    expect(written[0]).toBe('4.3')
+    // The kept sections still reach the sections that depend on them.
+    expect(callFor('4.2').prompt).toContain('--- 4.1 Overall Design ---\n<p>Earlier 4.1</p>')
+    expect(callFor('4.2').prompt).toContain('--- 3.1 Primary Objective and Endpoint ---\n<p>Earlier 3.1</p>')
+    expect(state.calls.some(c => c.prompt.includes('Draft section 3.1 '))).toBe(false)
   })
 })

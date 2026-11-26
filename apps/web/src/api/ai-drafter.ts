@@ -51,6 +51,8 @@ export interface AiDraftStatusResponse {
    *  and mock data don't send them). */
   draftedSections?:   number
   totalSections?:     number
+  /** Why a failed or stopped draft ended (its last error or warning); null otherwise. */
+  stopReason?:        string | null
   sections:           AiDraftSectionStatus[]
   passes:             AiDraftingPassSummary[]
 }

@@ -662,6 +662,15 @@
       "scope_section": "section"
     },
     "ai_drafting_report_panel": {
+      "resume_title_failed": "The AI draft stopped with an error",
+      "resume_title_cancelled": "The AI draft was stopped",
+      "resume_kept": "{{drafted}} of {{total}} sections are drafted and kept.",
+      "resume_body": "Resume drafting picks up from the first section without text. Sections already drafted stay as they are and are given to the sections that depend on them; the study fact sheet is reused while the sources are the same.",
+      "resume_reason": "Last problem: {{reason}}",
+      "resume_button": "Resume drafting",
+      "resume_starting": "Starting…",
+      "resume_started": "Drafting resumed.",
+      "resume_blocked": "Drafting can’t start yet:",
       "loading": "Loading AI drafting report…",
       "no_activity_title": "No AI drafting activity",
       "no_activity_body": "This document wasn't drafted with AI. Create a new document from the \"Draft with AI\" opt-in in the New Document wizard to see the drafter + validator pipeline run.",

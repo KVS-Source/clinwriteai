@@ -24,6 +24,7 @@ import {
 } from '../../api/ai-drafter'
 import { ApiError } from '../../api/client'
 import { documentsApi } from '../../api/documents'
+import { ResumeDraftCard } from './ResumeDraftCard'
 import {
   useAiDebugLayout,
   AI_DEBUG_COLLAPSED_PX,
@@ -437,7 +438,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
     try { (e.target as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* no-op */ }
   }
   // The snapshot follows a running draft; it stops refreshing once the draft settles.
-  const { summary: draftStatus } = useAiDraftStatus(open ? documentId : undefined)
+  const { summary: draftStatus, data: draftStatusData } = useAiDraftStatus(open ? documentId : undefined)
   const { data, isLoading, error, refetch, isFetching } = useQuery<DebugData>({
     queryKey: ['ai-debug', documentId],
     queryFn:  () => aiDrafterApi.debug(documentId) as Promise<DebugData>,
@@ -644,6 +645,15 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
 
           {data && (
             <div className="flex flex-col gap-4 p-5">
+
+              {/* RESUME — a draft that failed or was stopped picks up where it left off, keeping what was drafted. */}
+              {(() => {
+                const p = data.preflight ?? preflightQ.data
+                const state = draftStatusData?.state ?? data.document?.aiDraftState ?? null
+                if (p && !p.ok) return null
+                if (state !== 'failed' && state !== 'cancelled') return null
+                return <ResumeDraftCard documentId={documentId} status={{ ...draftStatusData, state }} />
+              })()}
 
               {/* BLOCKERS — missing policy / checklist / sources / AI key.
                   Prefer the snapshot's inline preflight (always in sync with

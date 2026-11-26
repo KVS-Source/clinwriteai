@@ -843,7 +843,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     // existing content failed a check and should be rewritten).
     if (!targetSet && row.contentHtml && row.contentHtml.trim().length > 0) {
       await steps.emit('section_skipped',
-        `Skipped §${sec.number} ${sec.title} — writer already filled it in.`, {
+        `Kept §${sec.number} ${sec.title} as it is — it already has text (drafted earlier or written by the writer).`, {
           sectionId: sec.id,
           details:   { reason: 'writer_edit', existingChars: row.contentHtml.length },
         })

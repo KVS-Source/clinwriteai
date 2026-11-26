@@ -1565,6 +1565,14 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       // in this deployment is placeholder text, and the editor says so (CW-095).
       aiStubMode:         stubAllowed() && !anthropicKey,
       state:              doc.aiDraftState,
+      // Why a draft that failed or was stopped ended, for the "Resume drafting" card.
+      stopReason:         doc.aiDraftState === 'failed' || doc.aiDraftState === 'cancelled'
+        ? (await app.prisma.aiDraftStep.findFirst({
+            where:   { documentId, kind: { in: ['section_errored', 'warning', 'job_cancelled'] } },
+            orderBy: { id: 'desc' },
+            select:  { message: true },
+          }).catch(() => null))?.message ?? null
+        : null,
       confidenceOverall:  doc.aiConfidenceOverall,
       lastPassNumber:     doc.aiLastPassNumber,
       lastPassAt:         doc.aiLastPassAt?.toISOString() ?? null,

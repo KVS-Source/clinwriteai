@@ -888,22 +888,22 @@ export const platformApi = {
   retireDocumentTemplate: (templateId: string) =>
     api.post<DocumentTemplateAdmin>(`/document-templates/${encodeURIComponent(templateId)}/retire`, {}),
   // One-shot PDF parser: multipart file + optional templateId (parse
-  // into an existing template) OR type+label+description+framework
-  // (parse into a freshly-created bare template). Enqueues
+  // into an existing template) OR type (+ label/description/framework
+  // only when the type is not in the server's catalogue). Enqueues
   // platform.distill_template on the server.
   parseTemplateFile: (
     file: File,
-    target: { templateId: string } | { type: string; label: string; description: string; framework: string },
+    target: { templateId: string } | { type: string; label?: string; description?: string; framework?: string },
   ) => {
     const form = new FormData()
     form.append('file', file, file.name)
     const qs = new URLSearchParams()
     if ('templateId' in target) qs.set('templateId', target.templateId)
     else {
-      qs.set('type',        target.type)
-      qs.set('label',       target.label)
-      qs.set('description', target.description)
-      qs.set('framework',   target.framework)
+      qs.set('type', target.type)
+      if (target.label)       qs.set('label',       target.label)
+      if (target.description) qs.set('description', target.description)
+      if (target.framework)   qs.set('framework',   target.framework)
     }
     return api.upload<{
       jobId:      string
@@ -1698,9 +1698,11 @@ export interface DocumentTemplateAdmin {
 
 export interface DocumentTemplateCreateBody {
   type:                      string
-  label:                     string
-  description:               string
-  framework:                 string
+  // Optional for the ten clinical-writing doc types in the API's catalogue — the server fills them
+  // in. For a type outside the catalogue (future / bespoke), all three must be provided.
+  label?:                    string
+  description?:              string
+  framework?:                string
   sections?:                 DocumentTemplateSection[]
   spec?:                     Record<string, unknown> | null
   requiredSourceCategories?: string[]

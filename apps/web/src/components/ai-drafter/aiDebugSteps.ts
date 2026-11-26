@@ -10,12 +10,13 @@ export interface DebugStepLike {
 }
 
 /**
- * The output limit of both worker calls (MAX_SECTION_OUTPUT_TOKENS, MAX_CRITIQUE_OUTPUT_TOKENS). The steps don't record
- * it, so only an answer of exactly this length counts: if the limit changes, nothing is wrongly marked.
+ * The output limits both worker calls have had (MAX_SECTION_OUTPUT_TOKENS, MAX_CRITIQUE_OUTPUT_TOKENS): 2000 until
+ * 2026-11-26, then 8000; older drafts keep their steps. The steps don't record the limit, so only an answer of exactly
+ * one of these lengths counts: if the limit changes again, nothing is wrongly marked.
  */
-const OUTPUT_LIMIT = 2000
+const OUTPUT_LIMITS: ReadonlySet<unknown> = new Set([2000, 8000])
 
-const hitLimit = (s: DebugStepLike) => s.details?.outputTokens === OUTPUT_LIMIT
+const hitLimit = (s: DebugStepLike) => OUTPUT_LIMITS.has(s.details?.outputTokens)
 
 /** True for a drafted answer that stopped at the output limit. */
 export function isAtLimit(s: DebugStepLike): boolean {

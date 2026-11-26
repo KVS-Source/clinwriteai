@@ -108,9 +108,10 @@ const CHARS_PER_TOKEN = 3.5
 const PAGE_IMAGE_TOKENS = 1_500
 /** Instructions, fact sheet, outline and earlier sections given to a section. */
 const SECTION_PROMPT_TOKENS = 7_000
-const SECTION_OUTPUT_TOKENS: [number, number] = [900, 2_000]
+// High end: a long section. The worker's limit is 8000 since 2026-11-26; at 2000 half a Protocol's sections hit it.
+const SECTION_OUTPUT_TOKENS: [number, number] = [900, 4_000]
 const FACT_SHEET_OUTPUT_TOKENS = 4_000
-const PASS_OUTPUT_TOKENS = 2_000
+const PASS_OUTPUT_TOKENS = 4_000
 const DRAFTED_TOKENS_PER_SECTION = 1_200
 const CACHE_WRITE = 1.25
 /** Up to this many pages in all, sources go as PDFs (every page also an image). */

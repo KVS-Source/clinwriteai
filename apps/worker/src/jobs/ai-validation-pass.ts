@@ -4,8 +4,8 @@
 // the enqueue in ai-initial-draft.ts). Each pass evaluates every section
 // against a battery of checks, collects the failing sections, and — if
 // any fail AND the iteration cap isn't reached — enqueues a targeted
-// re-draft that only touches the failing sections, then re-enqueues
-// itself for the next iteration.
+// re-draft that only touches the failing sections; that re-draft queues
+// the next iteration once it has written them.
 //
 // Checks (in order):
 //   1. Completeness (deterministic) — contentHtml must have ≥
@@ -352,8 +352,8 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
     }
   }
 
-  // Still below target + under the cap. Enqueue a targeted re-draft of
-  // the failing sections followed by the next validation pass.
+  // Still below target + under the cap. Enqueue a targeted re-draft of the failing sections; it queues the next
+  // validation pass when it ends (nextIteration), so that pass checks the new text and finishing runs after it.
   try {
     await enqueue('clinical.ai_initial_draft', {
       documentId,
@@ -364,14 +364,10 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
       assigneeId:       job.data.assigneeId,
       actorId:          job.data.actorId,
       targetSectionIds: failingIds,
+      nextIteration:    iteration + 1,
     }, { delayMs: 1_000, jobId: `ai-redraft-${documentId}-${iteration}` })
-
-    await enqueue('clinical.ai_validation_pass', {
-      ...job.data,
-      iteration: iteration + 1,
-    }, { delayMs: 10_000, jobId: `ai-validation-${documentId}-${iteration + 1}` })
   } catch (err) {
-    log.error({ err, documentId, iteration }, 'ai_validation_pass: failed to enqueue re-draft or next pass — chain breaks')
+    log.error({ err, documentId, iteration }, 'ai_validation_pass: failed to enqueue re-draft — chain breaks')
     // Chain broke mid-loop; mark complete so the SPA stops polling.
     await prisma.document.update({
       where: { id: documentId },
@@ -408,7 +404,8 @@ function classifyAiReason(reason: string): string {
 // -------- LLM-gated check helpers ------------------------------------------
 
 const MAX_SOURCE_BYTES_PER_DOC = 20 * 1024 * 1024
-const MAX_CRITIQUE_OUTPUT_TOKENS = 2000
+// At 2000 the answer for a 50-section Protocol was cut off and read as "no flags" (2026-11-26).
+const MAX_CRITIQUE_OUTPUT_TOKENS = 8000
 
 interface SourcePdfPayload {
   title:   string

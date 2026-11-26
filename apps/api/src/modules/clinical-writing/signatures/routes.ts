@@ -185,9 +185,23 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         app.log.warn({ err, documentId }, 'late v1.0 snapshot repair failed')
       }
     }
+    // Each signer's department and job title as they are now (as the PDF export prints them), so the Final
+    // Document screen's signature block matches the PDF.
+    const signerIds = [...new Set(chains.flatMap(c => c.records.map(r => r.signerId)))]
+    const profiles = signerIds.length === 0 ? [] : await app.prisma.user.findMany({
+      where:  { id: { in: signerIds } },
+      select: { id: true, title: true, department: true },
+    })
+    const profileOf = new Map(profiles.map(u => [u.id, u]))
     return chains.map(c => ({
       ...c,
-      records: c.records.map(r => ({ ...r, credentialHash: undefined, auditEntryId: auditIdByRecord.get(r.id) ?? null })),
+      records: c.records.map(r => ({
+        ...r,
+        credentialHash:   undefined,
+        auditEntryId:     auditIdByRecord.get(r.id) ?? null,
+        signerDepartment: profileOf.get(r.signerId)?.department ?? null,
+        signerTitle:      profileOf.get(r.signerId)?.title ?? null,
+      })),
     }))
   })
 

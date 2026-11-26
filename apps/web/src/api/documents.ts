@@ -710,6 +710,7 @@ export const documentsApi = {
       id: string; signerName: string; signerRole: string; meaning: string
       status: string; step: number; timestampUtc?: string | null
       authMethod?: string; documentHash?: string; versionAtDecision?: string
+      signerDepartment?: string | null; signerTitle?: string | null
     }
     const chains = await api.get<Array<{ id: string; initiatedAt: string; records: ApiRecord[] }>>(
       `/documents/${documentId}/signature-chains`,
@@ -728,6 +729,8 @@ export const documentsApi = {
       authMethod: r.authMethod,
       documentHash: r.documentHash,
       version_at_signing: r.versionAtDecision,
+      signerDepartment: r.signerDepartment ?? null,
+      signerTitle: r.signerTitle ?? null,
     }))
   },
   // Signing goes through the chain API (signaturesApi.signRecord →

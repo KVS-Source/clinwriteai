@@ -275,10 +275,16 @@ export function FinalDocument() {
   // A signed document's own signature block (its template's) shows who signed, as the PDF does.
   const signatureBlock = useMemo(() => {
     if (!isSigned) return null
+    // As the PDF prints it: the function is the signer's department (their role when they have none), the name
+    // carries their job title underneath, and the signature cell lists meaning, time and id on separate lines.
     const signatures = signedRecords.map(r => ({
-      role: r.role ? signerRoleLabel(r.role) : '',
-      name: r.signer,
-      signature: [MEANING_VERB_KEY[r.meaning] ? t(MEANING_VERB_KEY[r.meaning]!) : r.meaning, formatUtc(r.timestamp), r.id].filter(Boolean).join(' · '),
+      role: r.signerDepartment?.trim() || (r.role ? signerRoleLabel(r.role) : ''),
+      name: [r.signer, r.signerTitle?.trim()].filter(Boolean).join('\n'),
+      signature: [
+        t('page.final_document.signed_electronically', { meaning: MEANING_VERB_KEY[r.meaning] ? t(MEANING_VERB_KEY[r.meaning]!) : r.meaning }),
+        formatUtc(r.timestamp),
+        r.id,
+      ].filter(Boolean).join('\n'),
     }))
     for (const section of orderedSections) {
       const html = fillSignatureBlockHtml(section.contentHtml ?? '', signatures)

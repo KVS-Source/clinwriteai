@@ -86,6 +86,9 @@ interface DebugAudit {
   details?:  Record<string, unknown>
 }
 
+/** The audit-event timeline in AI Debug; hidden (see where it renders). */
+const SHOW_TIMELINE = false
+
 interface DebugData {
   snapshotTakenAt?: string
   aiStubMode?:      boolean
@@ -747,7 +750,9 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                 </Section>
               )}
 
-              {/* TIMELINE */}
+              {/* TIMELINE: hidden. It listed every audit event ("Section opened for editing" …), which buried the
+                  drafting information; Worker activity above covers the draft. Set SHOW_TIMELINE to bring it back. */}
+              {SHOW_TIMELINE && (
               <Section title="Timeline (newest first)">
                 {audits.length === 0 && (
                   <p className="text-[12px] text-slate-500">No AI activity recorded yet.</p>
@@ -771,6 +776,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                   </ul>
                 )}
               </Section>
+              )}
 
               {/* SECTIONS BELOW TARGET */}
               {sectionsBelow.length > 0 && (

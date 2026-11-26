@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { raciApi, type DocumentRaciRow } from '../../api/raci'
 import { ApiError } from '../../api/client'
 import { useCurrentUser } from '../../hooks'
-import { isReadOnlyUser } from '../../config/roles'
+import { isReadOnlyUser, rolesOf } from '../../config/roles'
 import { documentRaciKey } from './MyRaciRole'
 import { isSequentialReview, reviewersAhead } from './reviewTurn'
 
@@ -35,7 +35,10 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
   const ahead = myOpen.some(r => r.letter === 'C') ? reviewersAhead(rows, me?.id) : []
   const waiting = ahead.length > 0
   const sequential = isSequentialReview(rows)
-  const canAct = myOpen.length > 0 && !isReadOnlyUser(me)
+  // Not while working only as Project Manager (the role switcher narrows a two-role user to one role):
+  // a PM who is also a Reviewer marks the review done after switching to Contributor.
+  const workingAsPm = rolesOf(me).length > 0 && rolesOf(me).every(r => r === 'pm')
+  const canAct = myOpen.length > 0 && !isReadOnlyUser(me) && !workingAsPm
   const needsSignature = myOpen.some(r => r.signatureRequired)
   const isQc = myOpen.length > 0 && myOpen.every(r => r.letter === 'Q')
 

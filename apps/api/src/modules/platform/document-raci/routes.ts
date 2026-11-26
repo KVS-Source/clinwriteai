@@ -12,7 +12,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
+import { requireAuth, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { notifyRaciAssigned } from './notify-assigned.js'
 import { startChainWhenReviewDone } from '../../clinical-writing/signatures/auto-start.js'
@@ -546,6 +546,14 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     const actor = request.user!
     if (row.userId !== actor.id) {
       return reply.code(403).send({ error: 'only_assignee_can_complete' })
+    }
+    // Not while working only as Project Manager (the role switcher narrows a two-role user to one role):
+    // a PM who is also a Reviewer or QC marks it done after switching to Contributor.
+    if ((row.letter === 'C' || row.letter === 'Q') && onlyRolesIn(actor, ['pm'])) {
+      return reply.code(403).send({
+        error:   'pm_cannot_complete_review',
+        message: 'Switch to Contributor to mark your review done. It cannot be done while working as Project Manager.',
+      })
     }
 
     // An author's part is submitted through submit-for-review, which applies

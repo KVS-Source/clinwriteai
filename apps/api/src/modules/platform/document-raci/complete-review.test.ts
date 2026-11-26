@@ -18,7 +18,7 @@ const row = (id: string, userId: string, letter: string, over: Partial<Row> = {}
   reviewedAt: null, approvedAt: null, signatureId: null, signatureRequired: false, ...over,
 })
 
-async function build(opts: { status: string; rows: Row[]; actor?: string; openMeetings?: number; openComments?: number }) {
+async function build(opts: { status: string; rows: Row[]; actor?: string; role?: AuthenticatedUser['role']; openMeetings?: number; openComments?: number }) {
   const { rows } = opts
   const document = { id: DOC, status: opts.status, title: 'CSR', projectId: 'P-1' }
   const docUpdate = vi.fn(async ({ data }: { data: { status: string } }) => Object.assign(document, data))
@@ -41,7 +41,7 @@ async function build(opts: { status: string; rows: Row[]; actor?: string; openMe
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: opts.actor ?? 'u-c', email: 'c@x', role: 'contributor', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: opts.actor ?? 'u-c', email: 'c@x', role: opts.role ?? 'contributor', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })
@@ -77,6 +77,16 @@ describe('completing a review', () => {
     const done = await build({ status: 'in_review', rows: [row('r1', 'u-c', 'Q', { reviewedAt: new Date() })] })
     expect((await done.complete('r1')).statusCode).toBe(409)
     await done.app.close()
+  })
+
+  it.each(['C', 'Q'])('is refused for a holder of %s who is working as Project Manager', async (letter) => {
+    const t = await build({ status: 'in_review', rows: [row('r1', 'u-c', letter)], role: 'pm' })
+    const res = await t.complete('r1')
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('pm_cannot_complete_review')
+    expect(t.rows[0]!.reviewedAt).toBeNull()
+    expect(t.docUpdate).not.toHaveBeenCalled()
+    await t.app.close()
   })
 
   it('asks for the signature on a row that requires one', async () => {

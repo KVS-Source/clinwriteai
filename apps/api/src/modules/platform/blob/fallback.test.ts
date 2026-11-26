@@ -62,6 +62,7 @@ describe('a draft whose source cannot be read', () => {
           })),
         },
         sectionContent: { findMany: sections },
+        documentSource: { findMany: async () => [] },
       },
       log: { info() {}, warn() {}, error() {} },
       enqueue,

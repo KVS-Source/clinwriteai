@@ -3,6 +3,9 @@
 // Claude takes at most 600 PDF pages per request (100 on 200k-context models), and each PDF page costs several times
 // its text. Plain-text documents have no page limit, so once the attached PDFs go past PDF_PAGES_AS_IS the longest ones
 // are sent as text, every page included. Their pages without any text (figures, scans) are still sent as PDF pages.
+// Word and plain-text sources arrive as text already and are always sent as text.
+//
+// An example source (source-files.ts) is titled as one, so the model sees what it may be used for on the file itself.
 
 export const PDF_PAGES_AS_IS = 100
 const MAX_PDF_PAGES = 600
@@ -12,7 +15,16 @@ const CHARS_PER_TOKEN = 3.5
 const TOKENS_PER_PDF_PAGE = 2500
 const RESERVED_TOKENS = 40_000
 
-export interface SourcePdf { title: string; bytes: Buffer }
+import { exampleTitle } from './source-files.js'
+
+export interface SourcePdf {
+  title: string
+  bytes: Buffer
+  /** Set for Word / plain-text sources: sent as this text, never as a PDF. */
+  text?: string
+  /** A sample or another study's document: structure and wording only. */
+  example?: boolean
+}
 
 export type SourceBlock = {
   type:   'document'
@@ -62,7 +74,8 @@ const pdfBlock = (title: string, bytes: Buffer): SourceBlock => ({
 export async function buildSourceBlocks(sources: SourcePdf[], model: string): Promise<SourceBlocks> {
   // A file whose pages can't be read here is sent as it is; Claude may still read it.
   const texts: Array<string[] | null> = []
-  for (const s of sources) texts.push(await pageTexts(s.bytes).catch(() => null))
+  for (const s of sources) texts.push(s.text !== undefined ? null : await pageTexts(s.bytes).catch(() => null))
+  const titleOf = (s: SourcePdf) => (s.example ? exampleTitle(s.title) : s.title)
 
   const total = texts.reduce((n, t) => n + (t?.length ?? 0), 0)
   const convert = new Set<number>()
@@ -78,10 +91,17 @@ export async function buildSourceBlocks(sources: SourcePdf[], model: string): Pr
   const asText: SourceBlocks['asText'] = []
   let pdfPages = 0
   let chars = 0
+  let textSources = 0
   for (const [i, s] of sources.entries()) {
     const t = texts[i]
+    if (s.text !== undefined) {
+      blocks.push({ type: 'document', title: titleOf(s), source: { type: 'text', media_type: 'text/plain', data: s.text } })
+      chars += s.text.length
+      textSources++
+      continue
+    }
     if (!t || !convert.has(i)) {
-      blocks.push(pdfBlock(s.title, s.bytes))
+      blocks.push(pdfBlock(titleOf(s), s.bytes))
       pdfPages += t?.length ?? 0
       continue
     }
@@ -89,10 +109,10 @@ export async function buildSourceBlocks(sources: SourcePdf[], model: string): Pr
     // A protected file can't be split; its text is still sent, with the missing pages named.
     const rest = noText.length ? await onlyPages(s.bytes, noText).catch(() => null) : null
     const data = t.map((p, n) => `[Page ${n + 1}]\n${p.length < MIN_PAGE_CHARS ? (rest ? '(attached separately as a PDF page)' : '(no text on this page)') : p}`).join('\n\n')
-    blocks.push({ type: 'document', title: s.title, source: { type: 'text', media_type: 'text/plain', data } })
+    blocks.push({ type: 'document', title: titleOf(s), source: { type: 'text', media_type: 'text/plain', data } })
     chars += data.length
     if (rest) {
-      blocks.push(pdfBlock(`${s.title} (its pages ${noText.map(n => n + 1).join(', ')})`.slice(0, 480), rest))
+      blocks.push(pdfBlock(`${titleOf(s)} (its pages ${noText.map(n => n + 1).join(', ')})`.slice(0, 480), rest))
       pdfPages += noText.length
     }
     asText.push({ title: s.title, pages: t.length, pdfPages: rest ? noText.length : 0 })
@@ -102,11 +122,12 @@ export async function buildSourceBlocks(sources: SourcePdf[], model: string): Pr
     throw new SourcesTooLongError(`${pdfPages} scanned pages have no readable text, and the AI accepts at most ${maxPdfPages(model)} of those at once. Attach searchable (text) PDFs instead.`)
   }
   const tokens = Math.round(chars / CHARS_PER_TOKEN + pdfPages * TOKENS_PER_PDF_PAGE)
-  if (asText.length > 0 && tokens > contextTokens(model) - RESERVED_TOKENS) {
+  if ((asText.length > 0 || textSources > 0) && tokens > contextTokens(model) - RESERVED_TOKENS) {
     throw new SourcesTooLongError(`The sources are about ${tokens.toLocaleString('en-US')} tokens (${total} pages), more than ${model} can read at once (${contextTokens(model).toLocaleString('en-US')}).`)
   }
 
-  const cached = asText.length > 0
+  // Worth caching once there is a lot to resend for every section.
+  const cached = asText.length > 0 || chars > 50_000
   if (cached) blocks[blocks.length - 1]!.cache_control = { type: 'ephemeral' }
   return { blocks, cached, asText, pages: total }
 }

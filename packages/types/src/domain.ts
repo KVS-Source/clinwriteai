@@ -401,6 +401,8 @@ export interface CreateDocumentBody {
   description?: string
   /** Uploaded source documents (project library) the document is written from. */
   sourceUploadIds?: string[]
+  /** What each source is for: 'evidence' (this study's facts) or 'example' (structure and wording only). Default evidence. */
+  sourceRoles?: Record<string, 'evidence' | 'example'>
   /**
    * When true, the server enqueues a clinical.ai_initial_draft BullMQ
    * job after creating the document — the worker drafts every section

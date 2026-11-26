@@ -126,12 +126,22 @@ describe('POST /projects/:id/documents — sourceUploadIds', () => {
     const res = await post({ sourceUploadIds: ['ok1', 'ok2'] })
     expect(res.statusCode).toBe(201)
     expect(links).toEqual([
-      { documentId: 'DOC-NEW', uploadId: 'ok1', linkedBy: 'pm-1' },
-      { documentId: 'DOC-NEW', uploadId: 'ok2', linkedBy: 'pm-1' },
+      { documentId: 'DOC-NEW', uploadId: 'ok1', linkedBy: 'pm-1', role: 'evidence' },
+      { documentId: 'DOC-NEW', uploadId: 'ok2', linkedBy: 'pm-1', role: 'evidence' },
     ])
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'document_created',
-      details: expect.objectContaining({ sourceUploadIds: ['ok1', 'ok2'] }),
+      details: expect.objectContaining({ sourceUploadIds: ['ok1', 'ok2'], exampleSourceIds: [] }),
+    }))
+  })
+
+  it('links a source marked as an example as one, and audits which they are', async () => {
+    const { post, links, audit } = await build()
+    const res = await post({ sourceUploadIds: ['ok1', 'ok2'], sourceRoles: { ok2: 'example' } })
+    expect(res.statusCode).toBe(201)
+    expect(links.map(l => [l.uploadId, l.role])).toEqual([['ok1', 'evidence'], ['ok2', 'example']])
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'document_created', details: expect.objectContaining({ exampleSourceIds: ['ok2'] }),
     }))
   })
 

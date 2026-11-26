@@ -39,6 +39,7 @@ import { DocumentTypePolicyService } from '../../platform/document-type-policy/s
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { computeDraftPreflight } from './ai-draft-preflight.js'
+import { runSourceCheck, SOURCE_ROLES, type SourceRole } from './source-check.js'
 import {
   buildAutofillPrompt,
   loadSourceSnapshots,
@@ -105,6 +106,9 @@ const createSchema = z.object({
   targetCompletionDate: z.string().datetime().optional(),
   // Source documents (uploads in this project) the document is written from.
   sourceUploadIds: z.array(z.string().min(1)).max(100).optional(),
+  // What each source is for: evidence (this study's facts) or example (structure and wording only).
+  // A source left out is evidence.
+  sourceRoles: z.record(z.enum(SOURCE_ROLES)).optional(),
   // When true + sources attached, enqueue clinical.ai_initial_draft to
   // let the worker draft every section from the sources. Document still
   // creates immediately — the draft fills in asynchronously.
@@ -388,6 +392,21 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
+  // The New Document wizard's source check (source-check.ts): can the chosen files be drafted from, and what will
+  // be missing. Read-only for the caller; inspects (and remembers) files uploaded before the upload-time checks.
+  const sourceCheckSchema = z.object({
+    type: z.string().min(1),
+    sources: z.array(z.object({ uploadId: z.string().min(1), role: z.enum(SOURCE_ROLES) })).max(100),
+  })
+  app.post('/:projectId/documents/source-check', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const parsed = sourceCheckSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'project_not_found' })
+    return runSourceCheck(app, { projectId, docType: parsed.data.type, sources: parsed.data.sources })
+  })
+
   // Create a new document for a project. PM-only (also covers Duplicate,
   // which goes through the same wizard + route), and only in a project the
   // PM can see — same gate shape as POST /projects.
@@ -442,6 +461,20 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       })
       if (bad) {
         return reply.code(422).send({ error: 'source_unusable', uploadId: bad, message: 'A selected source document is not in this project, not saved to the library, or failed the virus scan.' })
+      }
+    }
+    const roleOf = (uploadId: string): SourceRole => parsed.data.sourceRoles?.[uploadId] ?? 'evidence'
+    // An AI draft starts only from sources it can use (the same check the wizard shows).
+    if (parsed.data.aiDraft && sourceUploadIds.length) {
+      const check = await runSourceCheck(app, {
+        projectId, docType: parsed.data.type, sources: sourceUploadIds.map(uploadId => ({ uploadId, role: roleOf(uploadId) })),
+      })
+      if (!check.ok) {
+        return reply.code(422).send({
+          error: 'source_check_failed',
+          message: check.issues.filter(i => i.severity === 'block').map(i => i.message).join(' '),
+          issues: check.issues,
+        })
       }
     }
 
@@ -524,7 +557,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
 
     if (sourceUploadIds.length) {
       await app.prisma.documentSource.createMany({
-        data: sourceUploadIds.map(uploadId => ({ documentId: document.id, uploadId, linkedBy: request.user!.id })),
+        data: sourceUploadIds.map(uploadId => ({ documentId: document.id, uploadId, linkedBy: request.user!.id, role: roleOf(uploadId) })),
         skipDuplicates: true,
       })
     }
@@ -574,6 +607,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
         title:                document.title,
         initialVersion:       version.versionNumber,
         sourceUploadIds,
+        exampleSourceIds:     sourceUploadIds.filter(id => roleOf(id) === 'example'),
         policyVersion:        policy?.version         ?? null,
         policyTemplateApplied: !parsed.data.templateId && !!policy?.templateId,
       },

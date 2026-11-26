@@ -35,6 +35,7 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { buildSourceBlocks, inputUsage } from './source-blocks.js'
+import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 import { createStepLogger } from './ai-draft-step.js'
@@ -183,7 +184,7 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         select: { tenantId: true },
       })
       modelUsed = await resolveDraftModel(prisma, project?.tenantId ?? null)
-      const sourcePdfs = await loadSourcePdfsForJob(prisma, job.data.sourceUploadIds, log)
+      const sourcePdfs = await loadSourcePdfsForJob(prisma, documentId, job.data.sourceUploadIds, log)
       // Thread the author's instructions through so the critique scores
       // sections against the SAME directives the drafter was asked to
       // follow (e.g. "draft in Japanese" — the validator shouldn't flag
@@ -391,28 +392,38 @@ const MAX_SOURCE_BYTES_PER_DOC = 20 * 1024 * 1024
 const MAX_CRITIQUE_OUTPUT_TOKENS = 2000
 
 interface SourcePdfPayload {
-  title: string
-  bytes: Buffer
+  title:   string
+  bytes:   Buffer
+  /** Word / plain-text sources: their text. */
+  text?:   string
+  /** A sample or another study's document (document_sources.role = 'example'). */
+  example: boolean
 }
 
 async function loadSourcePdfsForJob(
   prisma: Parameters<JobHandler>[1]['prisma'],
+  documentId: string,
   sourceUploadIds: string[],
   log: Parameters<JobHandler>[1]['log'],
 ): Promise<SourcePdfPayload[]> {
   if (sourceUploadIds.length === 0) return []
-  const uploads = await prisma.documentUpload.findMany({
-    where: { id: { in: sourceUploadIds } },
-    select: { id: true, title: true, fileName: true, blobKey: true, contentType: true },
-  })
+  const [uploads, links] = await Promise.all([
+    prisma.documentUpload.findMany({
+      where: { id: { in: sourceUploadIds } },
+      select: { id: true, title: true, fileName: true, blobKey: true, contentType: true },
+    }),
+    prisma.documentSource.findMany({ where: { documentId }, select: { uploadId: true, role: true } }).catch(() => []),
+  ])
   const reader = createBlobReaderFromEnv()
   const out: SourcePdfPayload[] = []
   for (const u of uploads) {
-    if (u.contentType !== 'application/pdf') continue
+    const kind = sourceKind(u.fileName, u.contentType)
+    if (kind === 'other') continue
     try {
       const { bytes } = await reader.read('documents', u.blobKey)
       if (bytes.length > MAX_SOURCE_BYTES_PER_DOC) continue
-      out.push({ title: u.title ?? u.fileName, bytes })
+      const text = kind === 'pdf' ? undefined : await readSourceText(bytes, kind)
+      out.push({ title: u.title ?? u.fileName, bytes, text, example: isExample(links.find(l => l.uploadId === u.id)?.role) })
     } catch (err) {
       log.warn({ sourceId: u.id, err: err instanceof Error ? err.message : String(err) }, 'validation: could not read source blob')
     }
@@ -468,6 +479,9 @@ async function runLlmChecks(args: {
     `  2. Factual gaps — does it leave required material unaddressed?`,
     `  3. Template compliance — does it match what this section number/title should contain for a ${args.docType}?`,
     `  4. Source consistency — are the quantitative/clinical claims supported by the attached source documents?`,
+    ...(args.sourcePdfs.some(p => p.example)
+      ? [`  5. Facts from examples: a fact that appears only in an EXAMPLE source and not in any EVIDENCE source is an unsupported claim.`, EXAMPLE_SOURCES_RULE]
+      : []),
     `Return ONLY a JSON array of { "sectionId": "...", "reason": "short issue summary" } for sections that need revision.`,
     `Return an EMPTY array ("[]") if every section passes. No prose before or after. No code fences.`,
     authorBlock,
@@ -481,7 +495,7 @@ async function runLlmChecks(args: {
 
   const userPrompt = [
     `Attached sources (reference for the source-consistency check):`,
-    args.sourcePdfs.length === 0 ? '(none)' : args.sourcePdfs.map(p => `- ${p.title}`).join('\n'),
+    args.sourcePdfs.length === 0 ? '(none)' : args.sourcePdfs.map(p => `- ${p.title}${p.example ? ' (EXAMPLE: structure and wording only, no facts)' : ' (EVIDENCE)'}`).join('\n'),
     ``,
     `Draft sections to review:`,
     sectionList,

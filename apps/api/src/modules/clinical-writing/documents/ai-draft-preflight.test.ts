@@ -12,6 +12,7 @@ const PDF = 'application/pdf'
 const USABLE_UPLOAD = {
   id:              'u1',
   contentType:     PDF,
+  fileName:        'protocol.pdf',
   fileSizeBytes:   1024,
   status:          'confirmed',
   virusScanStatus: 'clean',
@@ -22,7 +23,7 @@ function makePrisma(opts: {
   policy?:       { templateId: string | null; checklistTemplateId: string | null; requirements?: unknown } | null
   checklistAuto?: { id: string; version: number } | null
   templateAuto?:  { id: string; label: string; version: number } | null
-  sourceLinks?:  Array<{ uploadId: string }>
+  sourceLinks?:  Array<{ uploadId: string; role?: string }>
   uploads?:      Array<typeof USABLE_UPLOAD>
   anthropicKey?: string
 }) {
@@ -126,13 +127,23 @@ describe('computeDraftPreflight', () => {
       anthropicKey:  'sk-test',
       checklistAuto: { id: 'cl1', version: 1 },
       uploads: [{
-        id: 'u1', contentType: 'text/plain', fileSizeBytes: 1024,
+        id: 'u1', contentType: 'image/png', fileName: 'scan.png', fileSizeBytes: 1024,
         status: 'confirmed', virusScanStatus: 'clean',
       }],
     })
     const result = await computeDraftPreflight(prisma, 'D1')
     expect(result.ok).toBe(false)
     expect(result.issues.map(i => i.code)).toContain('all_sources_dropped')
+  })
+
+  it('a Word source is usable; every source being an example is not', async () => {
+    const word = { ...USABLE_UPLOAD, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', fileName: 'synopsis.docx' }
+    const ok = await computeDraftPreflight(makePrisma({ anthropicKey: 'sk-test', checklistAuto: { id: 'cl1', version: 1 }, templateAuto: { id: 't1', label: 'T', version: 1 }, uploads: [word] }), 'D1')
+    expect(ok.issues.map(i => i.code)).not.toContain('all_sources_dropped')
+    const examples = await computeDraftPreflight(makePrisma({
+      anthropicKey: 'sk-test', checklistAuto: { id: 'cl1', version: 1 }, sourceLinks: [{ uploadId: 'u1', role: 'example' }],
+    }), 'D1')
+    expect(examples.issues.map(i => i.code)).toContain('no_evidence_sources')
   })
 
   it('flags ai_not_configured when no Anthropic key and stub is off', async () => {

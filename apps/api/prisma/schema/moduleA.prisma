@@ -350,6 +350,7 @@ model DocumentSource {
   documentId  String
   uploadId    String
   linkedBy    String
+  role        String   @default("evidence")                      // evidence | example (migration 107)
   createdAt   DateTime @default(now())
 
   @@id([documentId, uploadId])

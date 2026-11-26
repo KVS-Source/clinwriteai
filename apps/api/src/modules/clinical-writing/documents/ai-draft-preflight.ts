@@ -15,7 +15,9 @@
 //   - no_sources            → zero DocumentSource rows attached
 //                             (only when policy.requirements.requireSources)
 //   - all_sources_dropped   → sources attached but all would be dropped
-//                             (non-PDF, exceeds cap, not confirmed, virus-failed)
+//                             (not PDF / Word / text, exceeds cap, not confirmed, virus-failed)
+//   - no_evidence_sources   → sources attached but every one is an example
+//                             (facts come only from evidence — source-check.ts)
 //   - no_purpose            → policy.requirements.requirePurpose but
 //                             document.aiInstructions is blank
 //
@@ -27,6 +29,7 @@ import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve
 import { resolveAnthropicKey } from '../../platform/ai-gateway/resolve-anthropic-key.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
 import { requirementsOf } from '../../platform/document-type-policy/schema.js'
+import { sourceKind } from './source-inspect.js'
 
 export type PreflightIssueCode =
   | 'ai_not_configured'
@@ -35,6 +38,7 @@ export type PreflightIssueCode =
   | 'no_checklist'
   | 'no_sources'
   | 'all_sources_dropped'
+  | 'no_evidence_sources'
   | 'no_purpose'
 
 export interface PreflightIssue {
@@ -131,7 +135,7 @@ export async function computeDraftPreflight(
   if (requirements.requireSources) {
     const sourceLinks = await prisma.documentSource.findMany({
       where:  { documentId },
-      select: { uploadId: true },
+      select: { uploadId: true, role: true },
     })
     if (sourceLinks.length === 0) {
       issues.push({
@@ -144,22 +148,29 @@ export async function computeDraftPreflight(
       const uploads = await prisma.documentUpload.findMany({
         where:  { id: { in: sourceLinks.map(l => l.uploadId) } },
         select: {
-          id: true, contentType: true, fileSizeBytes: true,
+          id: true, contentType: true, fileSizeBytes: true, fileName: true,
           status: true, virusScanStatus: true,
         },
       })
+      // The drafter reads PDF, Word (.docx) and plain-text files.
       const usable = uploads.some(u => {
-        const isPdf = (u.contentType ?? '').toLowerCase() === 'application/pdf'
         return u.status === 'confirmed'
             && u.virusScanStatus !== 'failed'
-            && isPdf
+            && sourceKind(u.fileName ?? '', u.contentType) !== 'other'
             && u.fileSizeBytes <= MAX_SOURCE_BYTES
       })
       if (!usable) {
         issues.push({
           code:     'all_sources_dropped',
           severity: 'block',
-          message:  'Every attached source was dropped by the drafter (non-PDF, too large, or not yet confirmed). Attach a usable PDF source before drafting.',
+          message:  'Every attached source was dropped by the drafter (not a PDF, Word or text file, too large, or not yet confirmed). Attach a usable source before drafting.',
+          fixPath:  `/projects/${doc.projectId}/clinical-writing/documents/${documentId}#sources`,
+        })
+      } else if (sourceLinks.every(l => l.role === 'example')) {
+        issues.push({
+          code:     'no_evidence_sources',
+          severity: 'block',
+          message:  'Every attached source is marked as an example, so the drafter has no facts about this study. Mark this study’s own documents as evidence.',
           fixPath:  `/projects/${doc.projectId}/clinical-writing/documents/${documentId}#sources`,
         })
       }

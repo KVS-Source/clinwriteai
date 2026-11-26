@@ -31,7 +31,7 @@ async function build() {
     // The caller is an author on the project; who may upload is in source-access.test.ts.
     documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-r' })) },
     document: { findFirst: vi.fn(async () => null) },
-    documentUpload: { create },
+    documentUpload: { create, findFirst: vi.fn(async () => null) },
     contentUpload: { create },
   } as never)
   app.decorate('blob', { put: blobPut } as never)

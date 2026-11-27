@@ -502,8 +502,11 @@ function PromptPanel({
 }
 
 function ApprovedSummary({ row }: { row: AiPromptRow }) {
+  // row.rules is typed as Record<string, Array<...>> but is DB JSON
+  // underneath — defend against non-array values stored by hand-edited
+  // prompts or legacy migrations.
   const ruleSections = Object.keys(row.rules).length
-  const ruleTotal    = Object.values(row.rules).reduce((n, arr) => n + arr.length, 0)
+  const ruleTotal    = Object.values(row.rules).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0)
   return (
     <section className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3" data-approved>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -560,7 +563,11 @@ function ParsedRulesView({
   return (
     <ul className="flex flex-col gap-2" data-parsed-rules-view={tone}>
       {sectionKeys.map(sectionKey => {
-        const items = rules[sectionKey] ?? []
+        // Defend against DB rows where a section's value isn't an
+        // array (hand-edited JSON, legacy migrations) — ?? only
+        // catches null/undefined, not objects / strings / numbers.
+        const raw = rules[sectionKey]
+        const items = Array.isArray(raw) ? raw : []
         return (
           <li key={sectionKey} className={`rounded-md border ${frame} p-2`} data-parsed-section={sectionKey}>
             <p className={`font-mono text-[10px] font-semibold ${key}`}>{sectionKey}</p>
@@ -1014,11 +1021,17 @@ function DraftEditor({
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
-                  {Object.entries(parsedRules).map(([sectionKey, rules]) => (
+                  {Object.entries(parsedRules).map(([sectionKey, rules]) => {
+                    // Same defensive guard as ParsedRulesView — the
+                    // parsed response SHOULD be an array per each key,
+                    // but if the AI returned a bad shape we don't want
+                    // the modal to crash the whole page.
+                    const items = Array.isArray(rules) ? rules : []
+                    return (
                     <li key={sectionKey} className="rounded-md border border-slate-200 p-3" data-parsed-section={sectionKey}>
                       <p className="font-mono text-[11px] font-semibold text-slate-700">{sectionKey}</p>
                       <ul className="mt-2 space-y-1.5 text-[12px]">
-                        {rules.map((r, i) => (
+                        {items.map((r, i) => (
                           <li key={i} className="flex gap-2">
                             <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
                               r.severity === 'must'   ? 'bg-rose-100 text-rose-800' :
@@ -1030,7 +1043,7 @@ function DraftEditor({
                         ))}
                       </ul>
                     </li>
-                  ))}
+                  )})}
                 </ul>
               )}
             </div>

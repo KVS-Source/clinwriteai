@@ -1181,9 +1181,14 @@ export interface RedactionRecord {
 export interface SuperReviewer {
   id:              string
   submissionId:    string
-  userId:          string
-  name:            string
-  initials:        string
+  // Nullable when the submission's reviewer SEAT has no matching
+  // ProjectMember assigned yet (API returns { assigned: false,
+  // userId: null, name: null, initials: null } so the UI can render
+  // an "unassigned" badge). See
+  // apps/api/.../regulatory-writing/aliases-and-stubs.ts seats block.
+  userId:          string | null
+  name:            string | null
+  initials:        string | null
   role:            string
   signedAt:        string | null
   signedAtDisplay: string | null

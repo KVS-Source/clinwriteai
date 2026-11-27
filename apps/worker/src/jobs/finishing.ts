@@ -54,12 +54,32 @@ const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 
 // ---------------------------------------------------------------- cross-references
 
+const xrefTarget = (target: string) => target.replace(/^(section|sect\.?|§)\s*/i, '').trim()
+
 function resolveXref(target: string, sections: FinishSection[]): FinishSection | null {
-  const t = target.replace(/^(section|sect\.?|§)\s*/i, '').trim()
+  const t = xrefTarget(target)
   const byNumber = sections.find(s => s.number.trim() === t.replace(/\.$/, ''))
   if (byNumber) return byNumber
   const nt = norm(t)
   return sections.find(s => norm(s.title) === nt) ?? sections.find(s => nt.length >= 6 && norm(s.title).includes(nt)) ?? null
+}
+
+/**
+ * A sub-heading the AI numbered inside a template section, e.g. "10.4.3 Secondary Efficacy Analyses" in §10.4: the
+ * target number, when the nearest template section above it has that heading. Not there → null (still broken).
+ */
+function resolveSubHeading(target: string, sections: FinishSection[], htmlOf: (s: FinishSection) => string): string | null {
+  const t = xrefTarget(target).replace(/\.$/, '')
+  if (!/^\d+(\.\d+){2,}$/.test(t)) return null
+  const parts = t.split('.')
+  for (let n = parts.length - 1; n >= 1; n--) {
+    const parent = sections.find(s => s.number.trim() === parts.slice(0, n).join('.'))
+    if (!parent) continue
+    // The number at the start of a heading: followed by its title, not by "]" (another marker) or more digits.
+    const heading = new RegExp(`(^|\\s)${t.replace(/\./g, '\\.')}\\.?\\s+\\p{Lu}`, 'u')
+    return heading.test(text(htmlOf(parent))) ? t : null
+  }
+  return null
 }
 
 // ---------------------------------------------------------------- references
@@ -157,6 +177,8 @@ export function finishDocument(input: FinishInput): FinishResult {
       out = out.replace(XREF, (_m, target: string) => {
         const hit = resolveXref(target, sections)
         if (hit) { report.crossReferences.resolved++; return `Section ${hit.number}` }
+        const sub = resolveSubHeading(target, sections, current)
+        if (sub) { report.crossReferences.resolved++; return `Section ${sub}` }
         report.crossReferences.broken.push({ section: s.number, target })
         flag(s.id, 'dropped_cross_ref')
         return `[TBD: cross-reference to “${escape(target)}”]`
@@ -164,6 +186,8 @@ export function finishDocument(input: FinishInput): FinishResult {
     }
     if (options.references) {
       out = out.replace(REF, (_m, citation: string, src?: string, page?: string) => {
+        // "[REF: TBD: reference needed]": the drafter had no reference to cite. A TBD to fill, not an invented citation.
+        if (/^(TBD|TBC)\b/i.test(citation.trim())) return `[${citation.trim()}]`
         report.references.cited++
         const entry = findReference(input.sources, citation, src ? Number(src) : null, page ? Number(page) : null)
         if (!entry) {
@@ -229,6 +253,9 @@ export function finishDocument(input: FinishInput): FinishResult {
       if (Number.isFinite(n)) {
         for (const m of t.matchAll(/\b(?:total of|approximately|up to|planned|enrol\w*|randomi[sz]\w*)\b[^.]{0,40}?\b(\d{1,3}(?:,\d{3})+|\d+)\s+(?:participants|subjects|patients)/gi)) {
           const found = Number(m[1]!.replace(/,/g, ''))
+          // "approximately 300 participants per arm" is a share of the total, not the total.
+          const after = t.slice(m.index! + m[0]!.length, m.index! + m[0]!.length + 40)
+          if (/^\s*(?:per|in each|for each|each|in every)\s+(?:treatment\s+)?(?:arm|group|cohort)\b|^\s*each\b/i.test(after)) continue
           if (found !== n) {
             report.mismatches.push({ section: s.number, fact: size!.label, expected: size!.value, found: m[0]!.trim() })
             flag(s.id, 'number_drift')

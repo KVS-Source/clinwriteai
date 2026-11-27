@@ -32,7 +32,11 @@ import {
   AI_DEBUG_MAX_WIDTH,
 } from './AiDebugLayoutContext'
 import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
-import { groupByDesignSkips, isAtLimit, keptSectionNotes, notDraftedSummary, sectionsAtLimit, validationCutOff } from './aiDebugSteps'
+import {
+  finishingGroups, finishingReportOf, groupByDesignSkips, isAtLimit, keptSectionNotes, notDraftedSummary, rewrittenAfter,
+  sectionsAtLimit, validationCutOff, type FinishingGroup,
+} from './aiDebugSteps'
+import { useDocumentStore } from '../../store'
 
 interface Props {
   documentId: string
@@ -421,6 +425,10 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
   const layout = useAiDebugLayout()
   useEffect(() => { layout.setOpen(open) }, [open, layout])
   const { width, collapsed, setWidth, setCollapsed } = layout
+  // A section named in the panel (e.g. an item to check after finishing) opens in the editor; the panel
+  // collapses to its strip so the section is in view, and expands again from there.
+  const setActiveSection = useDocumentStore(s => s.setActiveSection)
+  const openSection = (sectionId: string) => { setActiveSection(sectionId); setCollapsed(true) }
   // Drag-to-resize (option B). Pointer-events keep the drag alive even
   // if the cursor leaves the handle. Clamped to [MIN, MAX] in context.
   const dragStartRef = useRef<{ startX: number; startWidth: number } | null>(null)
@@ -746,7 +754,7 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
                   <p className="mb-2 text-[11px] text-slate-500">
                     Every step the drafter took, oldest first — use this to see where a hung draft got stuck or why a section came out wrong.
                   </p>
-                  <WorkerActivityList steps={data.draftSteps!} sections={sections} />
+                  <WorkerActivityList steps={data.draftSteps!} sections={sections} onOpenSection={openSection} />
                 </Section>
               )}
 
@@ -1506,7 +1514,11 @@ const elapsedLabel = (ms: number | null | undefined) =>
 // warning, rose = error) so skimming the list highlights trouble.
 // Rows with a details object expand to a monospace JSON pane for
 // bug-report capture.
-function WorkerActivityList({ steps, sections }: { steps: DebugDraftStep[]; sections: DebugSection[] }) {
+function WorkerActivityList({ steps, sections, onOpenSection }: {
+  steps: DebugDraftStep[]
+  sections: DebugSection[]
+  onOpenSection?: (sectionId: string) => void
+}) {
   // Sections left alone because they already had text: nothing is wrong, so they aren't amber.
   const kept = useMemo(() => keptSectionNotes(steps, sections), [steps, sections])
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -1610,15 +1622,95 @@ function WorkerActivityList({ steps, sections }: { steps: DebugDraftStep[]; sect
                 >▸</span>
               )}
             </button>
-            {isOpen && hasDetails && (
-              <pre className="whitespace-pre-wrap break-words border-t border-slate-200 bg-slate-900 px-3 py-2 font-mono text-[10px] leading-relaxed text-slate-100">
-                {JSON.stringify(s.details, null, 2)}
-              </pre>
-            )}
+            {isOpen && hasDetails && (() => {
+              const finishing = finishingReportOf(s)
+              const raw = (
+                <pre className="whitespace-pre-wrap break-words border-t border-slate-200 bg-slate-900 px-3 py-2 font-mono text-[10px] leading-relaxed text-slate-100">
+                  {JSON.stringify(s.details, null, 2)}
+                </pre>
+              )
+              if (!finishing) return raw
+              return (
+                <>
+                  <FinishingDetails
+                    groups={finishingGroups(finishing)}
+                    sections={sections}
+                    rewritten={rewrittenAfter(s, steps)}
+                    onOpenSection={onOpenSection}
+                  />
+                  <details className="border-t border-slate-200 bg-white" data-finishing-raw>
+                    <summary className="cursor-pointer px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-slate-500">Raw details</summary>
+                    {raw}
+                  </details>
+                </>
+              )
+            })()}
           </li>
         )
       })}
     </ol>
+  )
+}
+
+// The "Finished by code" step's items to check, grouped (cross-references, references, abbreviations, fact sheet),
+// each with its section: clicking one opens that section in the editor. A section the drafter wrote again after
+// finishing is marked, since what finishing found there may no longer be in the text.
+const SECTION_MARK = /^§\s*/
+function FinishingDetails({ groups, sections, rewritten, onOpenSection }: {
+  groups:    FinishingGroup[]
+  sections:  DebugSection[]
+  rewritten: Set<string>
+  onOpenSection?: (sectionId: string) => void
+}) {
+  const idByNumber = new Map(sections.map(s => [s.sectionNumber.replace(SECTION_MARK, '').trim(), s.sectionId]))
+  const anyStale = groups.some(g => g.items.some(i => i.sections.some(n => rewritten.has(idByNumber.get(n.replace(SECTION_MARK, '').trim()) ?? ''))))
+  if (groups.length === 0) {
+    return <p className="border-t border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-600" data-finishing-items="none">Nothing to check.</p>
+  }
+  return (
+    <div className="flex flex-col gap-2.5 border-t border-slate-200 bg-white px-3 py-2.5" data-finishing-items>
+      {groups.map(g => (
+        <section key={g.key} data-finishing-group={g.key}>
+          <h5 className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-amber-900">
+            {g.label} · {g.items.reduce((n, i) => n + i.count, 0)}
+          </h5>
+          <ul className="flex flex-col gap-1">
+            {g.items.map((item, i) => (
+              <li key={i} className="flex items-start gap-2 text-[12px] text-slate-700" data-finishing-item>
+                <span className="flex flex-none flex-wrap gap-1">
+                  {item.sections.map(n => {
+                    const id = idByNumber.get(n.replace(SECTION_MARK, '').trim())
+                    const stale = !!id && rewritten.has(id)
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        disabled={!id || !onOpenSection}
+                        onClick={() => id && onOpenSection?.(id)}
+                        title={id ? `Open §${n} in the editor` : undefined}
+                        data-finishing-section={n}
+                        className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-700 hover:border-blue-400 hover:bg-blue-50 disabled:cursor-default disabled:text-slate-500 disabled:hover:border-slate-300 disabled:hover:bg-white"
+                      >
+                        §{n}{stale && <span className="ml-1 font-normal text-slate-500" data-finishing-stale>· may be out of date</span>}
+                      </button>
+                    )
+                  })}
+                </span>
+                <span className="min-w-0 flex-1">
+                  {item.text}
+                  {item.count > 1 && <span className="ml-1 font-semibold text-slate-500">{item.count}×</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {anyStale && (
+        <p className="text-[11px] italic text-slate-500">
+          “May be out of date”: the drafter wrote that section again after this check, so the item may no longer be in its text.
+        </p>
+      )}
+    </div>
   )
 }
 

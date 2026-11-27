@@ -70,6 +70,63 @@ export function keptSectionNotes(
   return notes
 }
 
+// ---------------------------------------------------------------- the "Finished by code" step
+
+/** The report the worker's finishing pass stores on its step (details.finishing; worker finishing.ts FinishReport). */
+interface FinishingReport {
+  crossReferences?: { resolved?: number; broken?: Array<{ section: string; target: string }> }
+  references?:      { cited?: number; listed?: number; notFound?: Array<{ section: string; citation: string }> }
+  abbreviations?:   { defined?: number; undefined?: Array<{ acronym: string; sections: string[] }>; fromGlossary?: string[] }
+  mismatches?:      Array<{ section: string; fact: string; expected: string; found: string }>
+}
+
+export interface FinishingItem { sections: string[]; text: string; count: number }
+export interface FinishingGroup { key: 'cross-references' | 'references' | 'abbreviations' | 'facts'; label: string; items: FinishingItem[] }
+
+export function finishingReportOf(s: DebugStepLike): FinishingReport | null {
+  const r = s.details?.finishing
+  return r && typeof r === 'object' ? r as FinishingReport : null
+}
+
+/** The finishing report's items to check, grouped, with repeats in a section counted once ("15×"). */
+export function finishingGroups(r: FinishingReport): FinishingGroup[] {
+  const tally = (rows: Array<{ section: string; text: string }>): FinishingItem[] => {
+    const by = new Map<string, FinishingItem>()
+    for (const row of rows) {
+      const key = `${row.section}\u0000${row.text}`
+      const hit = by.get(key)
+      if (hit) hit.count += 1
+      else by.set(key, { sections: [row.section], text: row.text, count: 1 })
+    }
+    return [...by.values()]
+  }
+  const groups: FinishingGroup[] = [
+    { key: 'cross-references', label: 'Broken cross-references', items: tally((r.crossReferences?.broken ?? []).map(b => ({
+      section: b.section, text: `Points to ${b.target}, which is not a section or heading of this document.`,
+    }))) },
+    { key: 'references', label: 'References not found', items: tally((r.references?.notFound ?? []).map(n => ({
+      section: n.section,
+      // [REF: source | N] the code would not list: a sample protocol (example only) or a source it could not read.
+      text: n.citation.trim().toLowerCase() === 'source'
+        ? 'Cites an attached source that cannot be listed: a sample protocol (example only) or a file that could not be read.'
+        : `“${n.citation}” is not in the evidence sources.`,
+    }))) },
+    { key: 'abbreviations', label: 'Undefined abbreviations', items: (r.abbreviations?.undefined ?? []).map(u => ({
+      sections: u.sections, text: `${u.acronym} is never spelled out.`, count: 1,
+    })) },
+    { key: 'facts', label: 'Different from the fact sheet', items: tally((r.mismatches ?? []).map(m => ({
+      section: m.section, text: `${m.fact}: “${m.found}”, the fact sheet says “${m.expected}”.`,
+    }))) },
+  ]
+  return groups.filter(g => g.items.length > 0)
+}
+
+/** Section ids the drafter wrote again after this step, so what the step says about them may be out of date. */
+export function rewrittenAfter(step: DebugStepLike, steps: ReadonlyArray<DebugStepLike>): Set<string> {
+  const at = Date.parse(step.timestamp)
+  return new Set(steps.filter(s => s.kind === 'section_committed' && s.sectionId && Date.parse(s.timestamp) > at).map(s => s.sectionId!))
+}
+
 /** Sections the build plan never gives to the AI: main headings, and sections code builds afterwards. */
 const isByDesignSkip = (s: DebugStepLike) =>
   s.kind === 'section_skipped' && (s.details?.reason === 'main_heading' || s.details?.reason === 'built_by_code')

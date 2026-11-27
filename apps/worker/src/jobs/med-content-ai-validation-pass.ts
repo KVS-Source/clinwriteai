@@ -23,6 +23,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveMedPolicyForContent } from './med-policy-prompt.js'
+import { CRITIQUE_OUTPUT_TOKENS } from '../token-limits.js'
 import type { JobHandler } from './types.js'
 
 interface MedAiValidationPassPayload {
@@ -73,7 +74,9 @@ function shouldStopLoop(a: { iteration: number; confidenceOverall: number; faili
 
 const MIN_CONTENT_CHARS = 80
 const MAX_SOURCE_BYTES_PER_DOC = 20 * 1024 * 1024
-const MAX_CRITIQUE_OUTPUT_TOKENS = 3000
+// Env-tunable via AI_MAX_OUTPUT_TOKENS_CRITIQUE (default 8000,
+// centralised 2026-11-27). Was 3000 historically.
+const MAX_CRITIQUE_OUTPUT_TOKENS = CRITIQUE_OUTPUT_TOKENS
 const PATIENT_FACING_TYPES = new Set(['pil', 'eu_ctr_pls', 'cme_module'])
 const DEFAULT_FK_TARGET = 8  // grade 8 or lower for patient-facing copy
 

@@ -1171,6 +1171,8 @@
       "menu_soon_badge": "soon"
     },
     "new_document": {
+      "policy_load_failed": "The {{type}} policy couldn't be loaded.",
+      "policy_load_failed_hint": "Until it loads, the policy’s settings (such as the AI cost limit) are not shown and every input is treated as required.",
       "cost_title": "Estimated AI drafting cost",
       "cost_loading": "Working out the estimate…",
       "cost_unavailable": "No estimate is available for this document type right now.",

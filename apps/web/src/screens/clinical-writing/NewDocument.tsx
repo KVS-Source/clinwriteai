@@ -31,6 +31,7 @@ import type { BestPractice, CreateDocumentBody, DocumentType } from '@platform/t
 import { documentsApi, type DocumentTemplate } from '../../api'
 import type { CostEstimate, SourceDocument, SourceRole } from '../../api/documents'
 import { ApiError } from '../../api/client'
+import { describeApiError } from '../../api/error-handling'
 import { assignableUsersApi } from '../../api/raci'
 import { AssigneeCombobox, type AssigneeOption } from '../../components/raci/AssigneeCombobox'
 import { platformApi, type DocumentTypePolicy } from '../../platform/api/platformApi'
@@ -267,7 +268,8 @@ export function NewDocumentForm({
   // client-side. Missing policy → `null` → the card renders a "no
   // policy authored yet" hint instead of an error state.
   const policyDocType = useMemo(() => type.replace(/-/g, '_'), [type])
-  const { data: policy = null, isLoading: policyLoading } = useQuery({
+  // A failed load is shown (PolicyLoadError), never treated as "no policy": that hid the cost limit and other settings.
+  const { data: policy = null, isLoading: policyLoading, isError: policyFailed, error: policyError, refetch: refetchPolicy, isFetching: policyFetching } = useQuery({
     queryKey: ['document-type-policy', policyDocType],
     queryFn:  () => platformApi.getDocumentTypePolicy(policyDocType),
     // Fetched fresh each time the wizard opens: a policy setting changed a moment ago (cost limit, required inputs)
@@ -322,11 +324,15 @@ export function NewDocumentForm({
   })
   const sourceCheckBlocks = !!sourceCheck.data && !sourceCheck.data.ok
 
-  // Step 4: the AI drafting cost estimate, when the document type's policy shows it.
+  // The AI cost limit (and its estimate): a type with a policy follows its "Allow an AI cost limit" setting; a type with
+  // no policy always offers it (same rule as the API's costLimitAllowed). Not while the policy is loading or failed.
+  const costLimitOn = !policyLoading && !policyFailed && (policy ? !!policy.costLimitEnabled : true)
+
+  // Step 4: the AI drafting cost estimate, when the cost limit is offered.
   const costEstimate = useQuery({
     queryKey: ['cost-estimate', projectId, type, sourcesWithRoles],
     queryFn:  () => documentsApi.costEstimate(projectId, { type, sources: sourcesWithRoles }),
-    enabled:  step === 4 && !!policy?.costLimitEnabled,
+    enabled:  step === 4 && costLimitOn,
     staleTime: 60_000,
     retry: false,
   })
@@ -343,7 +349,7 @@ export function NewDocumentForm({
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
         sourceRoles: sourceIds.length ? Object.fromEntries(sourcesWithRoles.map(s => [s.uploadId, s.role])) : undefined,
-        aiCostLimit: policy?.costLimitEnabled && costLimit.trim() !== '' && costLimitValid ? { amount: costLimitAmount } : undefined,
+        aiCostLimit: costLimitOn && costLimit.trim() !== '' && costLimitValid ? { amount: costLimitAmount } : undefined,
         // AI drafting runs when the platform has an AI engine configured;
         // otherwise create a blank document (the author drafts by hand).
         // The API also refuses aiDraft=true when AI is off, so this flag
@@ -495,11 +501,15 @@ export function NewDocumentForm({
                 principle count, section-rule count, ICH framework. Pure
                 preview; read-only. Admin edits land on the policy
                 editor screen. */}
-            <PolicyPreviewCard
-              policy={policy}
-              loading={policyLoading}
-              docTypeLabel={selectedTypeMeta?.label ?? type}
-            />
+            {policyFailed ? (
+              <PolicyLoadError error={policyError} retrying={policyFetching} onRetry={() => void refetchPolicy()} docTypeLabel={selectedTypeMeta?.label ?? type} />
+            ) : (
+              <PolicyPreviewCard
+                policy={policy}
+                loading={policyLoading}
+                docTypeLabel={selectedTypeMeta?.label ?? type}
+              />
+            )}
 
             {/* Best Practices Library — items whose applicableDocTypes
                 matches the selected type. Shows the writer the framework
@@ -750,8 +760,12 @@ export function NewDocumentForm({
               t={t}
             />
 
+            {policyFailed && (
+              <PolicyLoadError error={policyError} retrying={policyFetching} onRetry={() => void refetchPolicy()} docTypeLabel={selectedTypeMeta?.label ?? type} />
+            )}
+
             {/* One policy setting: with the cost limit allowed, the estimate and the limit field are shown together. */}
-            {policy?.costLimitEnabled && (
+            {costLimitOn && (
               <CostEstimateCard
                 showEstimate
                 showLimit
@@ -1144,6 +1158,28 @@ function AiInstructionsField({ value, onChange, required = false, t }: { value: 
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// The document type's policy could not be loaded. Shown instead of quietly using the defaults, which hid the
+// cost limit and showed "no policy" for a type that has one. Retry loads it again.
+function PolicyLoadError({ error, retrying, onRetry, docTypeLabel }: {
+  error: unknown
+  retrying: boolean
+  onRetry: () => void
+  docTypeLabel: string
+}) {
+  const { t } = useTranslation()
+  return (
+    <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-[12px] text-red-800" data-policy-load-error>
+      <p className="font-semibold">{t('page.new_document.policy_load_failed', { type: docTypeLabel })}</p>
+      <p className="mt-1">{t('page.new_document.policy_load_failed_hint')}</p>
+      <p className="mt-1 font-mono text-[11px] text-red-700" data-policy-load-error-detail>{describeApiError(error).message}</p>
+      <button type="button" onClick={onRetry} disabled={retrying} data-action="retry-policy"
+        className="mt-2 h-7 rounded-md border border-red-300 bg-white px-3 text-[12px] font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50">
+        {t('button.retry')}
+      </button>
     </div>
   )
 }

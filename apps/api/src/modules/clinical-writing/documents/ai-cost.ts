@@ -27,6 +27,13 @@ export async function localCurrency(prisma: PrismaClient): Promise<LocalCurrency
 }
 
 const round = (n: number, places = 2) => Math.round(n * 10 ** places) / 10 ** places
+/**
+ * Whether New Document offers the AI cost limit (and its estimate) for a document type. A type with a policy follows
+ * the policy's "Allow an AI cost limit" setting; a type with no policy always offers it.
+ */
+export const costLimitAllowed = (policy: { costLimitEnabled?: boolean | null } | null | undefined): boolean =>
+  policy ? !!policy.costLimitEnabled : true
+
 export const toLocal = (usd: number, cur: LocalCurrency) => round(usd * cur.usdRate)
 export const toUsd = (amount: number, cur: LocalCurrency) => round(amount / cur.usdRate, 6)
 

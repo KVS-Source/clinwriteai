@@ -1283,6 +1283,8 @@
     },
 
     "new_document": {
+      "policy_load_failed": "{{type}} のポリシーを読み込めませんでした。",
+      "policy_load_failed_hint": "読み込まれるまで、ポリシーの設定（AI コスト上限など）は表示されず、すべての入力が必須として扱われます。",
       "cost_title": "AI ドラフト作成の推定コスト",
       "cost_loading": "見積もりを計算しています…",
       "cost_unavailable": "現在、この文書タイプの見積もりはありません。",

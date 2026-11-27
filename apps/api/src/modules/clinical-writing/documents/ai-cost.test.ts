@@ -4,7 +4,7 @@
 import Fastify from 'fastify'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
-import { documentSpendUsd, estimateDraftCost, localCurrency, toLocal, toUsd } from './ai-cost.js'
+import { costLimitAllowed, documentSpendUsd, estimateDraftCost, localCurrency, toLocal, toUsd } from './ai-cost.js'
 import { CostGuard } from '../../../../../worker/src/jobs/cost-guard.js'
 
 vi.mock('../../platform/config/ai-engine-settings.js', async (original) => ({
@@ -113,9 +113,21 @@ describe('POST /projects/:id/documents/cost-estimate', () => {
   }
   beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
 
-  it('nothing when the policy does not allow a cost limit (the default)', async () => {
+  it('nothing when the policy does not allow a cost limit (the default for a policy)', async () => {
     expect((await (await build({ costLimitEnabled: false, buildPlan: null }))()).json()).toEqual({ enabled: false })
-    expect((await (await build(null))()).json()).toEqual({ enabled: false })
+  })
+
+  it('a document type with no policy gets the estimate, every template section counted (no build plan: all are drafted)', async () => {
+    const res = (await (await build(null))()).json()
+    expect(res).toMatchObject({ enabled: true, available: true })
+    expect(res.basis.sections).toBe(6)                                                     // no build plan: the drafter writes every section
+  })
+
+  it('costLimitAllowed: a policy decides; no policy allows it', () => {
+    expect(costLimitAllowed(null)).toBe(true)
+    expect(costLimitAllowed({ costLimitEnabled: true })).toBe(true)
+    expect(costLimitAllowed({ costLimitEnabled: false })).toBe(false)
+    expect(costLimitAllowed({})).toBe(false)
   })
 
   it('a range in the install’s currency, for the sections the plan drafts', async () => {

@@ -40,7 +40,7 @@ import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { computeDraftPreflight } from './ai-draft-preflight.js'
 import { numbersNotDraftedByAi } from '../../platform/policy-packages/build-plan.js'
-import { asCostLimit, documentSpend, documentSpendUsd, estimateDraftCost, limitReached, localCurrency, toLocal, toUsd, type AiCostLimit } from './ai-cost.js'
+import { asCostLimit, costLimitAllowed, documentSpend, documentSpendUsd, estimateDraftCost, limitReached, localCurrency, toLocal, toUsd, type AiCostLimit } from './ai-cost.js'
 import { runSourceCheck, SOURCE_ROLES, type SourceRole } from './source-check.js'
 import {
   buildAutofillPrompt,
@@ -429,7 +429,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       where: { docType, isCurrent: true, retiredAt: null },
       select: { costLimitEnabled: true, buildPlan: true, templateId: true },
     })
-    if (!policy?.costLimitEnabled) return { enabled: false }
+    if (!costLimitAllowed(policy)) return { enabled: false }
 
     // Readable sources only (the check also records each file's size the first time).
     await runSourceCheck(app, { projectId, docType: parsed.data.type, sources: parsed.data.sources })
@@ -444,11 +444,11 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       pages += i.pages ?? 0
       scanned += i.scannedPages ?? 0
     }
-    const template = (policy.templateId ? await app.prisma.documentTemplate.findUnique({ where: { id: policy.templateId }, select: { sections: true } }) : null)
+    const template = (policy?.templateId ? await app.prisma.documentTemplate.findUnique({ where: { id: policy.templateId }, select: { sections: true } }) : null)
       ?? await app.prisma.documentTemplate.findFirst({ where: { type: { in: [parsed.data.type, docType] }, isCurrent: true, retiredAt: null }, select: { sections: true } })
     const numbers = (Array.isArray(template?.sections) ? template!.sections as Array<{ number?: string }> : []).map(s => String(s.number ?? '')).filter(Boolean)
-    const sections = numbers.length - numbersNotDraftedByAi(policy.buildPlan, numbers).size
-    const plan = (policy.buildPlan ?? {}) as { factSheet?: unknown; sourcePages?: { budgetChars?: number } }
+    const sections = numbers.length - numbersNotDraftedByAi(policy?.buildPlan, numbers).size
+    const plan = (policy?.buildPlan ?? {}) as { factSheet?: unknown; sourcePages?: { budgetChars?: number } }
     const model = await chooseModel(app.prisma)
     const card = await getActiveRateCard(app.prisma)
     const rate = card.rates.find(r => r.model === model) ?? card.rates.find(r => r.model === 'unknown')
@@ -626,7 +626,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
 
     // The AI cost limit the PM set, kept in USD (what the provider bills) with the amount as entered.
     let aiCostLimit: AiCostLimit | null = null
-    if (parsed.data.aiCostLimit && policy?.costLimitEnabled) {
+    if (parsed.data.aiCostLimit && costLimitAllowed(policy)) {
       const cur = await localCurrency(app.prisma)
       aiCostLimit = {
         usd: toUsd(parsed.data.aiCostLimit.amount, cur), amount: parsed.data.aiCostLimit.amount,

@@ -40,7 +40,8 @@ export function ApproveAndSign({ documentId, record, onSigned }: {
       setStep('closed')
       setComment('')
       setPassword('')
-      for (const key of [['signature-chains', documentId], ['signature-chain', documentId], ['document', documentId], ['document-raci', documentId], ['comments', documentId], ['documents']]) {
+      // ['signatures', 'chains'] is the E-Signature page's copy (useSignatureChains).
+      for (const key of [['signatures', 'chains', documentId], ['signature-chains', documentId], ['signature-chain', documentId],['document', documentId], ['document-raci', documentId], ['comments', documentId], ['documents']]) {
         qc.invalidateQueries({ queryKey: key })
       }
       onSigned(!!(res as { returnedToAuthoring?: boolean }).returnedToAuthoring)

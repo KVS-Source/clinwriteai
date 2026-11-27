@@ -91,6 +91,9 @@ interface Item {
   touched:  ReadonlySet<string>
 }
 
+/** A truly empty file (0 bytes) can't be saved to the library. The size shown in MB is rounded, so it isn't used. */
+const isZeroSize = (item: Item) => item.file.size === 0
+
 const newItem = (key: number, file: File): Item => ({
   key, file, status: 'queued', progress: 0, error: null, upload: null,
   category: 'other', title: '', origin: '', version: '', touched: new Set(),
@@ -254,7 +257,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
   const usable  = items.filter(i => i.status !== 'failed')
   const ready   = items.filter(i => i.status === 'ready')
   const busy    = items.some(i => i.status === 'queued' || i.status === 'uploading')
-  const canSave = !busy && !saving && ready.length > 0 && ready.every(i => i.title.trim().length > 0)
+  const canSave = !busy && !saving && ready.length > 0 && ready.every(i => i.title.trim().length > 0 && !isZeroSize(i))
 
   // State 1 — nothing uploaded yet (or nothing that was chosen could be)
   if (usable.length === 0) {
@@ -459,6 +462,12 @@ function FileCard({ item, alone, locked, onEdit, onRemove }: {
       )}
 
       <SourceFileNotes classification={upload.classification} />
+
+      {isZeroSize(item) && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-800" role="alert" data-zero-size>
+          {t('page.upload_document.zero_size')}
+        </div>
+      )}
 
       <fieldset disabled={locked} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <h3 className="text-[13px] font-semibold text-slate-900">{t('page.upload_document.source_details')}</h3>

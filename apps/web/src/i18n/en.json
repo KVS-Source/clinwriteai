@@ -1923,6 +1923,7 @@
       "cancel_upload": "Cancel upload",
       "saving": "Saving…",
       "save_to_library": "Save to library",
+      "zero_size": "This file is empty (0 bytes), so it can’t be saved to the library. Remove it or cancel the upload.",
       "edited_chip": "edited",
       "ai_pick_chip": "AI pick"
     },

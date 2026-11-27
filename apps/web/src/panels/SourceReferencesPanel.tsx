@@ -59,7 +59,7 @@ function reason(err: unknown, t: TFunction): string {
 
 // ---------------------------------------------------------------- viewer
 
-export function SourceViewer({ projectId, documentId, source, page, quote, onBack, backLabel }: {
+export function SourceViewer({ projectId, documentId, source, page, quote, onBack, backLabel, allowDownload = true }: {
   projectId: string
   /** opened from this document — the view/download is logged on its audit trail */
   documentId?: string
@@ -68,6 +68,8 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
   quote?: string
   onBack: () => void
   backLabel?: string
+  /** false: view only, no Download button (the editor's Sources panel) */
+  allowDownload?: boolean
 }) {
   const { t } = useTranslation()
   const resolvedBackLabel = backLabel ?? t('page.source_references_panel.back_to_references')
@@ -123,10 +125,12 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
           {resolvedBackLabel}
         </button>
         <p className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-800" title={source?.fileName}>{source?.fileName ?? fallbackName}</p>
-        <button type="button" onClick={download} data-action="viewer-download"
-          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-          {t('button.download')}
-        </button>
+        {allowDownload && (
+          <button type="button" onClick={download} data-action="viewer-download"
+            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            {t('button.download')}
+          </button>
+        )}
       </div>
 
       {quote && (

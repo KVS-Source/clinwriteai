@@ -300,6 +300,7 @@
       "panel_title_checklist":            "チェックリスト",
       "panel_title_audit":                "監査証跡",
       "panel_title_comments":             "コメント",
+      "panel_title_sources":              "ソース",
       "panel_title_review_assignment":    "レビューに提出",
       "panel_title_crm_resolution":       "CRM 対応",
       "panel_title_ich_e3":               "チェックリスト",
@@ -1655,6 +1656,22 @@
       "final_output": "最終出力"
     },
 
+    "document_sources_panel": {
+      "search_placeholder": "ソースを検索",
+      "category_label": "カテゴリ",
+      "all_categories": "すべてのカテゴリ",
+      "showing_count": "{{total}} 件中 {{shown}} 件を表示",
+      "loading": "ソースを読み込んでいます…",
+      "error": "ソースを読み込めませんでした。パネルを閉じてもう一度お試しください。",
+      "empty": "このドキュメントに紐付けられたソースはありません",
+      "no_match": "一致するソースはありません",
+      "view": "表示",
+      "back": "ソース一覧に戻る",
+      "used_in": "{{count}} セクションで引用",
+      "used_in_plural": "{{count}} セクションで引用",
+      "not_cited": "紐付け済み、まだどのセクションでも引用されていません"
+    },
+
     "editor_toolbar": {
       "bold_tooltip": "太字 (⌘B)",
       "italic_tooltip": "斜体 (⌘I)",
@@ -1674,6 +1691,8 @@
       "protocol_button": "プロトコル",
       "comments_tooltip": "コメント",
       "comments_label": "コメント",
+      "sources_label": "ソース",
+      "sources_tooltip": "このドキュメントに紐付けられたソース文書",
       "ai_chat_tooltip": "AI チャットを開く (⌘J)",
       "ai_chat_authors_only": "AI チャットを利用できるのは、このドキュメントの作成者 (Responsible, R) のみです",
       "voice_note_authors_only": "音声メモを利用できるのは、このドキュメントの作成者 (Responsible, R) のみです",

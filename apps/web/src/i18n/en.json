@@ -270,6 +270,7 @@
       "panel_title_checklist": "Checklist",
       "panel_title_audit": "Audit Trail",
       "panel_title_comments": "Comments",
+      "panel_title_sources": "Sources",
       "panel_title_review_assignment": "Submit for Review",
       "panel_title_crm_resolution": "CRM Resolution",
       "panel_title_ich_e3": "Checklist",
@@ -1522,6 +1523,21 @@
       "advance_tooltip": "Move this document from {{currentLabel}} to {{nextLabel}}",
       "final_output": "Final Output"
     },
+    "document_sources_panel": {
+      "search_placeholder": "Search sources",
+      "category_label": "Category",
+      "all_categories": "All categories",
+      "showing_count": "Showing {{shown}} of {{total}}",
+      "loading": "Loading sources…",
+      "error": "Couldn't load the sources. Close the panel and try again.",
+      "empty": "No sources linked to this document",
+      "no_match": "No sources match",
+      "view": "View",
+      "back": "Back to sources",
+      "used_in": "Cited in {{count}} section",
+      "used_in_plural": "Cited in {{count}} sections",
+      "not_cited": "Linked, not cited by any section yet"
+    },
     "editor_toolbar": {
       "bold_tooltip": "Bold (⌘B)",
       "italic_tooltip": "Italic (⌘I)",
@@ -1541,6 +1557,8 @@
       "protocol_button": "Protocol",
       "comments_tooltip": "Comments",
       "comments_label": "Comments",
+      "sources_label": "Sources",
+      "sources_tooltip": "Source documents linked to this document",
       "ai_chat_tooltip": "Open AI Chat (⌘J)",
       "ai_chat_authors_only": "AI Chat is only available to this document's authors",
       "voice_note_authors_only": "Voice notes are only available to this document's authors",

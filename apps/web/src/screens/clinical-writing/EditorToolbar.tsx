@@ -199,6 +199,15 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
   })
   const openCommentCount = (commentsQ.data ?? []).filter(c => c.status === 'open' && c.verdict !== 'approve').length
 
+  // Count on the Sources button: source documents linked to this document. Same query key as the Sources panel.
+  const sourcesQ = useQuery({
+    queryKey: ['document-sources', documentId],
+    queryFn:  () => documentsApi.listDocumentSources(documentId!),
+    enabled:  !!documentId && canViewSources === true,
+    retry:    false,
+  })
+  const sourceCount = sourcesQ.data?.items.length ?? 0
+
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
   const citationMode    = useEditorStore(s => s.citationMode)
   const setCitationMode = useEditorStore(s => s.setCitationMode)
@@ -321,6 +330,37 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
         {t('page.editor_toolbar.comments_label')}
         <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700" data-comment-count>{openCommentCount}</span>
       </button>
+
+      {/* Sources — the document's linked source documents, in the right-hand panel (each can be viewed there).
+          Left out, like Insert citation, for someone who may not view the project's sources. */}
+      {canViewSources !== false && (
+        <button
+          type="button"
+          title={t('page.editor_toolbar.sources_tooltip')}
+          aria-label={t('page.editor_toolbar.sources_label')}
+          aria-pressed={activePanel === 'sources'}
+          onClick={() => toggle('sources')}
+          data-panel-trigger
+          data-action="toggle-sources"
+          className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors hover:bg-slate-50"
+          style={activePanel === 'sources'
+            ? { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', color: '#1D4ED8' }
+            : { borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', color: '#334155' }}
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 1.5h5.5L11 4v8.5H3z" />
+            <path d="M8.5 1.5V4H11" />
+            <line x1="5" y1="7" x2="9" y2="7" strokeLinecap="round" />
+            <line x1="5" y1="9.5" x2="9" y2="9.5" strokeLinecap="round" />
+          </svg>
+          {/* The toolbar row is full below ~1600px: there the button is icon + count (the tooltip names it). */}
+          <span className="hidden min-[1600px]:inline">{t('page.editor_toolbar.sources_label')}</span>
+          {/* Shown once known, so a slow load doesn't read as "no sources". */}
+          {sourcesQ.data && (
+            <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700" data-source-count>{sourceCount}</span>
+          )}
+        </button>
+      )}
 
       {/* "Edit section" button removed in the autosave rollout — sections are
           now editable on click when this user holds the SectionLock, so the

@@ -26,6 +26,7 @@ import {
   applyReferenceHighlights, buildTextIndex, clearReferenceHighlights, normalizeSpan, referenceAtPoint, spanOfRange, type LinkedRange,
 } from './referenceHighlights'
 import { SectionNavigator } from './SectionNavigator'
+import { DocumentSourcesPanel } from './DocumentSourcesPanel'
 import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
 import { AiConfidenceChip } from '../../components/ai-drafter/AiConfidenceChip'
 import { AiDraftingProgressToast } from '../../components/ai-drafter/AiDraftingProgressToast'
@@ -62,6 +63,7 @@ const PANEL_TITLE_KEYS: Record<NonNullable<PanelMode>, string> = {
   'checklist':         'panel_title_checklist',
   'audit':             'panel_title_audit',
   'comments':          'panel_title_comments',
+  'sources':           'panel_title_sources',
   'review-assignment': 'panel_title_review_assignment',
   'crm-resolution':    'panel_title_crm_resolution',
   'ich-e3':            'panel_title_ich_e3',
@@ -594,6 +596,13 @@ function DocumentEditorInner() {
     queryFn:  () => documentsApi.listReferences(documentId!),
     enabled:  !!documentId && canViewSources === true,
   })
+  // The Sources panel's header count — the same query as the panel and the toolbar button, so a cache read.
+  const { data: linkedSources } = useQuery({
+    queryKey: ['document-sources', documentId],
+    queryFn:  () => documentsApi.listDocumentSources(documentId!),
+    enabled:  !!documentId && canViewSources === true && activePanel === 'sources',
+    retry:    false,
+  })
   const sectionReferences = useMemo(
     () => (referencesData?.items ?? []).filter(r => r.sectionId === activeSection),
     [referencesData, activeSection],
@@ -665,7 +674,7 @@ function DocumentEditorInner() {
     // ⚠ Don't add 'ai' here — a merge in late October 2026 did, which made
     // the AI Chat close on every editor click (QA reported "the fixed panel
     // of AI Chat on the right is rolled back").
-    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments' && activePanel !== 'sources'
       && activePanel !== 'history' && activePanel !== 'voice' && activePanel !== 'checklist'
       && activePanel !== 'ich-e3') return
     // The click that opened the panel is still being dispatched when this listener is added,
@@ -1314,7 +1323,7 @@ function DocumentEditorInner() {
               style={{
                 width:           panel.width,
                 maxWidth:        '100%',
-                backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra' || activePanel === 'protocol-metadata') ? '#FFFFFF' : '#F8FAFC',
+                backgroundColor: (activePanel === 'traceability' || activePanel === 'sources' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra' || activePanel === 'protocol-metadata') ? '#FFFFFF' : '#F8FAFC',
               }}
             >
             {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
@@ -1385,6 +1394,9 @@ function DocumentEditorInner() {
                 </span>
               )}
               <h3 className="text-sm font-bold text-slate-900">{t(`page.document_editor.${PANEL_TITLE_KEYS[activePanel]}`)}</h3>
+              {activePanel === 'sources' && linkedSources && (
+                <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700" data-sources-panel-count>{linkedSources.items.length}</span>
+              )}
               {/* Hidden for now: hard-coded "claude-sonnet" label, not the real model.
               {activePanel === 'ai' && (
                 <span
@@ -1476,6 +1488,9 @@ function DocumentEditorInner() {
                 scopeToSection
               />
             )}
+            {activePanel === 'sources' && canViewSources === true && documentId && projectId && (
+              <DocumentSourcesPanel documentId={documentId} projectId={projectId} />
+            )}
             {aiChatAllowed && activePanel === 'ai' && documentId && (
               <AIChatPanel
                 documentId={documentId}
@@ -1565,7 +1580,7 @@ function DocumentEditorInner() {
                 onOpenSources={() => setActivePanel('traceability')}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && activePanel !== 'protocol-metadata' && (
+            {activePanel !== 'traceability' && activePanel !== 'sources' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && activePanel !== 'protocol-metadata' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">{t('page.document_editor.placeholder')}</p>
                 <p className="mt-2 text-sm text-slate-700">

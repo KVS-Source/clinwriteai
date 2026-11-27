@@ -66,5 +66,6 @@ export const STANDARD_GLOSSARY: Readonly<Record<string, string>> = {
   HBV:    'hepatitis B virus',
   HCV:    'hepatitis C virus',
   FSH:    'follicle-stimulating hormone',
+  TSH:    'thyroid-stimulating hormone',
   PK:     'pharmacokinetics',
 }

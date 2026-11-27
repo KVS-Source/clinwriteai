@@ -151,7 +151,10 @@ function entryIn(pageText: string, author: string, year: string): string | null 
 
 // ---------------------------------------------------------------- abbreviations
 
-const DEFINITION = /((?:\p{L}[\p{L}'’-]*[\s-]+){0,7}\p{L}[\p{L}'’-]*)\s+\((\p{Lu}[\p{Lu}\p{N}-]{1,9}s?)\)/gu
+// "thyroid-stimulating hormone (TSH)" or "… [TSH]".
+const DEFINITION = /((?:\p{L}[\p{L}'’-]*[\s-]+){0,7}\p{L}[\p{L}'’-]*)\s+[([](\p{Lu}[\p{Lu}\p{N}-]{1,9}s?)[)\]]/gu
+// A list or table footnote: "TSH = thyroid-stimulating hormone".
+const DEFINITION_LIST = /(?<![\p{L}\p{N}])(\p{Lu}[\p{Lu}\p{N}-]{1,9})\s*=\s*(\p{L}[\p{L}'’-]*(?:[\s-]+\p{L}[\p{L}'’-]*){0,7})/gu
 const ACRONYM = /\b(\p{Lu}[\p{Lu}\p{N}]*\p{Lu}[\p{Lu}\p{N}]*)(s?)\b/gu
 const ALWAYS_OK = new Set(['TBD', 'REF', 'XREF', 'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII', ...COMMON_ABBREVIATIONS])
 /** A placeholder still to fill ("[TBD: IND number]"): what it names is not yet text of the document. */
@@ -262,9 +265,18 @@ export function finishDocument(input: FinishInput): FinishResult {
         const letters = acronym.replace(/[^\p{Lu}]/gu, '').length
         if (!defined.has(acronym)) defined.set(acronym, words.slice(-Math.max(1, Math.min(words.length, letters))).join(' '))
       }
+      for (const m of t.matchAll(DEFINITION_LIST)) {
+        // "TSH = thyroid-stimulating hormone; …": the full form is about as many words as the abbreviation has letters.
+        const acronym = m[1]!
+        const letters = acronym.replace(/[^\p{Lu}]/gu, '').length
+        const words = m[2]!.trim().split(/[\s-]+/)
+        if (!defined.has(acronym)) defined.set(acronym, words.slice(0, Math.max(1, Math.min(words.length, letters))).join(' '))
+      }
       for (const m of t.matchAll(ACRONYM)) {
         const a = m[1]!
         if (a.length < 2 || a.length > 8 || ALWAYS_OK.has(a)) continue
+        // A study or product code ("Study GO30081", "MK3475") is an identifier, not an abbreviation.
+        if (/\d{2,}/.test(a)) continue
         // Part of a code such as "MP-301" or "NCT-0123", not an abbreviation.
         const after = t[m.index! + m[0]!.length] ?? ''
         const before = t[m.index! - 1] ?? ''
@@ -312,6 +324,12 @@ export function finishDocument(input: FinishInput): FinishResult {
           // "approximately 300 participants per arm" is a share of the total, not the total.
           const after = t.slice(m.index! + m[0]!.length, m.index! + m[0]!.length + 40)
           if (/^\s*(?:per|in each|for each|each|in every)\s+(?:treatment\s+)?(?:arm|group|cohort)\b|^\s*each\b/i.test(after)) continue
+          // Another, earlier study ("a prior Phase I/II program in which approximately 420 participants were exposed")
+          // is not this study's sample size.
+          const from = t.lastIndexOf('.', m.index!) + 1
+          const to = t.indexOf('.', m.index! + m[0]!.length)
+          const sentence = t.slice(from, to === -1 ? undefined : to)
+          if (/\b(?:prior(?!\s+to\b)|previous(?:ly)?|earlier|completed)\b|\b(?:were|have been|had been)\s+(?:exposed|treated|dosed|enrol\w*|randomi[sz]ed)\b/i.test(sentence)) continue
           if (found !== n) {
             report.mismatches.push({ section: s.number, fact: size!.label, expected: size!.value, found: m[0]!.trim() })
             flag(s.id, 'number_drift')

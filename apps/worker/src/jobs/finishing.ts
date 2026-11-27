@@ -7,13 +7,15 @@
 //     lists it, the page). Code finds the full entry in that EVIDENCE source, numbers the references in order of
 //     first use (or author-year, per the policy), and writes the References section. A reference it can't find in
 //     the evidence becomes [TBD: …] and the section is flagged (invented_citation).
-//   - Abbreviations. Every abbreviation used must be spelled out somewhere ("Full Name (FN)"); undefined ones are
-//     flagged (undefined_acronym). If the template has an abbreviations section, code writes the list.
+//   - Abbreviations. Every abbreviation used must be spelled out somewhere ("Full Name (FN)"). Common ones (US, FDA,
+//     HIV…) need none; one the drafter missed that is in the standard glossary is spelled out by code at its first
+//     use; the rest are flagged (undefined_acronym). If the template has an abbreviations section, code writes the list.
 //   - Contents. If the template has a contents section, code writes it from the template's headings.
 //   - Fact consistency. The sample size and protocol number in every section are compared with the fact sheet;
 //     a different value is flagged (number_drift).
 
 import type { FactSheet, IndexedSource } from './fact-sheet.js'
+import { COMMON_ABBREVIATIONS, STANDARD_GLOSSARY } from './abbreviation-glossary.js'
 
 export type ReferenceStyle = 'numbered' | 'author_year'
 
@@ -33,7 +35,8 @@ export interface FinishInput {
 export interface FinishReport {
   crossReferences: { resolved: number; broken: Array<{ section: string; target: string }> }
   references:      { cited: number; listed: number; notFound: Array<{ section: string; citation: string }> }
-  abbreviations:   { defined: number; undefined: Array<{ acronym: string; sections: string[] }> }
+  /** fromGlossary: abbreviations the drafter left undefined that code spelled out from the standard glossary. */
+  abbreviations:   { defined: number; undefined: Array<{ acronym: string; sections: string[] }>; fromGlossary: string[] }
   mismatches:      Array<{ section: string; fact: string; expected: string; found: string }>
 }
 
@@ -150,7 +153,45 @@ function entryIn(pageText: string, author: string, year: string): string | null 
 
 const DEFINITION = /((?:\p{L}[\p{L}'’-]*[\s-]+){0,7}\p{L}[\p{L}'’-]*)\s+\((\p{Lu}[\p{Lu}\p{N}-]{1,9}s?)\)/gu
 const ACRONYM = /\b(\p{Lu}[\p{Lu}\p{N}]*\p{Lu}[\p{Lu}\p{N}]*)(s?)\b/gu
-const ALWAYS_OK = new Set(['TBD', 'REF', 'XREF', 'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII'])
+const ALWAYS_OK = new Set(['TBD', 'REF', 'XREF', 'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII', ...COMMON_ABBREVIATIONS])
+/** A placeholder still to fill ("[TBD: IND number]"): what it names is not yet text of the document. */
+const PLACEHOLDER_MARKER = /\[\s*(?:TBD|TBC)\b[^\]]*\]/gi
+
+/**
+ * The section HTML with the first use of `acronym` spelled out ("RECIST" → "Response Evaluation Criteria in Solid
+ * Tumors (RECIST)"), or null when its only uses are in a heading, a [marker] or a bracket of abbreviations ("(ECOG PS)").
+ */
+function spellOutFirstUse(html: string, acronym: string, full: string): string | null {
+  const parts = html.split(/(<[^>]+>)/)
+  const use = new RegExp(`(?<![\\p{L}\\p{N}])${acronym}(s?)(?![\\p{L}\\p{N}])`, 'gu')
+  let inHeading = false
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!
+    if (part.startsWith('<')) {
+      if (/^<h[1-6]\b/i.test(part)) inHeading = true
+      else if (/^<\/h[1-6]>/i.test(part)) inHeading = false
+      continue
+    }
+    if (inHeading) continue
+    for (const m of part.matchAll(use)) {
+      const before = part.slice(0, m.index!)
+      const open = (c: string, d: string) => before.split(c).length - before.split(d).length
+      if (open('[', ']') > 0) continue
+      // "(ECOG PS)" already explains the words before it; "(RECIST v1.1)" or "(per RECIST)" does not.
+      if (open('(', ')') > 0) {
+        const close = part.indexOf(')', m.index!)
+        const inside = part.slice(before.lastIndexOf('(') + 1, close === -1 ? undefined : close)
+        if (/^[\p{Lu}\p{N}\s-]*$/u.test(inside)) continue
+      }
+      // At the start of a sentence the full form starts with a capital ("Serious adverse events (SAEs) are …").
+      const sentenceStart = /[.!?]\s+$/.test(before) || (before.trim() === '' && /^<(p|li|td|th|div|br)\b/i.test(parts[i - 1] ?? ''))
+      const shown = sentenceStart ? full.charAt(0).toUpperCase() + full.slice(1) : full
+      parts[i] = `${before}${escape(shown)}${m[1]} (${acronym}${m[1]})${part.slice(m.index! + m[0]!.length)}`
+      return parts.join('')
+    }
+  }
+  return null
+}
 
 // ---------------------------------------------------------------- the whole pass
 
@@ -163,7 +204,7 @@ export function finishDocument(input: FinishInput): FinishResult {
   const report: FinishReport = {
     crossReferences: { resolved: 0, broken: [] },
     references: { cited: 0, listed: 0, notFound: [] },
-    abbreviations: { defined: 0, undefined: [] },
+    abbreviations: { defined: 0, undefined: [], fromGlossary: [] },
     mismatches: [],
   }
   const current = (s: FinishSection) => html.get(s.id) ?? s.html
@@ -213,7 +254,7 @@ export function finishDocument(input: FinishInput): FinishResult {
   const usedIn = new Map<string, Set<string>>()
   if (options.abbreviations) {
     for (const s of drafted) {
-      const t = text(current(s))
+      const t = text(current(s)).replace(PLACEHOLDER_MARKER, ' ')
       for (const m of t.matchAll(DEFINITION)) {
         const acronym = m[2]!.replace(/s$/, '')
         // "an adverse event (AE)": the definition is about as many words as the abbreviation has letters.
@@ -231,15 +272,30 @@ export function finishDocument(input: FinishInput): FinishResult {
         // A heading or phrase in capitals ("INCLUSION CRITERIA") is not an abbreviation.
         const around = t.slice(Math.max(0, m.index! - 25), m.index! + a.length + 25)
         if ((around.match(/\b\p{Lu}{3,}\b/gu) ?? []).length > 1 && /\b\p{Lu}{4,}\s+\p{Lu}{4,}\b/u.test(around)) continue
+        // A trial's name ("the CASPIAN trial") or a regulation citation ("21 CFR Part 11") is not an abbreviation to define.
+        const rest = t.slice(m.index! + m[0]!.length, m.index! + m[0]!.length + 12)
+        if (/^\s+(?:trials?|stud(?:y|ies))\b/i.test(rest)) continue
+        if (/\d\s$/.test(t.slice(Math.max(0, m.index! - 2), m.index!)) && /^\s+(?:Part|§)/.test(rest)) continue
         usedIn.set(a, new Set([...(usedIn.get(a) ?? []), s.id]))
       }
     }
-    report.abbreviations.defined = defined.size
     for (const [acronym, ids] of usedIn) {
       if (defined.has(acronym)) continue
+      // In the standard glossary: spelled out at its first use, in document order.
+      const full = STANDARD_GLOSSARY[acronym]
+      if (full) {
+        for (const s of drafted.filter(x => ids.has(x.id))) {
+          const out = spellOutFirstUse(current(s), acronym, full)
+          if (out) { html.set(s.id, out); break }
+        }
+        defined.set(acronym, full)
+        report.abbreviations.fromGlossary.push(acronym)
+        continue
+      }
       report.abbreviations.undefined.push({ acronym, sections: sections.filter(s => ids.has(s.id)).map(s => s.number) })
       for (const id of ids) flag(id, 'undefined_acronym')
     }
+    report.abbreviations.defined = defined.size
   }
 
   // Fact consistency against the fact sheet.
@@ -319,6 +375,10 @@ export function markerInstructions(options: FinishInput['options'], outline: Arr
       '',
       'Do not write a reference list or numbered citations yourself — the finishing pass builds the References section. If a statement needs a reference you cannot find in any attached source, write [TBD: reference needed] (no [REF: ...] marker).',
     ].join('\n'))
+  }
+  if (options.abbreviations) {
+    parts.push('ABBREVIATIONS: spell out every abbreviation the first time this section uses it, full form first: "Response Evaluation Criteria in Solid Tumors (RECIST)", "Eastern Cooperative Oncology Group performance status (ECOG PS)". After that, use the abbreviation alone. '
+      + `These are known to every reader and need no full form: ${[...COMMON_ABBREVIATIONS].join(', ')}. A trial's name (for example "the CASPIAN trial") is not an abbreviation.`)
   }
   return parts.join('\n\n')
 }

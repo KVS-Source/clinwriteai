@@ -93,6 +93,7 @@ export async function runFinishing(
     `Finished by code: ${r.crossReferences.resolved} cross-reference${r.crossReferences.resolved === 1 ? '' : 's'} resolved`
     + `, ${r.references.listed} reference${r.references.listed === 1 ? '' : 's'} listed from ${r.references.cited} citation${r.references.cited === 1 ? '' : 's'}`
     + `, ${r.abbreviations.defined} abbreviation${r.abbreviations.defined === 1 ? '' : 's'} defined`
+    + (r.abbreviations.fromGlossary.length ? ` (${r.abbreviations.fromGlossary.length} spelled out from the standard glossary)` : '')
     + (problems
       ? `. To check: ${[
         r.crossReferences.broken.length && `${r.crossReferences.broken.length} broken cross-reference(s)`,

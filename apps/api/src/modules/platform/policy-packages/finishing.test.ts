@@ -112,7 +112,8 @@ describe('references', () => {
       REFS,
     ]))
     // Both citations get numbered; direct-source first (first use order).
-    expect(r.html.get('s2_1')).toBe('<p>From the IB directly [1]. Literature in the IB [2].</p>')
+    // (IB is in the standard glossary, so its first use is spelled out too.)
+    expect(r.html.get('s2_1')).toBe('<p>From the Investigator’s Brochure (IB) directly [1]. Literature in the IB [2].</p>')
     expect(r.html.get('s12')).toContain('Investigator’s Brochure')
     expect(r.html.get('s12')).toContain('Smith J, Patel R')
     expect(r.report.references).toMatchObject({ cited: 2, listed: 2, notFound: [] })
@@ -133,16 +134,38 @@ describe('references', () => {
 describe('abbreviations', () => {
   it('an abbreviation never spelled out is flagged where it is used; headings in capitals are not abbreviations', () => {
     const r = finishDocument(base([
-      S('s8_1', '8.1', 'AE and SAE Definitions', '<p>An adverse event (AE) is any untoward event. An SAE is serious.</p><h4>REPORTING TIMELINES AND PROCEDURES</h4>'),
-      S('s8_2', '8.2', 'AE/SAE Collection', '<p>AEs and SAEs are collected; IDMC reviews them.</p>'),
+      // BICR and MMRM are not in the standard glossary.
+      S('s8_1', '8.1', 'AE and BICR Definitions', '<p>An adverse event (AE) is any untoward event. A BICR is independent.</p><h4>REPORTING TIMELINES AND PROCEDURES</h4>'),
+      S('s8_2', '8.2', 'AE/BICR Collection', '<p>AEs and BICRs are collected; MMRM is used.</p>'),
       REFS,
     ]))
     expect(r.report.abbreviations.undefined).toEqual([
-      { acronym: 'SAE', sections: ['8.1', '8.2'] },
-      { acronym: 'IDMC', sections: ['8.2'] },
+      { acronym: 'BICR', sections: ['8.1', '8.2'] },
+      { acronym: 'MMRM', sections: ['8.2'] },
     ])
     expect(r.report.abbreviations.defined).toBe(1)
     expect(r.flags.get('s8_2')).toEqual(['undefined_acronym'])
+  })
+
+  it('one in the standard glossary is spelled out at its first use; common ones, trial names, regulation citations and placeholders are left alone', () => {
+    const r = finishDocument(base([
+      S('s2_1', '2.1', 'Background', '<h3>RECIST Assessment</h3><p>In the CASPIAN trial, the US FDA approved it. Tumours are assessed (per RECIST 1.1) and RECIST again. SAEs are reported.</p>'),
+      S('s4_2', '4.2', 'Population', '<p>Performance status (ECOG PS) of 0 or 1. Records follow 21 CFR Part 11 [TBD: IND number].</p>'),
+      REFS,
+    ]))
+    expect(r.html.get('s2_1')).toBe('<h3>RECIST Assessment</h3><p>In the CASPIAN trial, the US FDA approved it. Tumours are assessed '
+      + '(per Response Evaluation Criteria in Solid Tumors (RECIST) 1.1) and RECIST again. Serious adverse events (SAEs) are reported.</p>')
+    expect(r.html.has('s4_2')).toBe(false)                   // "(ECOG PS)" already follows its words: left as written
+    expect(r.report.abbreviations.fromGlossary).toEqual(['RECIST', 'SAE', 'ECOG', 'PS'])
+    expect(r.report.abbreviations.undefined).toEqual([])
+    expect(r.flags.size).toBe(0)
+  })
+
+  it('the drafter is told to spell abbreviations out and which need no full form', () => {
+    const told = markerInstructions({ abbreviations: true }, [])
+    expect(told).toContain('spell out every abbreviation the first time')
+    expect(told).toContain('US, USA, UK, EU, FDA')
+    expect(markerInstructions({ references: true }, [])).not.toContain('ABBREVIATIONS')
   })
 
   it('an abbreviations section, when the template has one, is written from the definitions', () => {

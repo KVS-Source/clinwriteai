@@ -239,9 +239,9 @@ export const documentsApi = {
   /** The AI drafting cost estimate, when the document type's policy shows it. */
   costEstimate: (projectId: string, body: { type: string; sources: Array<{ uploadId: string; role: SourceRole }> }) =>
     api.post<CostEstimate>(`/projects/${projectId}/documents/cost-estimate`, body),
-  /** Set, raise or remove (null) a document's AI cost limit, in the install's currency. PMs only. */
-  setAiCostLimit: (documentId: string, amount: number | null) =>
-    api.put<{ limit: { amount: number; currency: string; usd: number } | null; spent: number; currency: string }>(`/documents/${documentId}/ai-cost-limit`, { amount }),
+  /** Raise a document's AI cost limit (set at New Document), in the install's currency. PMs only. */
+  setAiCostLimit: (documentId: string, amount: number) =>
+    api.put<{ limit: { amount: number; currency: string; usd: number }; spent: number; currency: string }>(`/documents/${documentId}/ai-cost-limit`, { amount }),
   /** Can these sources be drafted from, and what will be missing (shown before Create). */
   sourceCheck: (projectId: string, body: { type: string; sources: Array<{ uploadId: string; role: SourceRole }> }) =>
     api.post<SourceCheckResult>(`/projects/${projectId}/documents/source-check`, body),

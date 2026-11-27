@@ -44,10 +44,11 @@ vi.mock('../../../../../worker/src/jobs/ai-draft-step.js', () => ({ createStepLo
 function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown; aiCostLimit?: unknown; existing?: Record<string, string> } = {}) {
   const written: string[] = []
   const updates: Array<Record<string, unknown>> = []
+  const notifications: Array<Record<string, unknown>> = []
   const prisma = {
     document: {
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return {} }),
-      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null, factSheet: opts.factSheet ?? null, aiCostLimit: opts.aiCostLimit ?? null })),
+      findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null, factSheet: opts.factSheet ?? null, aiCostLimit: opts.aiCostLimit ?? null, title: 'Moon protocol', projectId: 'p', createdBy: 'pm-1', assigneeId: 'writer-1' })),
     },
     project: { findUnique: async () => null },
     documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: opts.plan ?? PLAN })) },
@@ -62,12 +63,15 @@ function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factS
     rateCardVersion: { findFirst: async () => ({ id: 'rc', entries: [{ model: 'claude-sonnet-4-6', inputPer1M: 3, outputPer1M: 15, cachedInputPer1M: 0.3 }] }) },
     platformSettings: { findUnique: async () => ({ localisation: { currency: 'INR', usdRate: 84 } }) },
     aiDraftStep: { findMany: async () => [] },
+    projectMember: { findMany: async () => [{ userId: 'pm-1' }, { userId: 'pm-2' }] },
+    notification: { create: async ({ data }: { data: Record<string, unknown> }) => { notifications.push(data); return {} } },
     aiSectionDraftTrace: { create: async () => ({}) },
     $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
   }
   return {
     written,
     updates,
+    notifications,
     done: handleAiInitialDraft(
       { data: { documentId: 'd', versionId: 'v', projectId: 'p', type: 'protocol', sourceUploadIds: ['u1'], assigneeId: 'u', actorId: 'u' } } as never,
       { prisma, log: { info() {}, warn() {}, error() {} }, enqueue: vi.fn() } as never,
@@ -168,12 +172,19 @@ describe('drafting with the Protocol build plan', () => {
   it('with a cost limit the draft pauses before the AI call that would pass it, and says why', async () => {
     state.pdf = await pdf(['Protocol MP-301 is a study of Moonazumab in adults with moderate asthma.'])
     state.factAnswer = JSON.stringify([{ key: 'protocol_number', value: 'MP-301', source: 1, page: 1, quote: 'Protocol MP-301 is a study of Moonazumab' }])
-    const { written, updates, done } = run(2, { aiCostLimit: { usd: 0.0015, amount: 0.126, currency: 'INR', usdRate: 84 } })
+    const { written, updates, notifications, done } = run(2, { aiCostLimit: { usd: 0.0015, amount: 0.126, currency: 'INR', usdRate: 84 } })
     expect(await done).toMatchObject({ drafted: 0 })
     // The fact sheet call (0.00105 USD) ran; a second call like it would pass 0.0015, so no section was drafted.
     expect(state.calls).toHaveLength(1)
     expect(written).toEqual([])
     expect(updates.at(-1)).toEqual({ aiDraftState: 'paused' })
+    // The project managers, the creator and the assignee are told, once each, with a link to the document.
+    expect(notifications.map(n => n.recipientId)).toEqual(['pm-1', 'pm-2', 'writer-1'])
+    expect(notifications[0]).toMatchObject({
+      kind: 'ai_draft_cost_limit', severity: 'warning', title: 'AI drafting paused: cost limit reached on "Moon protocol"',
+      linkPath: '/projects/p/clinical-writing/documents/d', channels: ['in_app'],
+    })
+    expect(String(notifications[0]!.body)).toContain('A project manager can raise the limit in AI Debug, then press Continue.')
   })
 
   it('without a limit nothing is paused for cost', async () => {

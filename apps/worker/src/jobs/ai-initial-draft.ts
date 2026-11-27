@@ -38,7 +38,7 @@ import { asFactSheet, factSheetBlock, factSheetPrompt, indexSources, parseFactAn
 import { pageBlocks, rankPages, scannedPages } from './source-pages.js'
 import { markerInstructions } from './finishing.js'
 import { finishSafely } from './finishing-run.js'
-import { loadCostGuard } from './cost-guard.js'
+import { loadCostGuard, notifyCostLimitReached } from './cost-guard.js'
 import { onlyPages } from './source-blocks.js'
 import { buildSourceBlocks, inputUsage, SourcesTooLongError, type SourceBlocks } from './source-blocks.js'
 import { extractSourceUsage, sourceUsageInstruction } from './source-usage.js'
@@ -702,6 +702,9 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     log.info({ documentId, spentUsd: costGuard!.spentUsd, limitUsd: costGuard!.limitUsd }, 'ai_initial_draft: cost limit reached — paused')
     await steps.emit('job_paused', costGuard!.describe(), {
       details: { reason: 'cost_limit', spentUsd: costGuard!.spentUsd, limitUsd: costGuard!.limitUsd, drafted },
+    })
+    await notifyCostLimitReached(prisma, documentId, costGuard!).catch((err: unknown) => {
+      log.warn({ documentId, err: err instanceof Error ? err.message : String(err) }, 'ai_initial_draft: cost-limit notification failed')
     })
   }
 

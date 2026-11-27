@@ -63,6 +63,7 @@ interface PolicyRow {
   buildPlanSource?:    unknown
   referenceStyle?:     string
   costEstimateEnabled?: boolean
+  costLimitEnabled?:   boolean
   effectiveDate:       Date
   supersededBy:        string | null
   retiredAt:           Date | null
@@ -95,6 +96,7 @@ function shape(row: PolicyRow) {
     buildPlanSource:     row.buildPlanSource ?? null,
     referenceStyle:      row.referenceStyle ?? 'numbered',
     costEstimateEnabled: row.costEstimateEnabled ?? false,
+    costLimitEnabled:    row.costLimitEnabled ?? false,
     effectiveDate:       row.effectiveDate.toISOString(),
     supersededBy:        row.supersededBy,
     retiredAt:           row.retiredAt?.toISOString() ?? null,

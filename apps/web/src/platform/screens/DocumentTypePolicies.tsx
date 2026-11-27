@@ -418,6 +418,13 @@ function AssociationsPanel({
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
+  const saveCostLimit = useMutation({
+    mutationFn: (costLimitEnabled: boolean) =>
+      platformApi.updateDocumentTypePolicy(policy.docType, { costLimitEnabled }),
+    onSuccess: () => { setActionInfo('Cost limit setting saved.'); setActionError(null); onChanged() },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
+  })
+
   const saveIchPins = useMutation({
     mutationFn: (names: string[]) =>
       platformApi.updateDocumentTypePolicy(policy.docType, { ichFrameworkNames: names }),
@@ -530,8 +537,24 @@ function AssociationsPanel({
           <span>
             <span className="block text-[13px] font-semibold text-slate-900">Show the AI cost estimate at New Document</span>
             <span className="block text-[12px] text-slate-500">
-              The project manager sees the estimated AI drafting cost and may set a cost limit for the document. The draft pauses
-              when it would pass the limit; the limit can be raised in AI Debug, then the draft resumed.
+              The project manager sees the estimated AI drafting cost when creating a document.
+            </span>
+          </span>
+        </label>
+        <label className="mt-3 flex items-start gap-2 border-t border-slate-100 pt-3">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={policy.costLimitEnabled ?? false}
+            disabled={saveCostLimit.isPending}
+            onChange={e => saveCostLimit.mutate(e.currentTarget.checked)}
+            data-field="cost-limit-enabled"
+          />
+          <span>
+            <span className="block text-[13px] font-semibold text-slate-900">Allow an AI cost limit at New Document</span>
+            <span className="block text-[12px] text-slate-500">
+              The project manager may set a cost limit when creating a document. A draft that reaches it pauses and the project
+              managers are notified; a PM raises the limit in AI Debug and continues the draft.
             </span>
           </span>
         </label>

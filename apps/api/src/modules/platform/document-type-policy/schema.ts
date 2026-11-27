@@ -89,6 +89,8 @@ export const createPolicySchema = z.object({
   referenceStyle:      z.enum(['numbered', 'author_year']).optional(),
   /** Show the AI cost estimate (and an optional limit) at New Document (migration 111). */
   costEstimateEnabled: z.boolean().optional(),
+  /** Let the PM set an AI cost limit at New Document (migration 112). */
+  costLimitEnabled:    z.boolean().optional(),
 })
 
 /** Default SME-prompt placeholder used on `create` when the admin opts

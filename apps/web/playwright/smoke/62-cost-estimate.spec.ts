@@ -19,8 +19,8 @@ const ESTIMATE = {
   basis: { sections: 50, sourceTokens: 400000, perSectionSourceTokens: 22857, cached: false, validationPasses: [1, 3] },
 }
 
-async function stub(page: Page, costEstimateEnabled: boolean) {
-  await page.addInitScript(({ members, source, estimate, enabled }) => {
+async function stub(page: Page, costEstimateEnabled: boolean, costLimitEnabled = costEstimateEnabled) {
+  await page.addInitScript(({ members, source, estimate, enabled, limitEnabled }) => {
     window.localStorage.setItem('clinwrite.demo.currentUserId', 'user-sa')
     const log = { created: [] as unknown[], estimates: 0 }
     ;(window as unknown as { __log: typeof log }).__log = log
@@ -32,7 +32,7 @@ async function stub(page: Page, costEstimateEnabled: boolean) {
       if (/\/projects\/[^/]+\/assignable-users/.test(url)) return json(members)
       if (/\/projects\/[^/]+\/source-documents(\?.*)?$/.test(url)) return json({ items: [source], total: 1, page: 1, pageSize: 100, summary: { files: 1, saved: 1, rejected: 0 } })
       if (/\/document-type-policies\/protocol$/.test(url)) {
-        return json({ id: 'pol', docType: 'protocol', version: 3, isCurrent: true, smePrompt: 'SME prompt', bestPracticeDigest: { principles: [] }, sectionRules: {}, templateId: null, checklistTemplateId: null, ichFramework: null, ichFrameworkNames: [], requirements: { requireSources: true, requireTemplate: false, requirePurpose: false }, costEstimateEnabled: enabled })
+        return json({ id: 'pol', docType: 'protocol', version: 3, isCurrent: true, smePrompt: 'SME prompt', bestPracticeDigest: { principles: [] }, sectionRules: {}, templateId: null, checklistTemplateId: null, ichFramework: null, ichFrameworkNames: [], requirements: { requireSources: true, requireTemplate: false, requirePurpose: false }, costEstimateEnabled: enabled, costLimitEnabled: limitEnabled })
       }
       if (/\/projects\/[^/]+\/documents\/cost-estimate$/.test(url)) { log.estimates++; return json(estimate) }
       if (/\/projects\/[^/]+\/documents\/source-check$/.test(url)) return json({ ok: true, unknownIds: [], issues: [] })
@@ -40,7 +40,7 @@ async function stub(page: Page, costEstimateEnabled: boolean) {
       if (method !== 'GET') return json({ error: 'blocked in test' }, 500)
       return real(input, init)
     }
-  }, { members: MEMBERS, source: SOURCE, estimate: ESTIMATE, enabled: costEstimateEnabled })
+  }, { members: MEMBERS, source: SOURCE, estimate: ESTIMATE, enabled: costEstimateEnabled, limitEnabled: costLimitEnabled })
 }
 
 const log = (page: Page) => page.evaluate(() => (window as unknown as { __log: { created: Array<Record<string, unknown>>; estimates: number } }).__log)
@@ -85,5 +85,26 @@ test('with the estimate off (the default) nothing is shown or sent', async ({ pa
   await page.locator('button[type="submit"]').dispatchEvent('click')
   await expect.poll(async () => (await log(page)).created.length).toBe(1)
   expect((await log(page)).created[0]).not.toHaveProperty('aiCostLimit')
+  expect((await log(page)).estimates).toBe(0)
+})
+
+test('estimate on, limit off (the default for the limit): the range, but no limit field', async ({ page }) => {
+  await stub(page, true, false)
+  await toStep4(page)
+  await expect(page.locator('[data-cost-estimate-range]')).toBeVisible()
+  await expect(page.locator('[data-field="cost-limit"]')).toHaveCount(0)
+  await page.locator('button[type="submit"]').dispatchEvent('click')
+  await expect.poll(async () => (await log(page)).created.length).toBe(1)
+  expect((await log(page)).created[0]).not.toHaveProperty('aiCostLimit')
+})
+
+test('limit on, estimate off: the limit field alone, sent with Create', async ({ page }) => {
+  await stub(page, false, true)
+  await toStep4(page)
+  await expect(page.locator('[data-cost-estimate-range]')).toHaveCount(0)
+  await page.locator('[data-field="cost-limit"] input').fill('900')
+  await page.locator('button[type="submit"]').dispatchEvent('click')
+  await expect.poll(async () => (await log(page)).created.length).toBe(1)
+  expect((await log(page)).created[0]).toMatchObject({ aiCostLimit: { amount: 900 } })
   expect((await log(page)).estimates).toBe(0)
 })

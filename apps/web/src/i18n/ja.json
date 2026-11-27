@@ -1289,7 +1289,7 @@
       "cost_basis": "AI がドラフトするセクションは {{sections}} 件、約 {{minLow}}～{{minHigh}} 分です。ソースの量と現在の AI 料金に基づく概算で、実際のコストは AI Debug に表示されます。",
       "cost_rate_missing": "米ドルで表示しています。インストールの通貨の為替レートが設定されていません（管理 → ローカライズ）。",
       "cost_limit_label": "コスト上限（任意） {{currency}}",
-      "cost_limit_hint": "この金額を超える前にドラフト作成が一時停止します。プロジェクトマネージャーは AI Debug で上限を引き上げてから再開できます。上限なしの場合は空欄のままにしてください。",
+      "cost_limit_hint": "この金額を超える前にドラフト作成が一時停止し、プロジェクトマネージャーに通知されます。PM は AI Debug で上限を引き上げて続行できます。上限なしの場合は空欄のままにしてください。",
       "hidden_unreadable_one": "AI が読み取れないため、{{count}} 件のソースを非表示にしています（PowerPoint、Excel、画像、旧形式 .doc、またはチェックに失敗したファイル）。使用するには PDF で保存してください。",
       "hidden_unreadable_other": "AI が読み取れないため、{{count}} 件のソースを非表示にしています（PowerPoint、Excel、画像、旧形式 .doc、またはチェックに失敗したファイル）。使用するには PDF で保存してください。",
       "looks_like_example": "サンプルまたはテンプレートのようです。{{reason}}",

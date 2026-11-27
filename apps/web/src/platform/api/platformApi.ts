@@ -1047,6 +1047,7 @@ export interface DocumentTypePolicy {
   buildPlanSource?:    BuildPlanSourceView | null
   referenceStyle?:     ReferenceStyle
   costEstimateEnabled?: boolean
+  costLimitEnabled?:   boolean
   effectiveDate:       string
   supersededBy:        string | null
   retiredAt:           string | null
@@ -1076,8 +1077,10 @@ export interface DocumentTypePolicyEditableFields {
   ichFrameworkNames?:   string[]
   requirements?:        PolicyRequirements
   referenceStyle?:      ReferenceStyle
-  /** Show the AI cost estimate (and an optional cost limit) at New Document. */
+  /** Show the AI cost estimate at New Document. */
   costEstimateEnabled?: boolean
+  /** Let the PM set an AI cost limit at New Document. */
+  costLimitEnabled?:    boolean
 }
 
 /** How references are cited when code builds the References section. */

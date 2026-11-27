@@ -340,7 +340,7 @@ export function NewDocumentForm({
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
         sourceRoles: sourceIds.length ? Object.fromEntries(sourcesWithRoles.map(s => [s.uploadId, s.role])) : undefined,
-        aiCostLimit: policy?.costEstimateEnabled && costLimit.trim() !== '' && costLimitValid ? { amount: costLimitAmount } : undefined,
+        aiCostLimit: policy?.costLimitEnabled && costLimit.trim() !== '' && costLimitValid ? { amount: costLimitAmount } : undefined,
         // AI drafting runs when the platform has an AI engine configured;
         // otherwise create a blank document (the author drafts by hand).
         // The API also refuses aiDraft=true when AI is off, so this flag
@@ -747,8 +747,10 @@ export function NewDocumentForm({
               t={t}
             />
 
-            {policy?.costEstimateEnabled && (
+            {(policy?.costEstimateEnabled || policy?.costLimitEnabled) && (
               <CostEstimateCard
+                showEstimate={!!policy?.costEstimateEnabled}
+                showLimit={!!policy?.costLimitEnabled}
                 loading={costEstimate.isFetching}
                 failed={costEstimate.isError}
                 estimate={costEstimate.data}
@@ -888,7 +890,9 @@ function SourcePickRow({ src, selected, role, onToggle, onRole }: {
 }
 
 /** Step 4: the AI drafting cost estimate and the optional cost limit (policy: cost estimate on). */
-function CostEstimateCard({ loading, failed, estimate, limit, limitValid, onLimit }: {
+function CostEstimateCard({ showEstimate, showLimit, loading, failed, estimate, limit, limitValid, onLimit }: {
+  showEstimate: boolean
+  showLimit: boolean
   loading: boolean
   failed: boolean
   estimate: CostEstimate | undefined
@@ -902,10 +906,10 @@ function CostEstimateCard({ loading, failed, estimate, limit, limitValid, onLimi
   const money = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-[12px]" data-cost-estimate>
-      <p className="font-semibold text-slate-900">{t('page.new_document.cost_title')}</p>
-      {loading && <p className="mt-1 text-slate-500">{t('page.new_document.cost_loading')}</p>}
-      {!loading && (failed || !ready) && <p className="mt-1 text-slate-500" data-cost-estimate-state="unavailable">{t('page.new_document.cost_unavailable')}</p>}
-      {!loading && ready && (
+      {showEstimate && <p className="font-semibold text-slate-900">{t('page.new_document.cost_title')}</p>}
+      {showEstimate && loading && <p className="mt-1 text-slate-500">{t('page.new_document.cost_loading')}</p>}
+      {showEstimate && !loading && (failed || !ready) && <p className="mt-1 text-slate-500" data-cost-estimate-state="unavailable">{t('page.new_document.cost_unavailable')}</p>}
+      {showEstimate && !loading && ready && (
         <>
           <p className="mt-1 text-[14px] font-semibold text-slate-900" data-cost-estimate-range>
             {money(ready.low)} – {money(ready.high)}
@@ -916,7 +920,8 @@ function CostEstimateCard({ loading, failed, estimate, limit, limitValid, onLimi
           {ready.rateMissing && <p className="mt-1 text-amber-700">{t('page.new_document.cost_rate_missing')}</p>}
         </>
       )}
-      <label className="mt-3 block" data-field="cost-limit">
+      {showLimit && (
+      <label className={`${showEstimate ? 'mt-3' : ''} block`} data-field="cost-limit">
         <span className="block font-medium text-slate-700">{t('page.new_document.cost_limit_label', { currency: currency || '' }).trim()}</span>
         <input
           type="number"
@@ -929,6 +934,7 @@ function CostEstimateCard({ loading, failed, estimate, limit, limitValid, onLimi
         />
         <span className="mt-1 block text-[11px] text-slate-500">{t('page.new_document.cost_limit_hint')}</span>
       </label>
+      )}
     </div>
   )
 }

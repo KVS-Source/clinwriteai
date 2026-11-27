@@ -166,6 +166,8 @@ model DocumentTypePolicy {
   referenceStyle      String    @default("numbered")
   // The PM shows the AI cost estimate (and may set a limit) at New Document (migration 111). Off by default.
   costEstimateEnabled Boolean   @default(false)
+  // The PM may set an AI cost limit at New Document (migration 112). Off by default.
+  costLimitEnabled    Boolean   @default(false)
 
   effectiveDate       DateTime  @default(now())
   supersededBy        String?                                           // → next version's id

@@ -722,9 +722,9 @@ export function AiDebugPanel({ documentId, open, onClose }: Props) {
               <StatusCard data={data} sectionsBelow={sectionsBelow.length} />
 
               {/* COST — spent so far against the document's limit; a PM can change the limit */}
-              {data.cost && (data.cost.limit || data.cost.canSetLimit) && (
+              {data.cost && (
                 <Section title="AI cost">
-                  <CostLimitBox documentId={documentId} cost={data.cost} />
+                  <CostLimitBox documentId={documentId} cost={data.cost} paused={(draftStatusData?.state ?? data.document?.aiDraftState) === 'paused'} />
                 </Section>
               )}
 
@@ -1023,53 +1023,61 @@ interface DebugCost {
 }
 
 /** Spent so far against the limit. A PM sets, raises or removes the limit; the draft pauses before passing it. */
-function CostLimitBox({ documentId, cost }: { documentId: string; cost: DebugCost }) {
+function CostLimitBox({ documentId, cost, paused }: { documentId: string; cost: DebugCost; paused: boolean }) {
   const qc = useQueryClient()
   const [draft, setDraft] = useState('')
-  const save = useMutation({
-    mutationFn: (amount: number | null) => documentsApi.setAiCostLimit(documentId, amount),
-    onSuccess: () => {
-      setDraft('')
-      qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
-      qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
-    },
-  })
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['ai-debug', documentId] })
+    qc.invalidateQueries({ queryKey: ['ai-draft-status', documentId] })
+  }
+  const raise = useMutation({ mutationFn: (amount: number) => documentsApi.setAiCostLimit(documentId, amount), onSuccess: () => { setDraft(''); refresh() } })
+  const resume = useMutation({ mutationFn: () => aiDrafterApi.resumeDraft(documentId), onSuccess: refresh })
   const money = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cost.currency}`
   const amount = Number(draft)
-  const valid = draft.trim() !== '' && Number.isFinite(amount) && amount > 0
+  const valid = draft.trim() !== '' && Number.isFinite(amount) && amount > (cost.limit?.amount ?? 0)
   const reached = cost.reached ?? (!!cost.limit && cost.spent >= cost.limit.amount)
+  const errorText = (e: unknown) => e instanceof ApiError ? ((e.body as { message?: string } | null)?.message ?? `HTTP ${e.status}`) : 'Request failed.'
   return (
     <div className="text-[12px]" data-cost-limit>
       <p className="text-slate-800">
         Spent so far: <span className="font-semibold">{money(cost.spent)}</span>
         {cost.limit ? <> of a <span className="font-semibold">{money(cost.limit.amount)}</span> limit</> : ' (no limit)'}
       </p>
-      {reached && <p className="mt-1 text-amber-800" data-cost-limit-reached>The limit is reached: the draft pauses before its next AI call. Raise the limit, then Resume.</p>}
       {cost.rateMissing && <p className="mt-1 text-[11px] text-slate-500">Shown in US dollars: no exchange rate is set for the install’s currency.</p>}
-      {cost.canSetLimit && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={draft}
-            onChange={e => setDraft(e.currentTarget.value)}
-            placeholder={cost.limit ? String(Math.ceil(cost.limit.amount * 1.5)) : 'Amount'}
-            aria-label={`New cost limit in ${cost.currency}`}
-            className="w-32 rounded-md border border-slate-300 px-2 py-1 text-[12px]"
-            data-field="new-cost-limit"
-          />
-          <button type="button" disabled={!valid || save.isPending} onClick={() => save.mutate(amount)}
-            className="rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50" data-action="save-cost-limit">
-            {cost.limit ? 'Change limit' : 'Set limit'}
-          </button>
-          {cost.limit && (
-            <button type="button" disabled={save.isPending} onClick={() => save.mutate(null)}
-              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 disabled:opacity-50" data-action="remove-cost-limit">
-              Remove limit
-            </button>
+      {paused && reached && (
+        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2.5" data-cost-limit-reached>
+          <p className="font-semibold text-amber-900">Drafting is paused: the cost limit is reached.</p>
+          {cost.canSetLimit ? (
+            <>
+              <p className="mt-0.5 text-amber-900">Raise the limit, then press Continue. Sections already drafted are kept.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={draft}
+                  onChange={e => setDraft(e.currentTarget.value)}
+                  placeholder={cost.limit ? String(Math.ceil(cost.limit.amount * 1.5)) : ''}
+                  aria-label={`New cost limit in ${cost.currency}`}
+                  className="w-32 rounded-md border border-slate-300 px-2 py-1 text-[12px]"
+                  data-field="new-cost-limit"
+                />
+                <button type="button" disabled={!valid || raise.isPending} onClick={() => raise.mutate(amount)}
+                  className="rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50" data-action="raise-cost-limit">
+                  Raise limit
+                </button>
+                <button type="button" disabled={resume.isPending} onClick={() => resume.mutate()}
+                  className="rounded-md border border-blue-600 bg-white px-2.5 py-1 text-[12px] font-semibold text-blue-700 disabled:opacity-50" data-action="continue-after-limit">
+                  {resume.isPending ? 'Continuing…' : 'Continue'}
+                </button>
+              </div>
+              {draft.trim() !== '' && !valid && <p className="mt-1 text-rose-700">Enter an amount higher than the current limit.</p>}
+              {raise.isError && <p className="mt-1 text-rose-700">{errorText(raise.error)}</p>}
+              {resume.isError && <p className="mt-1 text-rose-700">{errorText(resume.error)}</p>}
+            </>
+          ) : (
+            <p className="mt-0.5 text-amber-900">A project manager can raise the limit here and continue the draft.</p>
           )}
-          {save.isError && <span className="text-rose-700">Could not save the limit.</span>}
         </div>
       )}
     </div>

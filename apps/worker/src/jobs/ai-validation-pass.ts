@@ -38,7 +38,7 @@ import { buildSourceBlocks, inputUsage } from './source-blocks.js'
 import { asBuildPlan, headingNumbers } from './build-plan.js'
 import { asFactSheet, factSheetBlock, type FactSheet } from './fact-sheet.js'
 import { finishSafely } from './finishing-run.js'
-import { loadCostGuard } from './cost-guard.js'
+import { loadCostGuard, notifyCostLimitReached } from './cost-guard.js'
 import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './source-files.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
@@ -189,6 +189,9 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
   if (costGuard?.reached) {
     await prisma.document.update({ where: { id: documentId }, data: { aiDraftState: 'paused' } }).catch(() => undefined)
     await steps.emit('job_paused', costGuard.describe(), { details: { reason: 'cost_limit', spentUsd: costGuard.spentUsd, limitUsd: costGuard.limitUsd, iteration } })
+    await notifyCostLimitReached(prisma, documentId, costGuard).catch((err: unknown) => {
+      log.warn({ documentId, err: err instanceof Error ? err.message : String(err) }, 'ai_validation_pass: cost-limit notification failed')
+    })
     return { documentId, iteration, paused: 'cost_limit' }
   }
   if (apiKey && hasDraftedContent) {

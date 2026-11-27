@@ -34,6 +34,16 @@ describe('cross-references', () => {
     expect(r.flags.get('s7_2')).toEqual(['dropped_cross_ref'])
     expect(r.report.crossReferences).toEqual({ resolved: 2, broken: [{ section: '7.2', target: '14.2' }] })
   })
+
+  it('a sub-heading the AI numbered inside a section resolves; one that is not there is still broken', () => {
+    const r = finishDocument(base([
+      S('s10_4', '10.4', 'Secondary and Exploratory Analyses', '<h3>10.4.1 Approach</h3><p>x</p><h3>10.4.3 Secondary Efficacy Analyses</h3><p>y</p>'),
+      S('s10_1', '10.1', 'Hypotheses', '<p>See [XREF: 10.4.3] and [XREF: Section 10.4.3.] but not [XREF: 10.4.9] or [XREF: 6.2.3].</p>'),
+      REFS,
+    ]))
+    expect(r.html.get('s10_1')).toBe('<p>See Section 10.4.3 and Section 10.4.3 but not [TBD: cross-reference to “10.4.9”] or [TBD: cross-reference to “6.2.3”].</p>')
+    expect(r.report.crossReferences).toEqual({ resolved: 2, broken: [{ section: '10.1', target: '10.4.9' }, { section: '10.1', target: '6.2.3' }] })
+  })
 })
 
 describe('references', () => {
@@ -66,6 +76,16 @@ describe('references', () => {
     expect(r.html.get('s2_1')).toBe('<p>Claim [TBD: reference for “Brown 2020” — not found in the evidence]. Other [TBD: reference for “Jones 2019” — not found in the evidence].</p>')
     expect(r.flags.get('s2_1')).toEqual(['invented_citation'])
     expect(r.html.get('s12')).toBe('<p>No references are cited in this document.</p>')
+  })
+
+  it('[REF: TBD …] is a TBD to fill, not a citation, and is not flagged', () => {
+    const r = finishDocument(base([
+      S('s4_4', '4.4', 'Scientific Rationale', '<p>Placebo is standard [REF: TBD: reference needed].</p>'),
+      REFS,
+    ]))
+    expect(r.html.get('s4_4')).toBe('<p>Placebo is standard [TBD: reference needed].</p>')
+    expect(r.flags.get('s4_4')).toBeUndefined()
+    expect(r.report.references).toMatchObject({ cited: 0, listed: 0, notFound: [] })
   })
 
   it('the entry is found even when the cited page or source is wrong', () => {
@@ -151,6 +171,19 @@ describe('fact consistency', () => {
       { section: '5.3', fact: 'Protocol number', expected: 'MP-301', found: 'MP-310' },
     ])
     expect([...r.flags.keys()]).toEqual(['s5_3'])
+  })
+
+  it('a number per arm or group is a share of the total, not a different sample size', () => {
+    const factSheet = { extractedAt: '', model: 'm', sourceIds: [], facts: [
+      { key: 'sample_size', label: 'Planned number of participants', value: 'Approximately 600 participants', status: 'verified' as const },
+    ] }
+    const r = finishDocument(base([
+      S('s10_1', '10.1', 'Sample Size', '<p>Approximately 600 participants will be randomized 1:1, giving approximately 300 participants per arm. '
+        + 'Up to 300 participants in each treatment group are expected.</p>'),
+      S('s4_1', '4.1', 'Overall Design', '<p>Approximately 500 participants will be enrolled.</p>'),
+      REFS,
+    ], { factSheet }))
+    expect(r.report.mismatches.map(m => m.section)).toEqual(['4.1'])
   })
 })
 

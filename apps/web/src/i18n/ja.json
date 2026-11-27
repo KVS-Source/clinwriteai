@@ -106,7 +106,9 @@
       "locked_by": "{{owner}} がロック中",
       "another_user": "他のユーザー",
       "progress_complete": "{{total}} 件中 {{complete}} 件のセクション · {{pct}}%",
-      "progress_reviewed": "{{total}} 件中 {{complete}} 件のセクションをレビュー済み · {{pct}}%"
+      "progress_reviewed": "{{total}} 件中 {{complete}} 件のセクションをレビュー済み · {{pct}}%",
+      "heading_flag_missing": "導入文がまだありません — クリックしてサブセクションから作成",
+      "heading_flag_stale": "導入文の作成後にサブセクションが変更されました — クリックして確認"
     },
 
     "project_dashboard": {
@@ -317,7 +319,8 @@
       "cannot_edit_open_section_first":   "先にセクションを開いてください",
       "cannot_edit_read_only":            "ドキュメントは読み取り専用です — {{short}}",
       "cannot_edit_named_user_editing":   "{{name}} がこのセクションを編集中です",
-      "cannot_edit_acquiring_lock":       "編集ロックを取得中…"
+      "cannot_edit_acquiring_lock":       "編集ロックを取得中…",
+      "panel_title_heading_redraft": "セクションの導入文"
     },
 
     "comments_panel": {
@@ -5108,6 +5111,31 @@
       "expand": "拡大",
       "refresh": "更新",
       "close_aria": "パネルを閉じる"
+    },
+    "heading_redraft": {
+      "loading": "読み込み中…",
+      "drafting": "AI 下書きはまだ実行中です。完了後にセクションの導入文を確認します。",
+      "none_flagged": "確認が必要なセクションの導入文はありません。",
+      "close": "閉じる",
+      "count_one": "確認するセクションの導入文：{{count}} 件",
+      "count_other": "確認するセクションの導入文：{{count}} 件",
+      "reason_missing": "この主セクションには導入文がありませんが、サブセクションは下書き済みです。サブセクションから AI で導入文を作成しますか？",
+      "reason_stale": "この導入文の作成後にサブセクションが変更されました（{{sections}}）。それらから AI で作り直しますか？",
+      "current": "現在のテキスト",
+      "no_text": "テキストはまだありません。",
+      "preview": "AI による導入文（未保存）",
+      "redraft": "AI で作り直す",
+      "drafting_one": "作成中…",
+      "keep": "このままにする",
+      "not_now": "後で",
+      "accept": "採用",
+      "discard": "破棄",
+      "saving": "保存中…",
+      "cannot_act": "セクションの導入文を作り直す・そのままにすることができるのは、文書の作成者（Author）と文書を作成した人のみです。",
+      "next": "次へ：{{section}}",
+      "error_redraft": "導入文を作成できませんでした。もう一度お試しください。",
+      "error_accept": "導入文を保存できませんでした。もう一度お試しください。",
+      "error_keep": "決定を保存できませんでした。もう一度お試しください。"
     }
   }
 }

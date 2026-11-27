@@ -41,6 +41,9 @@ vi.mock('../../../../../worker/src/jobs/policy-prompt.js', () => ({
 }))
 vi.mock('../../../../../worker/src/jobs/ai-draft-step.js', () => ({ createStepLogger: () => ({ emit: async () => undefined }) }))
 
+/** The plan with main headings kept as headings only (plans before v4); most tests here are about the sub-sections. */
+const HEADING_ONLY = { ...PLAN, headings: 'template_only' }
+
 function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factSheet?: unknown; aiCostLimit?: unknown; existing?: Record<string, string> } = {}) {
   const written: string[] = []
   const updates: Array<Record<string, unknown>> = []
@@ -51,7 +54,7 @@ function run(policyVersionAtCreate: number | null, opts: { plan?: unknown; factS
       findUnique: vi.fn(async () => ({ aiDraftState: 'drafting', policyVersionAtCreate, aiInstructions: null, aiPromptRecordId: null, bestPracticeRecordId: null, factSheet: opts.factSheet ?? null, aiCostLimit: opts.aiCostLimit ?? null, title: 'Moon protocol', projectId: 'p', createdBy: 'pm-1', assigneeId: 'writer-1' })),
     },
     project: { findUnique: async () => null },
-    documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: opts.plan ?? PLAN })) },
+    documentTypePolicy: { findUnique: vi.fn(async () => ({ buildPlan: opts.plan ?? HEADING_ONLY })) },
     documentTemplate: { findFirst: async () => ({ sections: TEMPLATE }) },
     documentUpload: { findMany: async () => [{ id: 'u1', title: 'Synopsis', fileName: 'syn.pdf', sourceCategory: 'protocol', blobKey: 'k', contentType: 'application/pdf' }] },
     documentSource: { findMany: async () => [] },
@@ -161,7 +164,7 @@ describe('drafting with the Protocol build plan', () => {
       'Hypotheses and sample size: 1200 participants give 90 percent power.',
       '',
     ])
-    const plan = { ...PLAN, sourcePages: { allBelowPages: 0, budgetChars: 10_000 } }
+    const plan = { ...HEADING_ONLY, sourcePages: { allBelowPages: 0, budgetChars: 10_000 } }
     const { done } = run(2, { plan })
     await done
     expect(callFor('5.1').titles).toEqual(['Synopsis (its pages 3, no text)', 'Synopsis (pages 1)'])
@@ -205,5 +208,20 @@ describe('drafting with the Protocol build plan', () => {
     expect(callFor('4.2').prompt).toContain('--- 4.1 Overall Design ---\n<p>Earlier 4.1</p>')
     expect(callFor('4.2').prompt).toContain('--- 3.1 Primary Objective and Endpoint ---\n<p>Earlier 3.1</p>')
     expect(state.calls.some(c => c.prompt.includes('Draft section 3.1 '))).toBe(false)
+  })
+
+  it('plan v4: each main heading is drafted right after its own sub-sections, from them, following its guidance', async () => {
+    const { written, done } = run(2, { plan: PLAN })
+    await done
+    expect(written).toHaveLength(61)                                                         // 50 sub-sections + 11 main headings
+    expect(written.slice(0, 4)).toEqual(['3.1', '3.2', '3.3', '3'])
+    expect(written.indexOf('5')).toBe(written.indexOf('5.4') + 1)
+    expect(written.slice(-3)).toEqual(['1.1', '1.2', '1'])                                   // 1.3 is drafted earlier, with study conduct
+    expect(written).not.toContain('12')
+    const intro = callFor('5').prompt
+    expect(intro).toContain('THIS IS A MAIN SECTION HEADING')
+    for (const n of ['5.1', '5.2', '5.3', '5.4']) expect(intro).toContain(`--- ${n} `)
+    expect(intro).not.toContain('--- 6.1 ')
+    expect(intro).not.toContain('THIS SECTION SUMMARISES THE DOCUMENT')
   })
 })

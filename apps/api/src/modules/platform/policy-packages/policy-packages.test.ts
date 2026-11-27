@@ -69,8 +69,10 @@ describe('build plan rules', () => {
   })
   it('drafting progress leaves out what the plan never drafts: main headings and References', () => {
     const numbers = TEMPLATE.map(s => s.number)
-    expect(numbersNotDraftedByAi(PLAN, numbers).size).toBe(12)
-    expect(numbersNotDraftedByAi(PLAN, numbers).has('12')).toBe(true)
+    expect(numbersNotDraftedByAi({ ...PLAN, headings: 'template_only' }, numbers).size).toBe(12)
+    expect(numbersNotDraftedByAi({ ...PLAN, headings: 'template_only' }, numbers).has('12')).toBe(true)
+    // With introductions (plan v4) only References is left out.
+    expect([...numbersNotDraftedByAi(PLAN, numbers)]).toEqual(['12'])
     expect(numbersNotDraftedByAi(null, numbers).size).toBe(0)
   })
 })
@@ -227,7 +229,8 @@ describe('the import routes', () => {
 })
 
 describe('drafting follows the plan', () => {
-  const plan = asBuildPlan(PLAN)!
+  // Headings kept as headings only (plans before v4); the introductions are tested below.
+  const plan = asBuildPlan({ ...PLAN, headings: 'template_only' })!
   const sections = TEMPLATE.map(s => ({ ...s, id: `s${s.number}` }))
   const planned = orderByPlan(sections, plan)
 
@@ -256,5 +259,31 @@ describe('drafting follows the plan', () => {
     expect(block).toContain('THIS SECTION SUMMARISES THE DOCUMENT')
     expect(earlierSectionsFor(planned, at('3.1'), id => text.get(id))).toEqual([])
     expect(planPromptBlock({ earlier: [], rules: {} })).toBe('')
+  })
+})
+
+describe('main headings as introductions (plan v4)', () => {
+  const plan = asBuildPlan(PLAN)!
+  const sections = TEMPLATE.map(s => ({ ...s, id: `s${s.number}` }))
+  const planned = orderByPlan(sections, plan)
+  it('each heading right after the last of its own sub-sections, given those, adding no new facts', () => {
+    const drafted = planned.filter(p => p.mode === 'draft').map(p => p.section.number)
+    expect(drafted).toHaveLength(61)
+    for (const h of ['2', '3', '4', '5', '6', '7', '8', '9', '10', '11']) {
+      const children = drafted.filter(n => n.startsWith(`${h}.`))
+      expect(drafted.indexOf(h)).toBeGreaterThan(Math.max(...children.map(c => drafted.indexOf(c))))
+    }
+    const five = planned.find(p => p.section.number === '5')!
+    expect(five).toMatchObject({ mode: 'draft', dependsOn: ['5.1', '5.2', '5.3', '5.4'], rules: { sectionIntro: true, noNewFacts: true } })
+    expect(planned.find(p => p.section.number === '12')!.mode).toBe('code')
+  })
+  it('a deeper heading comes before its parent', () => {
+    const deep = orderByPlan([...sections, { id: 's7.1.1', number: '7.1.1', title: 'Primary efficacy' }], plan).filter(p => p.mode === 'draft').map(p => p.section.number)
+    expect(deep.indexOf('7.1')).toBeGreaterThan(deep.indexOf('7.1.1'))
+    expect(deep.indexOf('7')).toBeGreaterThan(deep.indexOf('7.1'))
+  })
+  it('the template check no longer says headings keep the heading only', () => {
+    expect(checkPlanAgainstTemplate(PLAN, TEMPLATE)).toHaveLength(4)
+    expect(PLAN.headings).toBe('lead_in')
   })
 })

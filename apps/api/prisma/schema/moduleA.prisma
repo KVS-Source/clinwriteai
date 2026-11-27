@@ -62,6 +62,8 @@ model Document {
   factSheet              Json?     @map("fact_sheet")
   // AI drafting cost limit (migration 111): { usd, amount, currency, usdRate, setBy, setAt }; null = none.
   aiCostLimit            Json?     @map("ai_cost_limit")
+  // Main headings someone chose to keep as they are (migration 113): { <sectionId>: { keptAt, keptBy } }.
+  headingReviews         Json?     @map("heading_reviews")
   // 0–100 roll-up (average of per-section aiConfidence). Updated at the
   // end of every validation pass. Null until the first pass runs.
   aiConfidenceOverall    Int?      @map("ai_confidence_overall")

@@ -64,6 +64,11 @@ export const buildPlanSchema = z.object({
     abbreviations:   z.boolean().optional(),
     factConsistency: z.boolean().optional(),
   }).strict().optional(),
+  /**
+   * Main headings (a number with sub-sections): 'template_only' keeps the template heading with no text; 'lead_in'
+   * drafts an introduction right after the last of its sub-sections, from them, following the template guidance.
+   */
+  headings: z.enum(['template_only', 'lead_in']).default('template_only'),
   /** Long sources: each section gets only its relevant pages (worker source-pages.ts). */
   sourcePages: z.object({
     /** Up to this many pages in all, every section still gets every file. */
@@ -145,7 +150,7 @@ export function checkPlanAgainstTemplate(plan: BuildPlan, sections: TemplateSect
     const t = byNumber.get(p.number)
     if (!t) warnings.push(`The plan drafts ${p.number} ${p.title}, but the template has no section ${p.number}. It will be skipped.`)
     else if (!sameTitle(t.title, p.title)) warnings.push(`Section ${p.number} is “${t.title}” in the template but “${p.title}” in the plan. Check that the plan still fits.`)
-    else if (headings.has(p.number)) warnings.push(`The plan drafts ${p.number} ${p.title}, but it is a main heading in the template, so it keeps the heading only.`)
+    else if (headings.has(p.number)) warnings.push(`The plan drafts ${p.number} ${p.title}, but it is a main heading in the template, so it ${plan.headings === 'lead_in' ? 'gets an introduction after its sub-sections instead' : 'keeps the heading only'}.`)
   }
   for (const t of sections) {
     const n = t.number.trim()
@@ -178,5 +183,7 @@ export function numbersNotDraftedByAi(rawPlan: unknown, numbers: string[]): Set<
   // Read loosely (like the worker): a stored plan was validated when it was imported.
   const built = (rawPlan as { builtByCode?: unknown }).builtByCode
   const codeBuilt = Array.isArray(built) ? built.flatMap(b => (b && typeof (b as { number?: unknown }).number === 'string' ? [(b as { number: string }).number] : [])) : []
-  return new Set([...headingNumbers(numbers.map(number => ({ number, title: '' }))), ...codeBuilt])
+  // With lead-ins (headings: 'lead_in') main headings are drafted too.
+  const leadIns = (rawPlan as { headings?: unknown }).headings === 'lead_in'
+  return new Set([...(leadIns ? [] : headingNumbers(numbers.map(number => ({ number, title: '' })))), ...codeBuilt])
 }

@@ -1,7 +1,7 @@
 {
   "packageId": "protocol-build-plan",
-  "packageVersion": 3,
-  "description": "Protocol AI build plan: a checked study fact sheet first, then objectives, design, population and treatment, study conduct, statistics, background, standard sections, and the synopsis last. Long sources: each section gets its relevant pages. Finished by code: cross-references, references from the evidence, abbreviation and fact checks.",
+  "packageVersion": 4,
+  "description": "Protocol AI build plan: a checked study fact sheet first, then objectives, design, population and treatment, study conduct, statistics, background, standard sections, and the synopsis last; each main heading gets an introduction after its sub-sections. Long sources: each section gets its relevant pages. Finished by code: cross-references, references from the evidence, abbreviation and fact checks.",
   "audience": {
     "installIds": [
       "*"

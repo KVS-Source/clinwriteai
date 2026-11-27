@@ -26,6 +26,10 @@ interface Props {
   // a small numeric badge next to the title. Missing entries render
   // nothing (section was never AI-evaluated). See AI-1 / AI-2 arcs.
   aiConfidenceBySectionId?: Map<string, AiSectionStatus>
+  // Main headings whose introduction is missing or older than their sub-sections (keyed by Section.id). Each shows a
+  // flag; clicking it opens the "Section introductions" panel on that heading.
+  headingFlags?: Map<string, 'missing' | 'stale'>
+  onHeadingFlag?: (sectionId: string) => void
 }
 
 // (Sources moved to the editor toolbar's "Sources" button and its right-hand panel.)
@@ -125,6 +129,8 @@ export function SectionNavigator({
   activeSectionBadge,
   progressLabelSuffix,
   aiConfidenceBySectionId,
+  headingFlags,
+  onHeadingFlag,
 }: Props) {
   const { t } = useTranslation()
   // The active-section avatar is the signed-in user (initials from their real name), not a fixed persona.
@@ -332,6 +338,28 @@ export function SectionNavigator({
                 const ai = aiConfidenceBySectionId?.get(section.id)
                 if (!ai || ai.confidence === null) return null
                 return <AiSectionConfidenceBadge confidence={ai.confidence} flags={ai.flags} />
+              })()}
+
+              {/* Heading introduction flag: missing or stale. Opens the Section introductions panel. */}
+              {(() => {
+                const reason = headingFlags?.get(section.id)
+                if (!reason) return null
+                const label = t(reason === 'missing' ? 'page.section_navigator.heading_flag_missing' : 'page.section_navigator.heading_flag_stale')
+                return (
+                  <button
+                    type="button"
+                    title={label}
+                    aria-label={label}
+                    data-heading-flag={reason}
+                    onClick={(e) => { e.stopPropagation(); onHeadingFlag?.(section.id) }}
+                    className="flex h-5 w-5 flex-none items-center justify-center rounded hover:bg-amber-100"
+                    style={{ color: reason === 'missing' ? '#D97706' : '#B45309' }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <path d="M3 1.5a.75.75 0 0 1 .75.75V3h8.69a.5.5 0 0 1 .4.8L11.25 6l1.59 2.2a.5.5 0 0 1-.4.8H3.75v5.25a.75.75 0 0 1-1.5 0V2.25A.75.75 0 0 1 3 1.5Z" />
+                    </svg>
+                  </button>
+                )
               })()}
 
               {/* Reviewer badge (e.g. "IN REVIEW") on active section — reviewer variant */}

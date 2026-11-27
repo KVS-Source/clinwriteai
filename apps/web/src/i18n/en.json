@@ -99,7 +99,9 @@
       "locked_by": "Locked by {{owner}}",
       "another_user": "another user",
       "progress_complete": "{{complete}} of {{total}} sections · {{pct}}%",
-      "progress_reviewed": "{{complete}} of {{total}} sections reviewed · {{pct}}%"
+      "progress_reviewed": "{{complete}} of {{total}} sections reviewed · {{pct}}%",
+      "heading_flag_missing": "No introduction yet — click to redraft it from its sub-sections",
+      "heading_flag_stale": "Sub-sections changed after this introduction — click to review"
     },
     "project_dashboard": {
       "loading": "Loading project…",
@@ -285,7 +287,8 @@
       "cannot_edit_open_section_first": "Open a section first",
       "cannot_edit_read_only": "Document is read-only — {{short}}",
       "cannot_edit_named_user_editing": "{{name}} is editing this section",
-      "cannot_edit_acquiring_lock": "Acquiring edit lock…"
+      "cannot_edit_acquiring_lock": "Acquiring edit lock…",
+      "panel_title_heading_redraft": "Section introductions"
     },
     "comments_panel": {
       "time_just_now": "just now",
@@ -4886,6 +4889,31 @@
       "expand": "Expand",
       "refresh": "Refresh",
       "close_aria": "Close panel"
+    },
+    "heading_redraft": {
+      "loading": "Loading…",
+      "drafting": "The AI draft is still running. Section introductions are checked once it is done.",
+      "none_flagged": "No section introductions need attention.",
+      "close": "Close",
+      "count_one": "{{count}} section introduction to check",
+      "count_other": "{{count}} section introductions to check",
+      "reason_missing": "This main section has no introduction, though its sub-sections are drafted. Redraft it with AI from its sub-sections?",
+      "reason_stale": "Its sub-sections changed after this introduction was written ({{sections}}). Redraft it with AI from them?",
+      "current": "Current text",
+      "no_text": "No text yet.",
+      "preview": "AI introduction (not saved yet)",
+      "redraft": "Redraft with AI",
+      "drafting_one": "Drafting…",
+      "keep": "Keep as it is",
+      "not_now": "Not now",
+      "accept": "Accept",
+      "discard": "Discard",
+      "saving": "Saving…",
+      "cannot_act": "Only the document’s authors and its creator can redraft or keep a section introduction.",
+      "next": "Next: {{section}}",
+      "error_redraft": "The introduction could not be drafted. Try again.",
+      "error_accept": "The introduction could not be saved. Try again.",
+      "error_keep": "The decision could not be saved. Try again."
     }
   }
 }

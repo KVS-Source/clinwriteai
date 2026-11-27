@@ -1,8 +1,9 @@
 {
   "schemaVersion": 1,
   "docType": "protocol",
-  "label": "Protocol build plan v3",
+  "label": "Protocol build plan v4",
   "rules": { "temperature": 0 },
+  "headings": "lead_in",
   "factSheet": {
     "fields": [
       {

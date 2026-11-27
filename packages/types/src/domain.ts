@@ -25,6 +25,7 @@ export type PanelMode =
   | 'review-assignment' | 'crm-resolution' | 'ich-e3' | 'meddra' | 'tlf' | 'raci'
   | 'ai-drafting-report'
   | 'protocol-metadata'
+  | 'heading-redraft'
   | null
 
 export type SignatureStatus = 'signed' | 'awaiting' | 'queued'

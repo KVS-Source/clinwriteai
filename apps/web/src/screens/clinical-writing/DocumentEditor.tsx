@@ -51,6 +51,7 @@ import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 import { TlfPanel }               from '../../panels/TlfPanel'
 import { AiDraftingReportPanel }  from '../../panels/AiDraftingReportPanel'
 import { ProtocolMetadataPanel }  from '../../panels/ProtocolMetadataPanel'
+import { HeadingRedraftPanel }    from '../../panels/HeadingRedraftPanel'
 
 // Panel title translation keys (page.document_editor.panel_title_*). Resolved
 // at render time via t() so language changes don't need a re-mount.
@@ -72,6 +73,7 @@ const PANEL_TITLE_KEYS: Record<NonNullable<PanelMode>, string> = {
   'raci':              'panel_title_raci',
   'ai-drafting-report': 'panel_title_ai_drafting_report',
   'protocol-metadata':  'panel_title_protocol_metadata',
+  'heading-redraft':    'panel_title_heading_redraft',
 }
 
 // Keys to the authoring-lock copy (short label + explanatory note). Mirrors
@@ -145,6 +147,19 @@ function DocumentEditorInner() {
       setAutoOpenedForBlocked(false)
     }
   }, [aiState, autoOpenedForBlocked])
+  // Main headings whose introduction is missing or older than their sub-sections (API documents/heading-intro.ts).
+  // Re-read after every save and whenever the AI draft changes state; nothing is flagged while it runs.
+  const headingFlagsQuery = useQuery({
+    queryKey: ['heading-flags', documentId],
+    queryFn:  () => documentsApi.headingFlags(documentId!),
+    enabled:  !!documentId,
+  })
+  const headingFlagMap = useMemo(
+    () => new Map((headingFlagsQuery.data?.flags ?? []).map(f => [f.sectionId, f.reason] as const)),
+    [headingFlagsQuery.data],
+  )
+  const [headingPanelSection, setHeadingPanelSection] = useState<string | null>(null)
+
   const aiSectionsByKey = useMemo(() => {
     const map = new Map<string, { confidence: number | null; flags: string[] }>()
     for (const s of aiDraft.data?.sections ?? []) {
@@ -202,6 +217,10 @@ function DocumentEditorInner() {
   // loaded document; dirty when the user types; cleared on save or
   // when the active section changes.
   const qc = useQueryClient()
+  // Heading flags follow the AI draft: re-read whenever its state changes.
+  useEffect(() => {
+    if (documentId) void qc.invalidateQueries({ queryKey: ['heading-flags', documentId] })
+  }, [aiState, documentId, qc])
   const activeSectionData = useMemo(
     () => (document && activeSection ? document.sections.find(s => s.id === activeSection) ?? null : null),
     [document, activeSection],
@@ -339,6 +358,8 @@ function DocumentEditorInner() {
       qc.invalidateQueries({ queryKey: ['versions', documentId] })
       // A save changes the section's words and status — keep the ICH E3 checklist current.
       qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })
+      // A save can flag a main heading's introduction as stale (or clear its flag).
+      qc.invalidateQueries({ queryKey: ['heading-flags', documentId] })
       // The first real edit moves an Initiated project to Ongoing, so don't keep showing the old status.
       if (project?.status === 'initiated') {
         qc.invalidateQueries({ queryKey: ['project', projectId] })
@@ -1124,7 +1145,13 @@ function DocumentEditorInner() {
       {/* ============ Three-panel row ============ */}
       <div className="flex flex-1 min-h-0">
 
-        <SectionNavigator sections={document.sections} documentId={documentId ?? undefined} aiConfidenceBySectionId={aiSectionsByKey} />
+        <SectionNavigator
+          sections={document.sections}
+          documentId={documentId ?? undefined}
+          aiConfidenceBySectionId={aiSectionsByKey}
+          headingFlags={headingFlagMap}
+          onHeadingFlag={(id) => { setHeadingPanelSection(id); setActiveSection(id); setActivePanel('heading-redraft') }}
+        />
 
         {/* Editor pane — split: section content column + right panel column.
             Toolbar and AI prompt dock span full editor-pane width; the
@@ -1323,7 +1350,7 @@ function DocumentEditorInner() {
               style={{
                 width:           panel.width,
                 maxWidth:        '100%',
-                backgroundColor: (activePanel === 'traceability' || activePanel === 'sources' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra' || activePanel === 'protocol-metadata') ? '#FFFFFF' : '#F8FAFC',
+                backgroundColor: (activePanel === 'traceability' || activePanel === 'sources' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra' || activePanel === 'protocol-metadata' || activePanel === 'heading-redraft') ? '#FFFFFF' : '#F8FAFC',
               }}
             >
             {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
@@ -1580,7 +1607,34 @@ function DocumentEditorInner() {
                 onOpenSources={() => setActivePanel('traceability')}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'sources' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && activePanel !== 'protocol-metadata' && (
+            {activePanel === 'heading-redraft' && documentId && (
+              <HeadingRedraftPanel
+                documentId={documentId}
+                sectionId={headingPanelSection}
+                flags={headingFlagsQuery.data}
+                currentHtml={(headingPanelSection === activeSection ? draftContent : undefined)
+                  ?? document.sections.find(s => s.id === headingPanelSection)?.contentHtml ?? ''}
+                onSelect={(id) => { setHeadingPanelSection(id); setActiveSection(id) }}
+                onClose={() => setActivePanel(null)}
+                applyInEditor={(id, html, model, aiCallRecordId) => {
+                  // The heading is open here and this user holds it: apply through the editor (as an AI Chat
+                  // accept does) so live collaboration keeps the text; autosave saves it as AI-drafted.
+                  if (id !== activeSection || !editor || !canEditSection) return false
+                  editor.commands.setContent(html, { emitUpdate: false })
+                  setDraftContent(html)
+                  setAiEditModel(model)
+                  aiCallRecordRef.current = aiCallRecordId
+                  requestAnimationFrame(() => { void autosave.flush() })
+                  return true
+                }}
+                onSaved={(id, html) => {
+                  if (id !== activeSection || !editor) return
+                  editor.commands.setContent(html, { emitUpdate: false })
+                  setDraftContent(html)
+                }}
+              />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'sources' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && activePanel !== 'protocol-metadata' && activePanel !== 'heading-redraft' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">{t('page.document_editor.placeholder')}</p>
                 <p className="mt-2 text-sm text-slate-700">

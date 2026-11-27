@@ -23,6 +23,8 @@ export interface BuildPlanForDraft {
   factSheet?:  { fields: Array<{ key: string; label: string; hint?: string }> }
   sourcePages?: { allBelowPages: number; budgetChars: number }
   finishing?:  { crossReferences?: boolean; references?: boolean; abbreviations?: boolean; factConsistency?: boolean }
+  /** Main headings: 'template_only' keeps the template heading; 'lead_in' drafts an introduction after its sub-sections. */
+  headings?:   'template_only' | 'lead_in'
 }
 
 export interface PlannedSection<S> {
@@ -33,7 +35,8 @@ export interface PlannedSection<S> {
   mode:       'draft' | 'heading' | 'code'
   /** Numbers of the sections it is given; '*' = every section drafted before it. */
   dependsOn:  '*' | string[]
-  rules:      { exampleWording?: boolean; noNewFacts?: boolean }
+  /** sectionIntro: a main heading's introduction, written from its own sub-sections (plan headings: 'lead_in'). */
+  rules:      { exampleWording?: boolean; noNewFacts?: boolean; sectionIntro?: boolean }
 }
 
 const UNPLANNED = { key: 'unplanned', label: 'Sections not in the plan' }
@@ -50,6 +53,7 @@ export function asBuildPlan(raw: unknown): BuildPlanForDraft | null {
     rules: p.rules && typeof p.rules === 'object' ? p.rules : {},
     ...(p.factSheet && Array.isArray(p.factSheet.fields) && p.factSheet.fields.length ? { factSheet: p.factSheet } : {}),
     ...(p.finishing && typeof p.finishing === 'object' ? { finishing: p.finishing } : {}),
+    ...(p.headings === 'lead_in' ? { headings: 'lead_in' as const } : {}),
     ...(p.sourcePages ? { sourcePages: { allBelowPages: p.sourcePages.allBelowPages ?? 100, budgetChars: p.sourcePages.budgetChars ?? 80_000 } } : {}),
   }
 }
@@ -86,6 +90,24 @@ export function orderByPlan<S extends { number: string; title: string }>(section
     }
   })
   if (summaryAt < 0) for (const s of unplanned) draft(s, UNPLANNED, {})
+
+  // Main headings as introductions: each right after the last of its own sub-sections, deepest first (so "7" comes
+  // after "7.1" when 7.1 has sub-sections of its own), given those sub-sections and adding no new facts.
+  if (plan.headings === 'lead_in') {
+    const byDepth = [...headings].sort((a, b) => b.split('.').length - a.split('.').length)
+    for (const n of byDepth) {
+      const s = byNumber.get(n)
+      if (!s || codeBuilt.has(n)) continue
+      const children = out.map((p, i) => ({ p, i })).filter(({ p }) => p.mode === 'draft' && p.section.number.trim().startsWith(`${n}.`))
+      if (children.length === 0) continue
+      const lastIndex = Math.max(...children.map(c => c.i))
+      placed.add(n)
+      out.splice(lastIndex + 1, 0, {
+        section: s, stageKey: out[lastIndex]!.stageKey, stageLabel: out[lastIndex]!.stageLabel, mode: 'draft',
+        dependsOn: children.map(c => c.p.section.number.trim()), rules: { sectionIntro: true, noNewFacts: true },
+      })
+    }
+  }
 
   for (const s of sections) {
     const n = s.number.trim()
@@ -137,7 +159,9 @@ export function planPromptBlock(args: {
       ...args.earlier.map(s => `--- ${s.number} ${s.title} ---\n${s.html}`),
     )
   }
-  if (args.rules.noNewFacts) {
+  if (args.rules.sectionIntro) {
+    parts.push(SECTION_INTRO_RULE)
+  } else if (args.rules.noNewFacts) {
     parts.push('THIS SECTION SUMMARISES THE DOCUMENT. Use only facts stated in the earlier sections above. Add no fact that is not in them, even if a source has it; where something the summary needs is missing from them, write [TBD: what is needed].')
   }
   if (args.rules.exampleWording) {
@@ -145,3 +169,14 @@ export function planPromptBlock(args: {
   }
   return parts.join('\n\n')
 }
+
+/**
+ * What a main heading's introduction is told. The API's heading redraft (documents/heading-intro.ts) sends the same
+ * text; a test keeps the two equal.
+ */
+export const SECTION_INTRO_RULE = [
+  'THIS IS A MAIN SECTION HEADING. Write its introduction, after which its sub-sections (given above) follow in the document.',
+  '- Follow the template guidance for this section, at the length it needs.',
+  '- Use only facts stated in the sub-sections above (and the study fact sheet). Add no fact that is not in them, even if a source has it; where the guidance asks for something they do not state, write [TBD: what is needed].',
+  '- Do not repeat the sub-sections at length: summarise them and refer the reader to them (with cross-reference markers when the instructions ask for them).',
+].join('\n')

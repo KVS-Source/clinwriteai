@@ -191,6 +191,16 @@ export interface ReturnBaseline {
   sections: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string; contentHtml: string }>
 }
 
+export interface HeadingFlag {
+  sectionId: string
+  number:    string
+  title:     string
+  /** missing: no introduction though the sub-sections have text; stale: a sub-section changed after it. */
+  reason:    'missing' | 'stale'
+  changed:   Array<{ number: string; title: string }>
+}
+export interface HeadingFlagsResult { flags: HeadingFlag[]; drafting: boolean; canAct: boolean; locked: string | null }
+
 export const documentsApi = {
   // Sources a document is based on
   listDocumentSources: (documentId: string) =>
@@ -242,6 +252,18 @@ export const documentsApi = {
   /** Raise a document's AI cost limit (set at New Document), in the install's currency. PMs only. */
   setAiCostLimit: (documentId: string, amount: number) =>
     api.put<{ limit: { amount: number; currency: string; usd: number }; spent: number; currency: string }>(`/documents/${documentId}/ai-cost-limit`, { amount }),
+  /** Main headings whose introduction is missing or older than their sub-sections (right panel "Section introductions"). */
+  headingFlags: (documentId: string) =>
+    api.get<HeadingFlagsResult>(`/documents/${documentId}/heading-flags`),
+  /** An AI introduction for a main heading, from its sub-sections. A preview: nothing is saved. */
+  redraftHeading: (documentId: string, sectionId: string) =>
+    api.post<{ html: string; aiCallRecordId: string | null; model: string }>(`/documents/${documentId}/headings/${encodeURIComponent(sectionId)}/redraft`, {}),
+  /** Save a previewed introduction as an AI-drafted edit (when the section isn't open in this editor). */
+  acceptHeading: (documentId: string, sectionId: string, body: { html: string; aiCallRecordId?: string; model?: string }) =>
+    api.post<{ ok: true; versionNumber: string }>(`/documents/${documentId}/headings/${encodeURIComponent(sectionId)}/accept`, body),
+  /** Keep the heading as it is; it is flagged again only when a sub-section changes. */
+  keepHeading: (documentId: string, sectionId: string) =>
+    api.post<{ ok: true }>(`/documents/${documentId}/headings/${encodeURIComponent(sectionId)}/keep`, {}),
   /** Can these sources be drafted from, and what will be missing (shown before Create). */
   sourceCheck: (projectId: string, body: { type: string; sources: Array<{ uploadId: string; role: SourceRole }> }) =>
     api.post<SourceCheckResult>(`/projects/${projectId}/documents/source-check`, body),

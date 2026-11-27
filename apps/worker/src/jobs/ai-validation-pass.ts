@@ -594,5 +594,5 @@ async function sectionsNotDraftedByAi(
   }).catch(() => null)
   const plan = asBuildPlan(row?.buildPlan ?? null)
   if (!plan) return new Set()
-  return new Set([...headingNumbers(numbers), ...plan.builtByCode.map(s => s.number)])
+  return new Set([...(plan.headings === 'lead_in' ? [] : headingNumbers(numbers)), ...plan.builtByCode.map(s => s.number)])
 }

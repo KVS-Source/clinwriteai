@@ -1046,7 +1046,6 @@ export interface DocumentTypePolicy {
   buildPlan?:          BuildPlanView | null
   buildPlanSource?:    BuildPlanSourceView | null
   referenceStyle?:     ReferenceStyle
-  costEstimateEnabled?: boolean
   costLimitEnabled?:   boolean
   effectiveDate:       string
   supersededBy:        string | null
@@ -1077,9 +1076,7 @@ export interface DocumentTypePolicyEditableFields {
   ichFrameworkNames?:   string[]
   requirements?:        PolicyRequirements
   referenceStyle?:      ReferenceStyle
-  /** Show the AI cost estimate at New Document. */
-  costEstimateEnabled?: boolean
-  /** Let the PM set an AI cost limit at New Document. */
+  /** Let the PM set an AI cost limit at New Document, with the estimated cost shown beside it. Off by default. */
   costLimitEnabled?:    boolean
 }
 

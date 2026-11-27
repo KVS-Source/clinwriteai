@@ -85,7 +85,6 @@ export class DocumentTypePolicyService {
         ichFrameworkNames:   input.ichFrameworkNames   ?? [],
         requirements:        (input.requirements ?? DEFAULT_POLICY_REQUIREMENTS) as unknown as object,
         ...(input.referenceStyle ? { referenceStyle: input.referenceStyle } : {}),
-        ...(input.costEstimateEnabled !== undefined ? { costEstimateEnabled: input.costEstimateEnabled } : {}),
         ...(input.costLimitEnabled !== undefined ? { costLimitEnabled: input.costLimitEnabled } : {}),
         createdBy:           actorId,
         updatedBy:           actorId,
@@ -117,7 +116,6 @@ export class DocumentTypePolicyService {
           // The build plan comes only from a policy package; a new version keeps it.
           ...carriedBuildPlan(current),
           referenceStyle:      input.referenceStyle ?? current.referenceStyle,
-          costEstimateEnabled: input.costEstimateEnabled ?? current.costEstimateEnabled,
           costLimitEnabled:    input.costLimitEnabled ?? current.costLimitEnabled,
           createdBy:           actorId,
           updatedBy:           actorId,
@@ -168,7 +166,6 @@ export class DocumentTypePolicyService {
           ichFrameworkNames:   current.ichFrameworkNames,
           requirements:        current.requirements as object,
           referenceStyle:      current.referenceStyle,
-          costEstimateEnabled: current.costEstimateEnabled,
           costLimitEnabled:    current.costLimitEnabled,
           buildPlan,
           buildPlanSource,
@@ -193,6 +190,10 @@ export class DocumentTypePolicyService {
       where: { type: docType.replace(/-/g, '_'), policyVersionAtCreate: current.version },
     })
     if (usedCount > 0) {
+      // A setting (required inputs, reference style, cost limit, ICH frameworks) changed on a version documents
+      // already use: saved as the next version, everything else carried over, so those documents keep theirs.
+      const keys = Object.keys(input).filter(k => (input as Record<string, unknown>)[k] !== undefined)
+      if (keys.length > 0 && keys.every(k => SETTING_KEYS.has(k))) return this.nextVersionWith(current, input, actorId)
       throw new PolicyServiceError('version_in_use', `Policy version ${current.version} has been pinned by ${usedCount} document(s). Use bumpVersion to create a new editable version.`)
     }
     return this.prisma.documentTypePolicy.update({
@@ -207,10 +208,42 @@ export class DocumentTypePolicyService {
         ...(input.ichFrameworkNames   !== undefined && { ichFrameworkNames:   input.ichFrameworkNames }),
         ...(input.requirements        !== undefined && { requirements:        input.requirements        as unknown as object }),
         ...(input.referenceStyle      !== undefined && { referenceStyle:      input.referenceStyle }),
-        ...(input.costEstimateEnabled !== undefined && { costEstimateEnabled: input.costEstimateEnabled }),
         ...(input.costLimitEnabled    !== undefined && { costLimitEnabled:    input.costLimitEnabled }),
         updatedBy: actorId,
       },
+    })
+  }
+
+  /** The current version with these settings changed, as a new current version (updateCurrent on a used version). */
+  private async nextVersionWith(
+    current: NonNullable<Awaited<ReturnType<DocumentTypePolicyService['getCurrent']>>>,
+    input: UpdatePolicyInput,
+    actorId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const next = await tx.documentTypePolicy.create({
+        data: {
+          docType:             current.docType,
+          version:             current.version + 1,
+          isCurrent:           true,
+          smePrompt:           current.smePrompt,
+          bestPracticeDigest:  current.bestPracticeDigest as object,
+          sectionRules:        current.sectionRules as object,
+          templateId:          current.templateId,
+          checklistTemplateId: current.checklistTemplateId,
+          ichFramework:        current.ichFramework,
+          ichFrameworkNames:   input.ichFrameworkNames ?? current.ichFrameworkNames,
+          requirements:        (input.requirements ?? current.requirements) as object,
+          referenceStyle:      input.referenceStyle ?? current.referenceStyle,
+          costEstimateEnabled: current.costEstimateEnabled,
+          costLimitEnabled:    input.costLimitEnabled ?? current.costLimitEnabled,
+          ...carriedBuildPlan(current),
+          createdBy:           actorId,
+          updatedBy:           actorId,
+        },
+      })
+      await tx.documentTypePolicy.update({ where: { id: current.id }, data: { isCurrent: false, supersededBy: next.id } })
+      return next
     })
   }
 
@@ -260,6 +293,9 @@ export function digestOf(row: { bestPracticeDigest: unknown }): BestPracticeDige
 export function sectionRulesOf(row: { sectionRules: unknown }): SectionRules {
   return row.sectionRules as SectionRules
 }
+
+/** Settings that may change on a version documents already use: the change becomes the next version. */
+const SETTING_KEYS: ReadonlySet<string> = new Set(['requirements', 'referenceStyle', 'costLimitEnabled', 'ichFrameworkNames'])
 
 /** The build plan fields of a policy row, to copy onto its next version (nothing when it has none). */
 function carriedBuildPlan(row: { buildPlan?: unknown; buildPlanSource?: unknown }): { buildPlan?: object; buildPlanSource?: object } {

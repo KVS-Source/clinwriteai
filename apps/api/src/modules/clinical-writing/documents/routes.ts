@@ -411,7 +411,8 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     return runSourceCheck(app, { projectId, docType: parsed.data.type, sources: parsed.data.sources })
   })
 
-  // The AI drafting cost estimate shown at New Document when the document type's policy has it on (ai-cost.ts).
+  // The AI drafting cost estimate shown at New Document with the limit field, when the document type's policy allows
+  // a cost limit (ai-cost.ts).
   // Rough by nature: a range, from the sources' size, the sections the AI drafts and the rate card.
   const costEstimateSchema = z.object({
     type: z.string().min(1),
@@ -426,9 +427,9 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const docType = parsed.data.type.replace(/-/g, '_')
     const policy = await app.prisma.documentTypePolicy.findFirst({
       where: { docType, isCurrent: true, retiredAt: null },
-      select: { costEstimateEnabled: true, buildPlan: true, templateId: true },
+      select: { costLimitEnabled: true, buildPlan: true, templateId: true },
     })
-    if (!policy?.costEstimateEnabled) return { enabled: false }
+    if (!policy?.costLimitEnabled) return { enabled: false }
 
     // Readable sources only (the check also records each file's size the first time).
     await runSourceCheck(app, { projectId, docType: parsed.data.type, sources: parsed.data.sources })

@@ -62,7 +62,6 @@ interface PolicyRow {
   buildPlan?:          unknown
   buildPlanSource?:    unknown
   referenceStyle?:     string
-  costEstimateEnabled?: boolean
   costLimitEnabled?:   boolean
   effectiveDate:       Date
   supersededBy:        string | null
@@ -95,7 +94,6 @@ function shape(row: PolicyRow) {
     buildPlan:           row.buildPlan ?? null,
     buildPlanSource:     row.buildPlanSource ?? null,
     referenceStyle:      row.referenceStyle ?? 'numbered',
-    costEstimateEnabled: row.costEstimateEnabled ?? false,
     costLimitEnabled:    row.costLimitEnabled ?? false,
     effectiveDate:       row.effectiveDate.toISOString(),
     supersededBy:        row.supersededBy,
@@ -208,6 +206,7 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
         action:     'document_type_policy.updated',
         entityType: 'document_type_policy',
         entityId:   row.id,
+        // `version` is the new one when the old version was in use (a setting change is saved as the next version).
         details:    { docType, version: row.version, changedKeys: Object.keys(parsed.data) },
         ipAddress:  request.ip ?? null,
       })

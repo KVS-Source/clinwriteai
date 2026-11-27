@@ -104,6 +104,8 @@ export function DocumentTypePolicies() {
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['document-type-policies'] })
+    // The single-policy copy New Document reads.
+    qc.invalidateQueries({ queryKey: ['document-type-policy'] })
     qc.invalidateQueries({ queryKey: ['ai-prompts-approved'] })
     qc.invalidateQueries({ queryKey: ['best-practice-records-approved'] })
     qc.invalidateQueries({ queryKey: ['bp-versions'] })
@@ -411,13 +413,6 @@ function AssociationsPanel({
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
-  const saveCostEstimate = useMutation({
-    mutationFn: (costEstimateEnabled: boolean) =>
-      platformApi.updateDocumentTypePolicy(policy.docType, { costEstimateEnabled }),
-    onSuccess: () => { setActionInfo('Cost estimate setting saved.'); setActionError(null); onChanged() },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
-  })
-
   const saveCostLimit = useMutation({
     mutationFn: (costLimitEnabled: boolean) =>
       platformApi.updateDocumentTypePolicy(policy.docType, { costLimitEnabled }),
@@ -524,24 +519,8 @@ function AssociationsPanel({
         </div>
       </section>
 
-      <section className="rounded-md border border-slate-200 bg-white p-3" data-section="cost-estimate">
+      <section className="rounded-md border border-slate-200 bg-white p-3" data-section="cost-limit">
         <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={policy.costEstimateEnabled ?? false}
-            disabled={saveCostEstimate.isPending}
-            onChange={e => saveCostEstimate.mutate(e.currentTarget.checked)}
-            data-field="cost-estimate-enabled"
-          />
-          <span>
-            <span className="block text-[13px] font-semibold text-slate-900">Show the AI cost estimate at New Document</span>
-            <span className="block text-[12px] text-slate-500">
-              The project manager sees the estimated AI drafting cost when creating a document.
-            </span>
-          </span>
-        </label>
-        <label className="mt-3 flex items-start gap-2 border-t border-slate-100 pt-3">
           <input
             type="checkbox"
             className="mt-0.5"
@@ -553,8 +532,9 @@ function AssociationsPanel({
           <span>
             <span className="block text-[13px] font-semibold text-slate-900">Allow an AI cost limit at New Document</span>
             <span className="block text-[12px] text-slate-500">
-              The project manager may set a cost limit when creating a document. A draft that reaches it pauses and the project
-              managers are notified; a PM raises the limit in AI Debug and continues the draft.
+              When creating a document, the project manager sees the estimated AI drafting cost and may set a cost limit. A
+              draft that reaches the limit pauses and the project managers are notified; a PM raises the limit in AI Debug and
+              continues the draft. Off by default.
             </span>
           </span>
         </label>

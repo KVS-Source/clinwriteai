@@ -270,7 +270,10 @@ export function NewDocumentForm({
   const { data: policy = null, isLoading: policyLoading } = useQuery({
     queryKey: ['document-type-policy', policyDocType],
     queryFn:  () => platformApi.getDocumentTypePolicy(policyDocType),
-    staleTime: 60_000,
+    // Fetched fresh each time the wizard opens: a policy setting changed a moment ago (cost limit, required inputs)
+    // must show here at once.
+    staleTime: 0,
+    refetchOnMount: 'always',
     retry: false,
   })
 
@@ -323,7 +326,7 @@ export function NewDocumentForm({
   const costEstimate = useQuery({
     queryKey: ['cost-estimate', projectId, type, sourcesWithRoles],
     queryFn:  () => documentsApi.costEstimate(projectId, { type, sources: sourcesWithRoles }),
-    enabled:  step === 4 && !!policy?.costEstimateEnabled,
+    enabled:  step === 4 && !!policy?.costLimitEnabled,
     staleTime: 60_000,
     retry: false,
   })
@@ -747,10 +750,11 @@ export function NewDocumentForm({
               t={t}
             />
 
-            {(policy?.costEstimateEnabled || policy?.costLimitEnabled) && (
+            {/* One policy setting: with the cost limit allowed, the estimate and the limit field are shown together. */}
+            {policy?.costLimitEnabled && (
               <CostEstimateCard
-                showEstimate={!!policy?.costEstimateEnabled}
-                showLimit={!!policy?.costLimitEnabled}
+                showEstimate
+                showLimit
                 loading={costEstimate.isFetching}
                 failed={costEstimate.isError}
                 estimate={costEstimate.data}

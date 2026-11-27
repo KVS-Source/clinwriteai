@@ -113,14 +113,14 @@ describe('POST /projects/:id/documents/cost-estimate', () => {
   }
   beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
 
-  it('nothing when the policy has the estimate off (the default)', async () => {
-    expect((await (await build({ costEstimateEnabled: false, buildPlan: null }))()).json()).toEqual({ enabled: false })
+  it('nothing when the policy does not allow a cost limit (the default)', async () => {
+    expect((await (await build({ costLimitEnabled: false, buildPlan: null }))()).json()).toEqual({ enabled: false })
     expect((await (await build(null))()).json()).toEqual({ enabled: false })
   })
 
   it('a range in the install’s currency, for the sections the plan drafts', async () => {
     const plan = { builtByCode: [{ number: '12', kind: 'references' }], factSheet: { fields: [] } }
-    const res = (await (await build({ costEstimateEnabled: true, buildPlan: plan, templateId: null }, { currency: 'INR', usdRate: 84 }))()).json()
+    const res = (await (await build({ costLimitEnabled: true, buildPlan: plan, templateId: null }, { currency: 'INR', usdRate: 84 }))()).json()
     expect(res).toMatchObject({ enabled: true, available: true, currency: 'INR', rateMissing: false, model: 'claude-sonnet-4-6', rateCardVersion: 'v-test' })
     expect(res.basis.sections).toBe(3)                                                     // 1.1, 1.2, 2.1: headings 1 and 2 and References are not drafted
     expect(res.low).toBeCloseTo(res.lowUsd * 84, 1)

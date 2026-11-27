@@ -10,7 +10,7 @@
 //
 //   GET  /documents/:documentId/heading-flags
 //   POST /documents/:documentId/headings/:sectionId/redraft   → { html, aiCallRecordId, model } (not saved)
-//   POST /documents/:documentId/headings/:sectionId/accept    { html, aiCallRecordId?, model? }
+//   POST /documents/:documentId/headings/:sectionId/accept    { html, aiCallRecordId?, model? } or { html, manual: true }
 //   POST /documents/:documentId/headings/:sectionId/keep
 //
 // Only the document's authors (R) and its creator may redraft, accept or keep.
@@ -24,6 +24,7 @@ import { canSeeDocument } from '../../projects/visibility.js'
 import { authoringLockReason } from '../document-status.js'
 import { requireLockHeldBy, SECTION_LOCK_STALE_SECONDS } from '../section-locks/service.js'
 import { chooseModel } from '../../platform/config/ai-engine-settings.js'
+import { classifyAiError } from '../../platform/ai-gateway/ai-error.js'
 import { asCostLimit, documentSpend, limitReached } from './ai-cost.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { DocumentService } from './service.js'
@@ -162,6 +163,8 @@ const acceptSchema = z.object({
   html:           z.string().trim().min(1).max(200_000),
   aiCallRecordId: z.string().trim().min(1).max(200).optional(),
   model:          z.string().trim().min(1).max(200).optional(),
+  /** Text the writer typed in the panel instead of the AI's: saved as a manual edit. */
+  manual:         z.boolean().optional(),
 })
 
 export const HEADING_ACTION_FORBIDDEN = {
@@ -288,11 +291,19 @@ export const documentsHeadingIntroRoutes: FastifyPluginAsync = async (app) => {
       subSections: found.subs.map(s => ({ number: s.sectionNumber.trim(), title: s.sectionTitle, html: s.contentHtml ?? '' })),
       facts: Array.isArray(facts) ? facts : null,
     })
-    const res = await app.aiGateway.chat({
-      tenantId: request.user!.tenantId, projectId: doc.projectId, actorId: request.user!.id, module: 'A',
-      intent: 'edit', model, prompt, maxOutputTokens: 2048, documentId,
-      sectionId, documentVersionId: doc.currentVersionId ?? undefined, preCallSectionHtml: found.h.contentHtml ?? '',
-    })
+    let res: Awaited<ReturnType<typeof app.aiGateway.chat>>
+    try {
+      res = await app.aiGateway.chat({
+        tenantId: request.user!.tenantId, projectId: doc.projectId, actorId: request.user!.id, module: 'A',
+        intent: 'edit', model, prompt, maxOutputTokens: 2048, documentId,
+        sectionId, documentVersionId: doc.currentVersionId ?? undefined, preCallSectionHtml: found.h.contentHtml ?? '',
+      })
+    } catch (err) {
+      // The provider's raw error goes to the log; the writer gets what happened and who can fix it.
+      const { status, body } = classifyAiError(err)
+      app.log.warn({ err, documentId, sectionId, code: body.error }, 'heading introduction redraft: AI call failed')
+      return reply.code(status).send(body)
+    }
     const html = checkSectionRefs(stripFence(res.responseText), new Set(found.subs.map(s => s.sectionNumber.trim())))
     if (!textOf(html) || containsAiPlaceholder(html)) {
       return reply.code(502).send({ error: 'ai_empty', message: 'The AI returned no introduction. Try again.' })
@@ -317,7 +328,9 @@ export const documentsHeadingIntroRoutes: FastifyPluginAsync = async (app) => {
     if (!(await canActOnHeadings(app.prisma, request.user!, doc))) return reply.code(403).send(HEADING_ACTION_FORBIDDEN)
     const locked = await authoringLock(doc)
     if (locked) return reply.code(409).send(locked)
-    if (containsAiPlaceholder(parsed.data.html)) return reply.code(422).send(AI_PLACEHOLDER_REFUSAL)
+    const manual = parsed.data.manual === true
+    if (!manual && containsAiPlaceholder(parsed.data.html)) return reply.code(422).send(AI_PLACEHOLDER_REFUSAL)
+    if (!textOf(parsed.data.html)) return reply.code(400).send({ error: 'validation', message: 'Write the introduction first.' })
     const found = headingOf(rows, sectionId)
     if (!found) return reply.code(422).send({ error: 'not_a_heading', message: 'This section has no sub-sections, so it has no introduction to draft.' })
     const holder = await requireLockHeldBy(app.prisma, { documentId, sectionId, userId: request.user!.id })
@@ -327,17 +340,17 @@ export const documentsHeadingIntroRoutes: FastifyPluginAsync = async (app) => {
     const result = await svc.updateSection({
       documentId, sectionId, sectionNumber: found.h.sectionNumber, sectionTitle: found.h.sectionTitle,
       contentHtml: parsed.data.html, editorUserId: request.user!.id,
-      aiDrafted: true, aiModel: parsed.data.model, aiCallRecordId: parsed.data.aiCallRecordId,
+      ...(manual ? {} : { aiDrafted: true, aiModel: parsed.data.model, aiCallRecordId: parsed.data.aiCallRecordId }),
     })
-    if (parsed.data.aiCallRecordId) {
+    if (!manual && parsed.data.aiCallRecordId) {
       await app.prisma.aiCallRecord.updateMany({ where: { id: parsed.data.aiCallRecordId }, data: { postCallDocumentVersionId: result.version.id } })
     }
     await app.audit.append({
-      timestamp: new Date().toISOString(), actorId: request.user!.id, action: 'ai_draft_accepted',
+      timestamp: new Date().toISOString(), actorId: request.user!.id, action: manual ? 'section_edited' : 'ai_draft_accepted',
       entityType: 'document', entityId: documentId,
       details: {
-        sectionId, kind: 'heading_intro', versionCreated: result.created, versionNumber: result.version.versionNumber,
-        aiCallRecordId: parsed.data.aiCallRecordId ?? null, aiModel: parsed.data.model ?? null,
+        sectionId, kind: manual ? 'heading_intro_manual' : 'heading_intro', versionCreated: result.created, versionNumber: result.version.versionNumber,
+        aiCallRecordId: manual ? null : parsed.data.aiCallRecordId ?? null, aiModel: manual ? null : parsed.data.model ?? null,
         before: textOf(beforeHtml).slice(0, 2000), after: textOf(parsed.data.html).slice(0, 2000),
       },
       ipAddress: request.ip ?? null,

@@ -5135,7 +5135,27 @@
       "next": "次へ：{{section}}",
       "error_redraft": "導入文を作成できませんでした。もう一度お試しください。",
       "error_accept": "導入文を保存できませんでした。もう一度お試しください。",
-      "error_keep": "決定を保存できませんでした。もう一度お試しください。"
+      "error_keep": "決定を保存できませんでした。もう一度お試しください。",
+      "err_title": "実行できませんでした",
+      "err_ai_out_of_credit_title": "AI アカウントのクレジットが不足しています",
+      "err_ai_out_of_credit_body": "クレジットを追加するまで AI で作成できません。文書は変更されていません。",
+      "err_ai_key_invalid_title": "AI キーが無効です",
+      "err_ai_key_invalid_body": "AI プロバイダーがこのキーを受け付けなかったため、作成されませんでした。文書は変更されていません。",
+      "err_ai_rate_limited_title": "AI へのリクエストが多すぎます",
+      "err_ai_rate_limited_body": "AI プロバイダーがこのアカウントのリクエストを制限しています。1 分ほど待ってからもう一度お試しください。",
+      "err_ai_busy_title": "AI サービスが混雑しています",
+      "err_ai_busy_body": "AI プロバイダーが現在混雑しています。数分後にもう一度お試しください。",
+      "err_ai_failed_title": "AI リクエストが完了しませんでした",
+      "err_ai_failed_body": "作成中に問題が発生しました。もう一度お試しください。続く場合は管理者に AI Debug の確認を依頼してください。",
+      "err_admin_hint": "管理者に AI アカウントのクレジット追加（Plans & Billing）または「管理 → AI エンジン」で有効なキーの設定を依頼してください。その間は、導入文を自分で書く、このままにする、または後で対応することができます。",
+      "err_try_again": "もう一度試す",
+      "write_own": "自分で書く",
+      "write_label": "導入文",
+      "write_placeholder": "このセクションを紹介し、サブセクションへつなげてください…",
+      "write_hint": "段落の間は空行を入れてください。箇条書きは行頭に「- 」を付けます。AI 作成ではなく、あなたの編集として保存されます。",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "edit": "編集"
     }
   }
 }

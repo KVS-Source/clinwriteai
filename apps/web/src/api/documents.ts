@@ -259,7 +259,7 @@ export const documentsApi = {
   redraftHeading: (documentId: string, sectionId: string) =>
     api.post<{ html: string; aiCallRecordId: string | null; model: string }>(`/documents/${documentId}/headings/${encodeURIComponent(sectionId)}/redraft`, {}),
   /** Save a previewed introduction as an AI-drafted edit (when the section isn't open in this editor). */
-  acceptHeading: (documentId: string, sectionId: string, body: { html: string; aiCallRecordId?: string; model?: string }) =>
+  acceptHeading: (documentId: string, sectionId: string, body: { html: string; aiCallRecordId?: string; model?: string; manual?: boolean }) =>
     api.post<{ ok: true; versionNumber: string }>(`/documents/${documentId}/headings/${encodeURIComponent(sectionId)}/accept`, body),
   /** Keep the heading as it is; it is flagged again only when a sub-section changes. */
   keepHeading: (documentId: string, sectionId: string) =>

@@ -155,6 +155,17 @@ describe('heading routes', () => {
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'ai_draft_accepted', details: expect.objectContaining({ kind: 'heading_intro' }) }))
   })
 
+  it('written by hand in the panel: saved as a manual edit (not AI-drafted); empty text refused', async () => {
+    const { app, audit } = await build()
+    const r = await app.inject({ method: 'POST', url: '/documents/d/headings/s-5/accept', payload: { html: '<p>Our own introduction.</p>', manual: true, aiCallRecordId: 'ignored' } })
+    expect(r.statusCode).toBe(200)
+    const call = (updateSection.mock.calls[0] as unknown as [Record<string, unknown>])[0]
+    expect(call).toMatchObject({ sectionId: 's-5', contentHtml: '<p>Our own introduction.</p>' })
+    expect(call).not.toHaveProperty('aiDrafted')
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'section_edited', details: expect.objectContaining({ kind: 'heading_intro_manual', aiCallRecordId: null }) }))
+    expect((await app.inject({ method: 'POST', url: '/documents/d/headings/s-5/accept', payload: { html: '<p> </p>', manual: true } })).statusCode).toBe(400)
+  })
+
   it('only authors and the creator: anyone else gets 403 on redraft, accept and keep', async () => {
     const { app, chat, docUpdates } = await build({ userId: 'someone' })
     for (const path of ['redraft', 'accept', 'keep']) {
@@ -183,6 +194,16 @@ describe('heading routes', () => {
     const review = await build({ doc: { status: 'in_review' } })
     expect((await review.app.inject({ method: 'POST', url: '/documents/d/headings/s-5/accept', payload: { html: '<p>x</p>' } })).statusCode).toBe(409)
     expect(updateSection).not.toHaveBeenCalled()
+  })
+
+  it('redraft when the AI account is out of credit: a plain message and who can fix it, not the provider’s raw error', async () => {
+    const { app, chat, audit } = await build()
+    chat.mockRejectedValueOnce(Object.assign(new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'), { status: 400 }))
+    const r = await app.inject({ method: 'POST', url: '/documents/d/headings/s-5/redraft' })
+    expect(r.statusCode).toBe(503)
+    expect(r.json()).toMatchObject({ error: 'ai_out_of_credit', fix: 'admin' })
+    expect(r.json().message).not.toContain('{')
+    expect(audit).not.toHaveBeenCalled()
   })
 
   it('redraft is refused at the document’s AI cost limit', async () => {

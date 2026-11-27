@@ -4913,7 +4913,27 @@
       "next": "Next: {{section}}",
       "error_redraft": "The introduction could not be drafted. Try again.",
       "error_accept": "The introduction could not be saved. Try again.",
-      "error_keep": "The decision could not be saved. Try again."
+      "error_keep": "The decision could not be saved. Try again.",
+      "err_title": "This could not be done",
+      "err_ai_out_of_credit_title": "The AI account is out of credit",
+      "err_ai_out_of_credit_body": "Nothing can be drafted with AI until the account is topped up. Your document is unchanged.",
+      "err_ai_key_invalid_title": "The AI key isn’t working",
+      "err_ai_key_invalid_body": "The AI provider did not accept this install’s key, so nothing was drafted. Your document is unchanged.",
+      "err_ai_rate_limited_title": "Too many AI requests right now",
+      "err_ai_rate_limited_body": "The AI provider is limiting requests for this account. Wait a minute, then try again.",
+      "err_ai_busy_title": "The AI service is busy",
+      "err_ai_busy_body": "The AI provider is overloaded at the moment. Try again in a few minutes.",
+      "err_ai_failed_title": "The AI request didn’t go through",
+      "err_ai_failed_body": "Something went wrong while drafting. Try again; if it keeps failing, ask an admin to check AI Debug.",
+      "err_admin_hint": "Ask an admin to top up the AI account (Plans & Billing) or paste a working key under Admin → AI engine. Meanwhile you can write the introduction yourself, keep it as it is, or come back later.",
+      "err_try_again": "Try again",
+      "write_own": "Write it myself",
+      "write_label": "Your introduction",
+      "write_placeholder": "Introduce this section and lead into its sub-sections…",
+      "write_hint": "Leave a blank line between paragraphs. Start lines with \"- \" for a list. Saved as your own edit, not AI-drafted.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "edit": "Edit"
     }
   }
 }

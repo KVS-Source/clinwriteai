@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Section } from '@platform/types'
 import { useDocumentStore } from '../../store'
@@ -102,6 +102,22 @@ const TEAM_INITIALS: Record<string, string> = {
   'user-PN': 'PN', 'user-AH': 'AH', 'user-RT': 'RT', 'user-LP': 'LP',
 }
 
+// Each section's ancestors by its number (1.2.1 → 1.2 → 1), nearest first. A number whose parent isn't in
+// the list (or with no number) stays at the top level. "1.0" and "1." count as "1".
+function sectionAncestors(sections: Section[]): Map<string, string[]> {
+  const norm = (n: string) => n.trim().replace(/(\.0)?\.?$/, '')
+  const idByNumber = new Map(sections.map(s => [norm(s.number), s.id]))
+  return new Map(sections.map(s => {
+    const parts = norm(s.number).split('.')
+    const ids: string[] = []
+    for (let i = parts.length - 1; i > 0; i--) {
+      const id = idByNumber.get(parts.slice(0, i).join('.'))
+      if (id && id !== s.id) ids.push(id)
+    }
+    return [s.id, ids]
+  }))
+}
+
 export function SectionNavigator({
   sections,
   documentId,
@@ -143,6 +159,25 @@ export function SectionNavigator({
       s.title.toLowerCase().includes(q),
     )
   }, [sections, query])
+
+  // Only main sections show at first; a section with subsections opens and closes on click. Whatever is
+  // active is revealed (opened from the TBDs or Search tab, the Final Document's scroll, etc.).
+  const ancestors = useMemo(() => sectionAncestors(sections), [sections])
+  const parentIds = useMemo(() => new Set([...ancestors.values()].flat()), [ancestors])
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const activeAncestors = (activeSection ? ancestors.get(activeSection) ?? [] : []).join('|')
+  useEffect(() => {
+    if (activeAncestors) setExpanded(open => new Set([...open, ...activeAncestors.split('|')]))
+  }, [activeSection, activeAncestors])
+  const toggle = (id: string) => setExpanded(open => {
+    const next = new Set(open)
+    if (!next.delete(id)) next.add(id)
+    return next
+  })
+  // A search shows every match, whether or not its parent is open.
+  const listedSections = query.trim()
+    ? visibleSections
+    : visibleSections.filter(s => (ancestors.get(s.id) ?? []).every(id => expanded.has(id)))
 
   const completeCount = sections.filter(s => s.status === 'complete').length
   const pct = sections.length > 0 ? Math.round((completeCount / sections.length) * 100) : 0
@@ -229,8 +264,11 @@ export function SectionNavigator({
             {sections.length === 0 ? t('page.section_navigator.no_sections') : t('page.section_navigator.no_matches', { query })}
           </p>
         )}
-        {visibleSections.map(section => {
+        {listedSections.map(section => {
           const isActive     = activeSection === section.id
+          const hasChildren  = !query.trim() && parentIds.has(section.id)
+          const isOpen       = expanded.has(section.id)
+          const depth        = query.trim() ? 0 : (ancestors.get(section.id)?.length ?? 0)
           const isLocked     = section.isLocked === true
           const lockOwner    = section.lockedByUserId ? TEAM_INITIALS[section.lockedByUserId] : null
           const presence     = section.presenceUserId ? TEAM_INITIALS[section.presenceUserId] : null
@@ -243,7 +281,8 @@ export function SectionNavigator({
               key={section.id}
               data-section-id={section.id}
               data-active={isActive || undefined}
-              onClick={() => setActiveSection(section.id)}
+              onClick={() => { setActiveSection(section.id); if (hasChildren) toggle(section.id) }}
+              aria-expanded={hasChildren ? isOpen : undefined}
               title={isLocked ? t('page.section_navigator.locked_by', { owner: lockOwner ?? t('page.section_navigator.another_user') }) : undefined}
               className="relative flex h-9 min-w-0 cursor-pointer items-center gap-2 px-3 text-[13px] hover:bg-slate-100 transition-colors"
               style={{
@@ -251,6 +290,7 @@ export function SectionNavigator({
                 backgroundColor: isActive ? '#FFFFFF' : undefined,
                 color: textColour,
                 fontWeight,
+                paddingLeft: 12 + depth * 12,
               }}
             >
               {/* Pulse strip on active section */}
@@ -272,6 +312,17 @@ export function SectionNavigator({
               <span className="flex-1 truncate">
                 {section.number} {section.title}
               </span>
+
+              {hasChildren && (
+                <svg
+                  width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6"
+                  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                  className={`flex-none text-slate-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                  data-section-chevron
+                >
+                  <path d="M4.5 2.5 8 6l-3.5 3.5" />
+                </svg>
+              )}
 
               {/* AI confidence badge (per-section). Renders only when this
                   section was evaluated by the validator — see AI-2 arc.

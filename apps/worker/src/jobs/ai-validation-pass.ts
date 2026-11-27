@@ -43,6 +43,7 @@ import { EXAMPLE_SOURCES_RULE, isExample, readSourceText, sourceKind } from './s
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolveAnthropicKey } from './resolve-anthropic-key.js'
 import { createStepLogger } from './ai-draft-step.js'
+import { CRITIQUE_OUTPUT_TOKENS } from '../token-limits.js'
 import type { JobHandler } from './types.js'
 
 interface AiValidationPassPayload {
@@ -407,8 +408,10 @@ function classifyAiReason(reason: string): string {
 // -------- LLM-gated check helpers ------------------------------------------
 
 const MAX_SOURCE_BYTES_PER_DOC = 20 * 1024 * 1024
-// At 2000 the answer for a 50-section Protocol was cut off and read as "no flags" (2026-11-26).
-const MAX_CRITIQUE_OUTPUT_TOKENS = 8000
+// Env-tunable via AI_MAX_OUTPUT_TOKENS_CRITIQUE (default 8000).
+// At 2000 the answer for a 50-section Protocol was cut off and read as
+// "no flags" (2026-11-26). Centralised 2026-11-27.
+const MAX_CRITIQUE_OUTPUT_TOKENS = CRITIQUE_OUTPUT_TOKENS
 
 interface SourcePdfPayload {
   title:   string

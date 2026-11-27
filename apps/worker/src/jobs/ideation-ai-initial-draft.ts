@@ -21,6 +21,7 @@ import {
   SECTION_GROUNDING_RULES,
   type IdeaPolicyRowForAi,
 } from './ideation-policy-prompt.js'
+import { DRAFT_OUTPUT_TOKENS } from '../token-limits.js'
 import type { JobHandler } from './types.js'
 
 interface IdeationAiInitialDraftPayload {
@@ -48,7 +49,9 @@ interface SourcePdfPayload {
 }
 
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024
-const MAX_SECTION_OUTPUT_TOKENS = 2000
+// Env-tunable via AI_MAX_OUTPUT_TOKENS_DRAFT (default 8000, centralised
+// 2026-11-27). Was 2000 historically.
+const MAX_SECTION_OUTPUT_TOKENS = DRAFT_OUTPUT_TOKENS
 
 function stubAllowed(): boolean { return process.env.AI_ALLOW_STUB === '1' }
 function aiConfigured(): boolean { return !!process.env.ANTHROPIC_API_KEY?.trim() || stubAllowed() }

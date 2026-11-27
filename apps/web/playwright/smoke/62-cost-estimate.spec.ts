@@ -1,5 +1,5 @@
-// New Document with the policy's AI cost estimate on: step 4 shows the estimated range in the install's currency and
-// takes an optional cost limit, which goes with the create call. With the estimate off nothing is shown.
+// New Document with the policy's "Allow an AI cost limit" on: step 4 shows the estimated range in the install's
+// currency and takes an optional cost limit, which goes with the create call. Off (the default): nothing is shown.
 //
 //   E2E_BASE_URL=http://localhost:5173 npx playwright test playwright/smoke/62-cost-estimate.spec.ts
 //
@@ -19,8 +19,10 @@ const ESTIMATE = {
   basis: { sections: 50, sourceTokens: 400000, perSectionSourceTokens: 22857, cached: false, validationPasses: [1, 3] },
 }
 
-async function stub(page: Page, costEstimateEnabled: boolean) {
-  await page.addInitScript(({ members, source, estimate, enabled }) => {
+// costLimitEnabled null: the document type has no policy (404).
+async function stub(page: Page, costLimitEnabled: boolean | null, policyFailures = 0) {
+  await page.addInitScript(({ members, source, estimate, limitEnabled, failures }) => {
+    let policyFailuresLeft = failures
     window.localStorage.setItem('clinwrite.demo.currentUserId', 'user-sa')
     const log = { created: [] as unknown[], estimates: 0 }
     ;(window as unknown as { __log: typeof log }).__log = log
@@ -32,7 +34,9 @@ async function stub(page: Page, costEstimateEnabled: boolean) {
       if (/\/projects\/[^/]+\/assignable-users/.test(url)) return json(members)
       if (/\/projects\/[^/]+\/source-documents(\?.*)?$/.test(url)) return json({ items: [source], total: 1, page: 1, pageSize: 100, summary: { files: 1, saved: 1, rejected: 0 } })
       if (/\/document-type-policies\/protocol$/.test(url)) {
-        return json({ id: 'pol', docType: 'protocol', version: 3, isCurrent: true, smePrompt: 'SME prompt', bestPracticeDigest: { principles: [] }, sectionRules: {}, templateId: null, checklistTemplateId: null, ichFramework: null, ichFrameworkNames: [], requirements: { requireSources: true, requireTemplate: false, requirePurpose: false }, costEstimateEnabled: enabled })
+        if (limitEnabled === null) return json({ error: 'not_found' }, 404)
+        if (policyFailuresLeft > 0) { policyFailuresLeft--; return json({ error: 'internal', message: 'Policy service unavailable' }, 500) }
+        return json({ id: 'pol', docType: 'protocol', version: 3, isCurrent: true, smePrompt: 'SME prompt', bestPracticeDigest: { principles: [] }, sectionRules: {}, templateId: null, checklistTemplateId: null, ichFramework: null, ichFrameworkNames: [], requirements: { requireSources: true, requireTemplate: false, requirePurpose: false }, costLimitEnabled: limitEnabled })
       }
       if (/\/projects\/[^/]+\/documents\/cost-estimate$/.test(url)) { log.estimates++; return json(estimate) }
       if (/\/projects\/[^/]+\/documents\/source-check$/.test(url)) return json({ ok: true, unknownIds: [], issues: [] })
@@ -40,7 +44,7 @@ async function stub(page: Page, costEstimateEnabled: boolean) {
       if (method !== 'GET') return json({ error: 'blocked in test' }, 500)
       return real(input, init)
     }
-  }, { members: MEMBERS, source: SOURCE, estimate: ESTIMATE, enabled: costEstimateEnabled })
+  }, { members: MEMBERS, source: SOURCE, estimate: ESTIMATE, limitEnabled: costLimitEnabled, failures: policyFailures })
 }
 
 const log = (page: Page) => page.evaluate(() => (window as unknown as { __log: { created: Array<Record<string, unknown>>; estimates: number } }).__log)
@@ -61,7 +65,7 @@ async function toStep4(page: Page) {
   await next(page)
 }
 
-test('with the estimate on: the range in rupees, and the limit goes with Create', async ({ page }) => {
+test('cost limit allowed: the estimated range in rupees and the limit field, which goes with Create', async ({ page }) => {
   await stub(page, true)
   await toStep4(page)
   await expect(page.locator('[data-cost-estimate-range]')).toHaveText(/420\.50 INR – 1,260\.00 INR/)
@@ -77,7 +81,27 @@ test('with the estimate on: the range in rupees, and the limit goes with Create'
   expect((await log(page)).created[0]).toMatchObject({ aiCostLimit: { amount: 1500 } })
 })
 
-test('with the estimate off (the default) nothing is shown or sent', async ({ page }) => {
+test('a policy that fails to load is shown with Retry, not hidden; Retry brings back the cost limit', async ({ page }) => {
+  await stub(page, true, 1)
+  await toStep4(page)
+  const err = page.locator('[data-step-body="ai-drafting"] [data-policy-load-error]')
+  await expect(err).toBeVisible()
+  await expect(err).toContainText("The Protocol policy couldn't be loaded.")
+  await expect(page.locator('[data-cost-estimate]')).toHaveCount(0)
+  await err.locator('[data-action="retry-policy"]').click()
+  await expect(page.locator('[data-policy-load-error]')).toHaveCount(0)
+  await expect(page.locator('[data-field="cost-limit"] input')).toBeVisible()
+})
+
+test('a document type with no policy offers the estimate and the cost limit', async ({ page }) => {
+  await stub(page, null)
+  await toStep4(page)
+  await expect(page.locator('[data-policy-load-error]')).toHaveCount(0)
+  await expect(page.locator('[data-cost-estimate-range]')).toHaveText(/420\.50 INR – 1,260\.00 INR/)
+  await expect(page.locator('[data-field="cost-limit"] input')).toBeVisible()
+})
+
+test('cost limit not allowed (the default): no estimate, no limit field, nothing sent', async ({ page }) => {
   await stub(page, false)
   await toStep4(page)
   await expect(page.locator('[data-step-body="ai-drafting"]')).toBeVisible()

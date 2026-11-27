@@ -44,7 +44,7 @@ export class CostGuard {
   }
 
   describe(): string {
-    return `Paused: the AI cost limit of ${this.money(this.limitUsd)} would be passed by the next AI call (${this.money(this.spentUsd)} spent so far). A project manager can raise the limit in AI Debug, then press Resume.`
+    return `Paused: the AI cost limit of ${this.money(this.limitUsd)} would be passed by the next AI call (${this.money(this.spentUsd)} spent so far). A project manager can raise the limit in AI Debug, then press Continue.`
   }
 }
 
@@ -73,4 +73,33 @@ export async function loadCostGuard(prisma: Prisma, documentId: string): Promise
     guard.add({ model: typeof d.model === 'string' ? d.model : 'unknown', inputTokens, outputTokens, cachedTokens: typeof d.cachedTokens === 'number' ? d.cachedTokens : 0 })
   }
   return guard
+}
+
+/**
+ * Tell the people who can act that a draft paused at its cost limit: the project's project managers (only a PM can
+ * raise the limit, in AI Debug), and the document's creator and assignee. In-app, on their dashboard.
+ */
+export async function notifyCostLimitReached(prisma: Prisma, documentId: string, guard: CostGuard): Promise<number> {
+  const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { title: true, projectId: true, createdBy: true, assigneeId: true } })
+  if (!doc) return 0
+  const members = await prisma.projectMember.findMany({
+    where: { projectId: doc.projectId, removedAt: null, user: { status: 'active', OR: [{ role: 'pm' }, { additionalRoles: { has: 'pm' } }] } },
+    select: { userId: true },
+  })
+  const recipients = [...new Set([...members.map(m => m.userId), doc.createdBy, doc.assigneeId].filter((id): id is string => !!id))]
+  for (const recipientId of recipients) {
+    await prisma.notification.create({
+      data: {
+        recipientId,
+        kind: 'ai_draft_cost_limit',
+        severity: 'warning',
+        title: `AI drafting paused: cost limit reached on "${doc.title}"`,
+        body: guard.describe(),
+        linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${documentId}`,
+        channels: ['in_app'],
+        payload: { documentId, projectId: doc.projectId, spentUsd: guard.spentUsd, limitUsd: guard.limitUsd },
+      },
+    })
+  }
+  return recipients.length
 }

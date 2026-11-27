@@ -21,7 +21,6 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { resolveAnthropicKey } from '../../platform/ai-gateway/resolve-anthropic-key.js'
@@ -41,7 +40,7 @@ import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { computeDraftPreflight } from './ai-draft-preflight.js'
 import { numbersNotDraftedByAi } from '../../platform/policy-packages/build-plan.js'
-import { asCostLimit, documentSpend, documentSpendUsd, estimateDraftCost, limitReached, localCurrency, toLocal, toUsd, type AiCostLimit } from './ai-cost.js'
+import { asCostLimit, costLimitAllowed, documentSpend, documentSpendUsd, estimateDraftCost, limitReached, localCurrency, toLocal, toUsd, type AiCostLimit } from './ai-cost.js'
 import { runSourceCheck, SOURCE_ROLES, type SourceRole } from './source-check.js'
 import {
   buildAutofillPrompt,
@@ -412,7 +411,8 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     return runSourceCheck(app, { projectId, docType: parsed.data.type, sources: parsed.data.sources })
   })
 
-  // The AI drafting cost estimate shown at New Document when the document type's policy has it on (ai-cost.ts).
+  // The AI drafting cost estimate shown at New Document with the limit field, when the document type's policy allows
+  // a cost limit (ai-cost.ts).
   // Rough by nature: a range, from the sources' size, the sections the AI drafts and the rate card.
   const costEstimateSchema = z.object({
     type: z.string().min(1),
@@ -427,9 +427,9 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const docType = parsed.data.type.replace(/-/g, '_')
     const policy = await app.prisma.documentTypePolicy.findFirst({
       where: { docType, isCurrent: true, retiredAt: null },
-      select: { costEstimateEnabled: true, buildPlan: true, templateId: true },
+      select: { costLimitEnabled: true, buildPlan: true, templateId: true },
     })
-    if (!policy?.costEstimateEnabled) return { enabled: false }
+    if (!costLimitAllowed(policy)) return { enabled: false }
 
     // Readable sources only (the check also records each file's size the first time).
     await runSourceCheck(app, { projectId, docType: parsed.data.type, sources: parsed.data.sources })
@@ -444,11 +444,11 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       pages += i.pages ?? 0
       scanned += i.scannedPages ?? 0
     }
-    const template = (policy.templateId ? await app.prisma.documentTemplate.findUnique({ where: { id: policy.templateId }, select: { sections: true } }) : null)
+    const template = (policy?.templateId ? await app.prisma.documentTemplate.findUnique({ where: { id: policy.templateId }, select: { sections: true } }) : null)
       ?? await app.prisma.documentTemplate.findFirst({ where: { type: { in: [parsed.data.type, docType] }, isCurrent: true, retiredAt: null }, select: { sections: true } })
     const numbers = (Array.isArray(template?.sections) ? template!.sections as Array<{ number?: string }> : []).map(s => String(s.number ?? '')).filter(Boolean)
-    const sections = numbers.length - numbersNotDraftedByAi(policy.buildPlan, numbers).size
-    const plan = (policy.buildPlan ?? {}) as { factSheet?: unknown; sourcePages?: { budgetChars?: number } }
+    const sections = numbers.length - numbersNotDraftedByAi(policy?.buildPlan, numbers).size
+    const plan = (policy?.buildPlan ?? {}) as { factSheet?: unknown; sourcePages?: { budgetChars?: number } }
     const model = await chooseModel(app.prisma)
     const card = await getActiveRateCard(app.prisma)
     const rate = card.rates.find(r => r.model === model) ?? card.rates.find(r => r.model === 'unknown')
@@ -626,7 +626,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
 
     // The AI cost limit the PM set, kept in USD (what the provider bills) with the amount as entered.
     let aiCostLimit: AiCostLimit | null = null
-    if (parsed.data.aiCostLimit && policy?.costEstimateEnabled) {
+    if (parsed.data.aiCostLimit && costLimitAllowed(policy)) {
       const cur = await localCurrency(app.prisma)
       aiCostLimit = {
         usd: toUsd(parsed.data.aiCostLimit.amount, cur), amount: parsed.data.aiCostLimit.amount,
@@ -1769,9 +1769,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- PUT /:documentId/ai-cost-limit --------------------------------------
   //
-  // A project manager sets, raises or removes (amount null) the AI drafting cost limit of a document, in the
-  // install's currency. The worker pauses a draft when its next AI call would go over the limit (ai-cost.ts).
-  const costLimitSchema = z.object({ amount: z.number().positive().max(1_000_000_000).nullable() })
+  // A project manager raises the AI drafting cost limit of a document, in the install's currency. The limit itself
+  // is set at New Document (when the policy allows one); the worker pauses a draft when its next AI call would pass
+  // it and notifies the project managers, who raise it here (AI Debug) and press Continue.
+  const costLimitSchema = z.object({ amount: z.number().positive().max(1_000_000_000) })
   app.put('/:documentId/ai-cost-limit', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = costLimitSchema.safeParse(request.body)
@@ -1781,11 +1782,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
     const cur = await localCurrency(app.prisma)
     const before = asCostLimit(doc.aiCostLimit)
-    const after: AiCostLimit | null = parsed.data.amount === null ? null : {
+    if (!before) {
+      return reply.code(409).send({ error: 'no_cost_limit', message: 'This document has no AI cost limit. A limit is set when the document is created.' })
+    }
+    const after: AiCostLimit = {
       usd: toUsd(parsed.data.amount, cur), amount: parsed.data.amount, currency: cur.currency, usdRate: cur.usdRate,
       setBy: request.user!.id, setAt: new Date().toISOString(),
     }
-    await app.prisma.document.update({ where: { id: documentId }, data: { aiCostLimit: after ? (after as unknown as object) : Prisma.DbNull } })
+    if (after.usd <= before.usd) {
+      return reply.code(422).send({ error: 'limit_not_raised', message: `The new limit must be higher than the current ${toLocal(before.usd, cur)} ${cur.currency}.` })
+    }
+    await app.prisma.document.update({ where: { id: documentId }, data: { aiCostLimit: after as unknown as object } })
     await app.audit.append({
       timestamp:  new Date().toISOString(),
       actorId:    request.user!.id,
@@ -1794,12 +1801,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       entityId:   documentId,
       details:    {
         before: before ? { amount: before.amount, currency: before.currency, usd: before.usd } : null,
-        after:  after ? { amount: after.amount, currency: after.currency, usd: after.usd } : null,
+        after:  { amount: after.amount, currency: after.currency, usd: after.usd },
       },
       ipAddress:  request.ip ?? null,
     })
     const spentUsd = await documentSpendUsd(app.prisma, documentId)
-    return { limit: after ? { amount: after.amount, currency: after.currency, usd: after.usd } : null, spent: toLocal(spentUsd, cur), spentUsd, currency: cur.currency }
+    return { limit: { amount: after.amount, currency: after.currency, usd: after.usd }, spent: toLocal(spentUsd, cur), spentUsd, currency: cur.currency }
   })
 
   // --- POST /:documentId/ai-draft/pause ----------------------------------
@@ -1889,7 +1896,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         const cur = await localCurrency(app.prisma)
         return reply.code(409).send({
           error: 'cost_limit_reached',
-          message: `This draft has spent ${toLocal(spend.totalUsd, cur)} ${cur.currency} of its ${toLocal(limit.usd, cur)} ${cur.currency} AI cost limit, and its next AI call would pass it. A project manager can raise the limit in AI Debug, then Resume.`,
+          message: `This draft has spent ${toLocal(spend.totalUsd, cur)} ${cur.currency} of its ${toLocal(limit.usd, cur)} ${cur.currency} AI cost limit, and its next AI call would pass it. A project manager can raise the limit in AI Debug, then Continue.`,
         })
       }
     }
@@ -2333,7 +2340,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           currency: cur.currency, rateMissing: cur.rateMissing, spent: toLocal(spend.totalUsd, cur), spentUsd: spend.totalUsd,
           limit: limit ? { amount: toLocal(limit.usd, cur), usd: limit.usd } : null,
           reached: !!limit && limitReached(spend, limit),
-          canSetLimit: hasAnyRole(request.user!, 'pm'),
+          // Only a PM, and only to raise a limit the document already has (it is set at New Document).
+          canSetLimit: !!limit && hasAnyRole(request.user!, 'pm'),
         }
       })(),
 

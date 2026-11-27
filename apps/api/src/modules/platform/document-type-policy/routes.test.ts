@@ -276,6 +276,17 @@ describe('PATCH /document-type-policies/:docType — edit current', () => {
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({ error: 'version_in_use' })
   })
+
+  it('a setting changed on a version documents use is saved as the next version; those documents keep theirs', async () => {
+    const { app, state } = await build({
+      rows: [mkRow({ docType: 'protocol', smePrompt: 'kept', referenceStyle: 'numbered', costLimitEnabled: false })],
+      docCount: 1,
+    })
+    const res = await app.inject({ method: 'PATCH', url: '/document-type-policies/protocol', payload: { costLimitEnabled: true } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ version: 2, isCurrent: true, costLimitEnabled: true, smePrompt: 'kept', referenceStyle: 'numbered' })
+    expect(state.rows.find(r => r.version === 1)).toMatchObject({ isCurrent: false, costLimitEnabled: false })
+  })
 })
 
 describe('POST /document-type-policies/:docType/bump — new version', () => {

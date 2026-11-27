@@ -64,7 +64,10 @@ export function SuperReview() {
   useEffect(() => { setNodes(fetchedNodes as ECTDNode[]) }, [fetchedNodes, setNodes])
 
   const signedCount    = reviewers.filter(r => !!r.signedAt).length
-  const pendingNames   = reviewers.filter(r => !r.signedAt).map(r => r.name.replace(/^Dr |^Mr |^Ms /, m => m.trim() + ' '))
+  // r.name is null when the seat is unassigned (API returns { assigned:
+  // false, name: null } so the UI can render an "unassigned" chip).
+  // Show "Unassigned" in the pending-names list rather than crashing.
+  const pendingNames   = reviewers.filter(r => !r.signedAt).map(r => (r.name ?? 'Unassigned').replace(/^Dr |^Mr |^Ms /, m => m.trim() + ' '))
   const allSigned      = reviewers.length > 0 && signedCount === reviewers.length
   const unresolvedMajor = useMemo(() => {
     if (!ccResult) return 0
@@ -174,12 +177,12 @@ export function SuperReview() {
             </p>
             <div className="flex flex-col gap-1.5">
               {reviewers.map(r => (
-                <div key={r.id} className="flex items-center gap-2 rounded-md p-1.5" data-raci-row={r.userId}>
+                <div key={r.id} className="flex items-center gap-2 rounded-md p-1.5" data-raci-row={r.userId ?? 'unassigned'}>
                   <div className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-[10px] font-bold" style={{ backgroundColor: r.avBg, color: r.avFg }}>
-                    {r.initials}
+                    {r.initials ?? '—'}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-semibold text-slate-800">{r.name}</p>
+                    <p className="truncate text-[12px] font-semibold text-slate-800">{r.name ?? <span className="italic text-slate-400">Unassigned</span>}</p>
                     <p className="truncate text-[11px] text-slate-500">{r.role}</p>
                   </div>
                   <span

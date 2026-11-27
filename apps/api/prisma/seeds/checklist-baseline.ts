@@ -10,6 +10,15 @@
 //     are inserted, missing-from-code items left in place (we never delete
 //     seeded rows on re-run because instance items may be referencing them).
 //
+// Scope (2026-11-27): Protocol-only. The seed previously shipped
+// baseline checklists for 10 deliverable types (csr_full, csr_synopsis,
+// protocol_amendment, ib, icf, safety_narrative, dsur,
+// end-of-study-summary, patient_narrative, protocol). Removing a
+// checklist template via admin UI didn't stick — the next deploy
+// re-created it from this seed. Ship-list trimmed to Protocol only;
+// additional checklists come in through the admin UI + persist in the
+// DB only. Companion to the document-templates.ts trim of the same date.
+//
 // Called from prisma/seed.ts and from the standalone backfill script.
 
 import type { PrismaClient } from '@prisma/client'
@@ -34,25 +43,6 @@ export interface BaselineItem {
  * minimum compliance floor; Admins add project-specific items on top.
  */
 export const BASELINE_ITEMS: Record<string, BaselineItem[]> = {
-  csr_full: [
-    { text: 'Study title and identifiers match the protocol',          framework: 'ICH E3',          ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Ethics committee / IRB approvals attached',               framework: 'ICH E6',          ownerRaci: 'A', stage: 'study_start_up' },
-    { text: 'Investigator credentials verified and on file',           framework: 'ICH E6',          ownerRaci: 'C', stage: 'study_start_up' },
-    { text: 'Informed consent process documented for every subject',   framework: '21 CFR 50',       ownerRaci: 'R', stage: 'during_study' },
-    { text: 'Protocol deviations logged and reviewed',                 framework: 'ICH E6',          ownerRaci: 'R', stage: 'during_study' },
-    { text: 'Statistical Analysis Plan finalised and locked',          framework: 'ICH E9',          ownerRaci: 'C', stage: 'reporting' },
-    { text: 'Database lock completed and audited',                     framework: 'ICH E6',          ownerRaci: 'A', stage: 'reporting' },
-    { text: 'Author draft completed and submitted for review',         framework: 'SOP',             ownerRaci: 'R', stage: 'cross_functional_review', autoCompleteOn: 'submit_for_review' },
-    { text: 'Medical review completed and signed off',                 framework: 'ICH E3',          ownerRaci: 'C', stage: 'cross_functional_review' },
-    { text: 'Cross-functional review meeting minutes recorded',        framework: 'SOP',             ownerRaci: 'A', stage: 'crm', autoCompleteOn: 'crm_complete' },
-    { text: 'Final signature by Medical Director',                     framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  csr_synopsis: [
-    { text: 'Study design summary matches the full CSR',               framework: 'ICH E3 §2',       ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Primary endpoint result captured',                        framework: 'ICH E9',          ownerRaci: 'R', stage: 'reporting' },
-    { text: 'Medical reviewer sign-off recorded',                      framework: 'SOP',             ownerRaci: 'C', stage: 'cross_functional_review', autoCompleteOn: 'submit_for_review' },
-    { text: 'Final approval signed',                                   framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
   protocol: [
     { text: 'Protocol synopsis complete',                              framework: 'ICH E6',          ownerRaci: 'R', stage: 'study_start_up' },
     { text: 'Risk-based monitoring plan documented',                   framework: 'ICH E6',          ownerRaci: 'C', stage: 'study_start_up' },
@@ -61,51 +51,6 @@ export const BASELINE_ITEMS: Record<string, BaselineItem[]> = {
     { text: 'Regulatory authority approval received',                  framework: 'ICH E6',          ownerRaci: 'A', stage: 'during_study' },
     { text: 'Cross-functional review complete',                        framework: 'SOP',             ownerRaci: 'C', stage: 'crm', autoCompleteOn: 'crm_complete' },
     { text: 'Final approval signatures captured',                      framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  protocol_amendment: [
-    { text: 'Rationale for amendment documented',                      framework: 'ICH E6 §6.2',     ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Impact on consent form assessed',                         framework: 'ICH E6',          ownerRaci: 'A', stage: 'study_start_up' },
-    { text: 'IRB / Ethics Committee notified',                         framework: 'ICH E6',          ownerRaci: 'A', stage: 'during_study' },
-    { text: 'Amendment approved by sponsor',                           framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  ib: [
-    { text: 'Preclinical data summarised',                             framework: 'ICH E6 §7',       ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Clinical data to date summarised',                        framework: 'ICH E6 §7',       ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Safety profile overview included',                        framework: 'ICH E6 §7',       ownerRaci: 'C', stage: 'study_start_up' },
-    { text: 'Guidance for the investigator included',                  framework: 'ICH E6 §7',       ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Annual update scheduled',                                 framework: 'ICH E6',          ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  icf: [
-    { text: 'Required consent elements present',                       framework: '21 CFR 50.25',    ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Language in plain terms (reading grade reviewed)',        framework: '21 CFR 50',       ownerRaci: 'C', stage: 'study_start_up' },
-    { text: 'IRB / EC approval attached',                              framework: '21 CFR 50',       ownerRaci: 'A', stage: 'study_start_up' },
-    { text: 'Translations verified where applicable',                  framework: 'ICH E6',          ownerRaci: 'C', stage: 'during_study' },
-    { text: 'Sponsor signature on final version',                      framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  safety_narrative: [
-    { text: 'Patient identifier and demographics confirmed',           framework: 'ICH E3 §12.3',    ownerRaci: 'R', stage: 'during_study' },
-    { text: 'Timeline of events documented',                           framework: 'ICH E3 §12.3',    ownerRaci: 'R', stage: 'during_study' },
-    { text: 'Causality assessment included',                           framework: 'ICH E2A',         ownerRaci: 'C', stage: 'reporting' },
-    { text: 'Reviewed by medical monitor',                             framework: 'SOP',             ownerRaci: 'C', stage: 'cross_functional_review', autoCompleteOn: 'submit_for_review' },
-    { text: 'Final approval obtained',                                 framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  dsur: [
-    { text: 'Reporting period clearly defined',                        framework: 'ICH E2F',         ownerRaci: 'R', stage: 'study_start_up' },
-    { text: 'Cumulative exposure data included',                       framework: 'ICH E2F',         ownerRaci: 'R', stage: 'during_study' },
-    { text: 'Serious adverse events listed with analysis',             framework: 'ICH E2F',         ownerRaci: 'R', stage: 'reporting' },
-    { text: 'Risk–benefit assessment updated',                         framework: 'ICH E2F',         ownerRaci: 'C', stage: 'reporting' },
-    { text: 'Submitted to regulatory authorities',                     framework: '21 CFR 312.33',   ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  'end-of-study-summary': [
-    { text: 'Final subject disposition recorded',                      framework: 'ICH E3',          ownerRaci: 'R', stage: 'reporting' },
-    { text: 'All regulatory submissions complete',                     framework: 'ICH E6',          ownerRaci: 'A', stage: 'final_output' },
-    { text: 'Database locked and archived',                            framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
-  ],
-  patient_narrative: [
-    { text: 'All serious adverse events covered',                      framework: 'ICH E3 §12.3',    ownerRaci: 'R', stage: 'during_study' },
-    { text: 'MedDRA coding verified',                                  framework: 'MedDRA',          ownerRaci: 'C', stage: 'reporting' },
-    { text: 'Reviewed by medical lead',                                framework: 'SOP',             ownerRaci: 'C', stage: 'cross_functional_review', autoCompleteOn: 'submit_for_review' },
-    { text: 'Final approval obtained',                                 framework: '21 CFR Part 11',  ownerRaci: 'A', stage: 'final_output', autoCompleteOn: 'document_signed' },
   ],
 }
 

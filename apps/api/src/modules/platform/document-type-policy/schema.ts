@@ -87,8 +87,9 @@ export const createPolicySchema = z.object({
   requirements:        policyRequirementsSchema.optional(),
   /** How references are cited when code builds the References section (migration 110). */
   referenceStyle:      z.enum(['numbered', 'author_year']).optional(),
-  /** Show the AI cost estimate (and an optional limit) at New Document (migration 111). */
-  costEstimateEnabled: z.boolean().optional(),
+  /** Let the PM set an AI cost limit at New Document, with the estimated cost shown beside it (migration 112).
+   *  (costEstimateEnabled, migration 111, is no longer used: this one setting covers both.) */
+  costLimitEnabled:    z.boolean().optional(),
 })
 
 /** Default SME-prompt placeholder used on `create` when the admin opts

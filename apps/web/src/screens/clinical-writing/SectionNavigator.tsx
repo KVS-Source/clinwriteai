@@ -5,7 +5,6 @@ import { useDocumentStore } from '../../store'
 import { usePlatformStore } from '../../platform/store/platformStore'
 import { AiSectionConfidenceBadge } from '../../components/ai-drafter/AiSectionConfidenceBadge'
 import { TbdsPanel } from './TbdsPanel'
-import { DocumentSourcesPanel } from './DocumentSourcesPanel'
 import { SearchPanel } from './SearchPanel'
 import { scanDocumentForTbds, countAllTbds } from './tbd-scanner'
 
@@ -29,7 +28,8 @@ interface Props {
   aiConfidenceBySectionId?: Map<string, AiSectionStatus>
 }
 
-type SectionNavTab = 'sections' | 'sources' | 'tbds' | 'search'
+// (Sources moved to the editor toolbar's "Sources" button and its right-hand panel.)
+type SectionNavTab = 'sections' | 'tbds' | 'search'
 
 function TabButton({ label, name, tab, onSelect, badge }: {
   label:    string
@@ -150,13 +150,12 @@ export function SectionNavigator({
   return (
     <div className="flex w-[220px] flex-none flex-col border-r border-slate-200" style={{ backgroundColor: '#F8FAFC', minHeight: 0 }} data-section-nav>
 
-      {/* Tab bar — Sections / Sources / TBDs / Search. Author view only;
+      {/* Tab bar — Sections / TBDs / Search. Author view only;
           reviewer view mounts without documentId and keeps the legacy
           Sections-only header below. */}
       {documentId ? (
         <div className="flex flex-none border-b border-slate-200 bg-white">
           <TabButton label={t('page.section_navigator.header')} name="sections" tab={tab} onSelect={setTab} />
-          <TabButton label="Sources"                             name="sources"  tab={tab} onSelect={setTab} />
           <TabButton label="TBDs" badge={tbdCount}               name="tbds"     tab={tab} onSelect={setTab} />
           <TabButton label="Search"                              name="search"   tab={tab} onSelect={setTab} />
         </div>
@@ -174,8 +173,6 @@ export function SectionNavigator({
 
       {tab === 'tbds' && documentId ? (
         <TbdsPanel documentId={documentId} sections={sections} />
-      ) : tab === 'sources' && documentId ? (
-        <DocumentSourcesPanel documentId={documentId} />
       ) : tab === 'search' && documentId ? (
         <SearchPanel documentId={documentId} sections={sections} />
       ) : (

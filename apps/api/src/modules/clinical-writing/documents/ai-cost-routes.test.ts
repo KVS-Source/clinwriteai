@@ -39,21 +39,26 @@ async function build(role: string, doc: Record<string, unknown>) {
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
 
 describe('PUT /documents/:id/ai-cost-limit', () => {
-  it('a PM sets the limit in the install’s currency; it is kept in USD and audited', async () => {
-    const { app, updates, audit } = await build('pm', { aiCostLimit: null })
+  const LIMIT_420 = { usd: 5, amount: 420, currency: 'INR', usdRate: 84 }
+  it('a PM raises the limit set at New Document, in the install’s currency; it is kept in USD and audited', async () => {
+    const { app, updates, audit } = await build('pm', { aiCostLimit: LIMIT_420 })
     const res = await app.inject({ method: 'PUT', url: '/documents/d/ai-cost-limit', payload: { amount: 840 } })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toMatchObject({ limit: { amount: 840, currency: 'INR', usd: 10 }, spent: 378, currency: 'INR' })
     expect(updates[0]!.aiCostLimit).toMatchObject({ usd: 10, amount: 840, currency: 'INR', usdRate: 84, setBy: 'pm-1' })
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'document.ai_cost_limit_changed', details: { before: null, after: { amount: 840, currency: 'INR', usd: 10 } },
+      action: 'document.ai_cost_limit_changed',
+      details: { before: { amount: 420, currency: 'INR', usd: 5 }, after: { amount: 840, currency: 'INR', usd: 10 } },
     }))
   })
-  it('null removes it; only a PM may change it', async () => {
-    const { app, updates } = await build('pm', { aiCostLimit: { usd: 5, amount: 420, currency: 'INR', usdRate: 84 } })
-    expect((await app.inject({ method: 'PUT', url: '/documents/d/ai-cost-limit', payload: { amount: null } })).json()).toMatchObject({ limit: null })
-    expect(updates[0]!.aiCostLimit).not.toHaveProperty('usd')
-    const writer = await build('contributor', { aiCostLimit: null })
+  it('only raised: not lowered, not removed, not added to a document created without one; only by a PM', async () => {
+    const { app, updates } = await build('pm', { aiCostLimit: LIMIT_420 })
+    expect((await app.inject({ method: 'PUT', url: '/documents/d/ai-cost-limit', payload: { amount: 300 } })).json()).toMatchObject({ error: 'limit_not_raised' })
+    expect((await app.inject({ method: 'PUT', url: '/documents/d/ai-cost-limit', payload: { amount: null } })).statusCode).toBe(400)
+    expect(updates).toEqual([])
+    const none = await build('pm', { aiCostLimit: null })
+    expect((await none.app.inject({ method: 'PUT', url: '/documents/d/ai-cost-limit', payload: { amount: 840 } })).json()).toMatchObject({ error: 'no_cost_limit' })
+    const writer = await build('contributor', { aiCostLimit: LIMIT_420 })
     expect((await writer.app.inject({ method: 'PUT', url: '/documents/d/ai-cost-limit', payload: { amount: 840 } })).statusCode).toBe(403)
   })
 })
@@ -64,7 +69,7 @@ describe('Resume of a draft paused at its cost limit', () => {
     const res = await app.inject({ method: 'POST', url: '/documents/d/ai-draft/resume', payload: {} })
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({ error: 'cost_limit_reached' })
-    expect(res.json().message).toMatch(/spent 378 INR of its 336 INR AI cost limit, and its next AI call would pass it\. A project manager can raise the limit in AI Debug, then Resume\./)
+    expect(res.json().message).toMatch(/spent 378 INR of its 336 INR AI cost limit, and its next AI call would pass it\. A project manager can raise the limit in AI Debug, then Continue./)
     expect(updates).toEqual([])
   })
   it('spent below the limit but the next call like the last would pass it: still refused (same rule as the drafter)', async () => {

@@ -36,6 +36,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { resolvePubPolicyForPublication } from './pub-policy-prompt.js'
+import { CRITIQUE_OUTPUT_TOKENS } from '../token-limits.js'
 import type { JobHandler } from './types.js'
 
 interface PubAiValidationPassPayload {
@@ -92,7 +93,9 @@ function shouldStopLoop(a: { iteration: number; confidenceOverall: number; faili
 
 const MIN_CONTENT_CHARS = 80
 const MAX_SOURCE_BYTES_PER_DOC = 20 * 1024 * 1024
-const MAX_CRITIQUE_OUTPUT_TOKENS = 3000  // slightly larger than Module A — guideline + grounding can be chatty
+// Env-tunable via AI_MAX_OUTPUT_TOKENS_CRITIQUE (default 8000,
+// centralised 2026-11-27). Was 3000 historically.
+const MAX_CRITIQUE_OUTPUT_TOKENS = CRITIQUE_OUTPUT_TOKENS
 
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()

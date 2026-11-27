@@ -10,11 +10,19 @@ export interface DebugStepLike {
 }
 
 /**
- * The output limits both worker calls have had (MAX_SECTION_OUTPUT_TOKENS, MAX_CRITIQUE_OUTPUT_TOKENS): 2000 until
- * 2026-11-26, then 8000; older drafts keep their steps. The steps don't record the limit, so only an answer of exactly
- * one of these lengths counts: if the limit changes again, nothing is wrongly marked.
+ * The current worker output limit for drafting + validation
+ * (MAX_SECTION_OUTPUT_TOKENS, MAX_CRITIQUE_OUTPUT_TOKENS): 8000. The 2000
+ * entry was retired on 2026-11-27 because no active code path caps at
+ * 2000 anymore, and the heuristic was firing false positives on natural
+ * stops that happened to land at exactly 2000 output tokens (an 8,412-
+ * char section at ~4.2 chars/token is a plausible end_turn response).
+ *
+ * The steps still don't record the actual max_tokens requested or
+ * Claude's stop_reason, so this remains a heuristic — it flags any
+ * answer that lands on exactly 8000 output tokens regardless of why.
+ * If the output cap changes again, update this Set.
  */
-const OUTPUT_LIMITS: ReadonlySet<unknown> = new Set([2000, 8000])
+const OUTPUT_LIMITS: ReadonlySet<unknown> = new Set([8000])
 
 const hitLimit = (s: DebugStepLike) => OUTPUT_LIMITS.has(s.details?.outputTokens)
 

@@ -302,7 +302,8 @@ async function draftWithClaude(args: {
     `Return clean HTML with <p>, <ul>/<li>, and <table> as appropriate — no Markdown, no code fences, no commentary before or after the HTML.`,
     `Where the sources do not contain a piece of information this section needs, write the section's usual structure and put a bracketed marker where the information belongs, in the form [TBD: what is needed], for example [TBD: study title from the protocol]. Use one marker per missing item.`,
     `NEVER write a sentence or paragraph that explains the sources are incomplete, lack detail or do not contain the information (for example "the attached source does not contain ..."). The section must read as document text with [TBD: ...] markers in the gaps, not as a note about the sources. If the sources hold nothing for this section, output only its structure (headings, empty table rows, list stubs) with [TBD: ...] markers.`,
-    `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+    `Do not INVENT numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+    `When a claim IS drawn from an attached EVIDENCE source, you MUST mark it with a [REF: ...] citation per the markers section in the per-section instructions below — marking source-backed claims is REQUIRED, not optional. Unmarked claims are untraceable and cannot be listed in the References section.`,
     '',
     // Product-level guardrails — same text injected by /ai-suggest on
     // the API side. Keeps initial-draft + section-rewrite answering

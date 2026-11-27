@@ -73,6 +73,41 @@ describe('references', () => {
     expect(findReference([IB], 'Smith 2021', null, null)).toMatch(/Lancet Respir Med\. 2021/)
     expect(findReference([IB], 'Smith 2019', 1, 2)).toBeNull()
   })
+
+  it('[REF: source | N] resolves to the attached source title (direct source citation)', () => {
+    // [REF: source | 1] — attached source #1 is the IB
+    expect(findReference([IB, SAMPLE], 'source', 1, null)).toBe('Investigator’s Brochure')
+    // Example sources (SAMPLE is example=true) cannot be cited directly
+    expect(findReference([IB, SAMPLE], 'source', 2, null)).toBeNull()
+    // Unknown source number
+    expect(findReference([IB], 'source', 9, null)).toBeNull()
+    // "source" without a sourceNo is not resolvable
+    expect(findReference([IB], 'source', null, null)).toBeNull()
+  })
+
+  it('direct source citations populate the References section alongside literature citations', () => {
+    const r = finishDocument(base([
+      S('s2_1', '2.1', 'Background',
+        '<p>From the IB directly [REF: source | 1]. Literature in the IB [REF: Smith 2021 | 1 | 2].</p>'),
+      REFS,
+    ]))
+    // Both citations get numbered; direct-source first (first use order).
+    expect(r.html.get('s2_1')).toBe('<p>From the IB directly [1]. Literature in the IB [2].</p>')
+    expect(r.html.get('s12')).toContain('Investigator’s Brochure')
+    expect(r.html.get('s12')).toContain('Smith J, Patel R')
+    expect(r.report.references).toMatchObject({ cited: 2, listed: 2, notFound: [] })
+  })
+
+  it('direct source citation pointing at an example source is flagged as invented', () => {
+    // SAMPLE is example=true (source #2). Citing it directly must fail
+    // the same way citing from memory would.
+    const r = finishDocument(base([
+      S('s2_1', '2.1', 'Background', '<p>From the example [REF: source | 2].</p>'),
+      REFS,
+    ]))
+    expect(r.flags.get('s2_1')).toEqual(['invented_citation'])
+    expect(r.html.get('s12')).toBe('<p>No references are cited in this document.</p>')
+  })
 })
 
 describe('abbreviations', () => {
@@ -126,5 +161,9 @@ describe('what the drafter is told', () => {
     expect(markerInstructions({ crossReferences: true }, outline)).toContain('1.3 Schedule of Activities')
     expect(markerInstructions({ references: true }, outline)).not.toContain('XREF')
     expect(markerInstructions({}, outline)).toBe('')
+    // The references block now covers BOTH direct-source and literature citations.
+    const refBlock = markerInstructions({ references: true }, outline)
+    expect(refBlock).toContain('[REF: source | <source number>]')
+    expect(refBlock).toContain('Smith 2021 | 2 | 45')
   })
 })

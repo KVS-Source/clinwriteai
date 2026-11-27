@@ -64,8 +64,31 @@ function resolveXref(target: string, sections: FinishSection[]): FinishSection |
 
 // ---------------------------------------------------------------- references
 
-/** The reference list entry for an author and year, from the cited page of the source or anywhere in it. */
+/**
+ * Resolve a [REF: ...] citation to a References-list entry.
+ *
+ * Two kinds of citation are supported:
+ *
+ *   1. DIRECT SOURCE citation — [REF: source | <N>] where N is the
+ *      1-based index of the attached source. Returns that source's
+ *      title verbatim, to be listed in the References section as
+ *      "the attached source itself." Example: a protocol drafted from
+ *      an exemplar protocol PDF cites the PDF with [REF: source | 1],
+ *      and the References list carries the PDF's title. Example
+ *      sources are never usable as direct-source citations.
+ *
+ *   2. LITERATURE citation (classical) — [REF: <Author> <Year> | <N> | <page>]
+ *      where the finishing pass looks up the reference-list entry
+ *      inside source N's page text. The author + year must both be
+ *      extractable; sourceNo + page are optional and narrow the search.
+ */
 export function findReference(sources: IndexedSource[], citation: string, sourceNo: number | null, page: number | null): string | null {
+  // (1) Direct source citation: literal "source" sentinel + a source number.
+  if (citation.trim().toLowerCase() === 'source' && sourceNo !== null) {
+    const src = sources.find(s => !s.example && s.no === sourceNo)
+    return src ? src.title : null
+  }
+  // (2) Classical literature citation: Author + Year in a source's reference list.
   const year = citation.match(/\b(19|20)\d{2}[a-z]?\b/)?.[0]
   const author = citation.replace(/\b(19|20)\d{2}[a-z]?\b/g, ' ').match(/\p{Lu}[\p{L}'’-]+/u)?.[0]
   if (!year || !author) return null
@@ -260,7 +283,15 @@ export function markerInstructions(options: FinishInput['options'], outline: Arr
     )
   }
   if (options.references) {
-    parts.push('REFERENCES: when a statement relies on a published work (article, guideline, label) that an EVIDENCE source cites, put [REF: <first author surname> <year> | <source number> | <page of that source listing the reference>] right after it, for example [REF: Smith 2021 | 2 | 45]. Cite only works listed in an EVIDENCE source; never from memory and never from an EXAMPLE source. Do not write a reference list or numbered citations yourself. If a statement needs a reference you cannot find, write [TBD: reference needed].')
+    parts.push([
+      'REFERENCES: this document has TWO kinds of citation marker. Use whichever fits the claim; both become numbered entries in the References section.',
+      '',
+      '1) DIRECT SOURCE — when a statement is drawn directly from one of the attached EVIDENCE sources (the protocol, CSR, SAP, label, etc. itself, not a reference inside it), put [REF: source | <source number>] right after the statement. Example: a claim taken from attached source #1 → [REF: source | 1]. The finishing pass lists that attached document under References.',
+      '',
+      '2) LITERATURE — when a statement relies on a published work (article, guideline, label) that an EVIDENCE source itself cites in its own reference list, put [REF: <first author surname> <year> | <source number> | <page of that source listing the reference>] right after it. Example: [REF: Smith 2021 | 2 | 45]. Cite only literature that is actually listed in an EVIDENCE source; never from memory and never from an EXAMPLE source.',
+      '',
+      'Do not write a reference list or numbered citations yourself — the finishing pass builds the References section. If a statement needs a reference you cannot find in any attached source, write [TBD: reference needed] (no [REF: ...] marker).',
+    ].join('\n'))
   }
   return parts.join('\n\n')
 }

@@ -161,6 +161,17 @@ describe('abbreviations', () => {
     expect(r.flags.size).toBe(0)
   })
 
+  it('a definition in square brackets or a "TSH = …" footnote counts; a study code is not an abbreviation', () => {
+    const r = finishDocument(base([
+      S('s1_3', '1.3', 'Schedule of Activities', '<p>Thyroid function (thyroid-stimulating hormone [TSH], free T3).</p><p>MMRM = mixed model for repeated measures. TSH and MMRM are reported.</p>'),
+      S('s2_1', '2.1', 'Background', '<p>The IMpower133 trial (Study GO30081) and MK3475 set the standard of care.</p>'),
+      REFS,
+    ]))
+    expect(r.report.abbreviations.undefined).toEqual([])
+    expect(r.report.abbreviations.fromGlossary).toEqual([])          // TSH and MMRM are defined in the text
+    expect(r.flags.size).toBe(0)
+  })
+
   it('the drafter is told to spell abbreviations out and which need no full form', () => {
     const told = markerInstructions({ abbreviations: true }, [])
     expect(told).toContain('spell out every abbreviation the first time')
@@ -204,6 +215,19 @@ describe('fact consistency', () => {
       S('s10_1', '10.1', 'Sample Size', '<p>Approximately 600 participants will be randomized 1:1, giving approximately 300 participants per arm. '
         + 'Up to 300 participants in each treatment group are expected.</p>'),
       S('s4_1', '4.1', 'Overall Design', '<p>Approximately 500 participants will be enrolled.</p>'),
+      REFS,
+    ], { factSheet }))
+    expect(r.report.mismatches.map(m => m.section)).toEqual(['4.1'])
+  })
+
+  it('participants of an earlier study are not this study\'s sample size; "prior to" still checks', () => {
+    const factSheet = { extractedAt: '', model: 'm', sourceIds: [], facts: [
+      { key: 'sample_size', label: 'Planned number of participants', value: 'Approximately 600 participants', status: 'verified' as const },
+    ] }
+    const r = finishDocument(base([
+      S('s2_2', '2.2', 'Investigational Product', '<p>Prior clinical experience includes a Phase I/II program in which approximately 420 participants were exposed to the product.</p>'),
+      S('s2_3', '2.3', 'Risks', '<p>In a previous study, approximately 150 patients received it.</p>'),
+      S('s4_1', '4.1', 'Overall Design', '<p>Prior to randomisation, approximately 500 participants will be enrolled.</p>'),
       REFS,
     ], { factSheet }))
     expect(r.report.mismatches.map(m => m.section)).toEqual(['4.1'])

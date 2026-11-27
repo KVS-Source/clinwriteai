@@ -69,3 +69,44 @@ export function keptSectionNotes(
   }
   return notes
 }
+
+/** Sections the build plan never gives to the AI: main headings, and sections code builds afterwards. */
+const isByDesignSkip = (s: DebugStepLike) =>
+  s.kind === 'section_skipped' && (s.details?.reason === 'main_heading' || s.details?.reason === 'built_by_code')
+
+/**
+ * The steps with each unbroken run of by-design skips folded into one entry, so a log shows one row per drafting run
+ * instead of a dozen that read like failures. Every other step, including a section kept because it had text, is unchanged.
+ */
+export function groupByDesignSkips<S extends DebugStepLike>(steps: ReadonlyArray<S>): Array<S | { notDrafted: S[] }> {
+  const out: Array<S | { notDrafted: S[] }> = []
+  let group: S[] | null = null
+  for (const s of steps) {
+    if (!isByDesignSkip(s)) {
+      group = null
+      out.push(s)
+    } else if (group) {
+      group.push(s)
+    } else {
+      group = [s]
+      out.push({ notDrafted: group })
+    }
+  }
+  return out
+}
+
+/** The folded row's sentence, e.g. "11 main headings (content is in their sub-sections) and References (built by code)." */
+export function notDraftedSummary(
+  skips:    ReadonlyArray<DebugStepLike>,
+  sections: ReadonlyArray<{ sectionId: string; sectionTitle?: string | null }>,
+): string {
+  const headings = skips.filter(s => s.details?.reason === 'main_heading').length
+  const titleOf = new Map(sections.map(s => [s.sectionId, s.sectionTitle]))
+  const byCode = skips.filter(s => s.details?.reason === 'built_by_code').map(s => titleOf.get(s.sectionId ?? '') || 'a section')
+  const parts: string[] = []
+  if (headings > 0) {
+    parts.push(headings === 1 ? '1 main heading (content is in its sub-sections)' : `${headings} main headings (content is in their sub-sections)`)
+  }
+  if (byCode.length > 0) parts.push(`${byCode.join(', ')} (built by code)`)
+  return `${parts.join(' and ')}.`
+}

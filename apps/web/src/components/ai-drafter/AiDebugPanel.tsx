@@ -32,7 +32,7 @@ import {
   AI_DEBUG_MAX_WIDTH,
 } from './AiDebugLayoutContext'
 import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
-import { isAtLimit, keptSectionNotes, sectionsAtLimit, validationCutOff } from './aiDebugSteps'
+import { groupByDesignSkips, isAtLimit, keptSectionNotes, notDraftedSummary, sectionsAtLimit, validationCutOff } from './aiDebugSteps'
 
 interface Props {
   documentId: string
@@ -1490,6 +1490,9 @@ function IssuesPanel(props: {
 // Per-section trace list — groups raw commit rows by sectionId so writers
 // can expand a section and see every commit the drafter made for it, along
 // with the source documents that were attached each time.
+const elapsedLabel = (ms: number | null | undefined) =>
+  ms === null || ms === undefined ? '—' : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+
 // Fine-grained worker activity — one row per emitted step. Tone comes
 // from the step kind (sky = in-progress, emerald = success, amber =
 // warning, rose = error) so skimming the list highlights trouble.
@@ -1532,14 +1535,46 @@ function WorkerActivityList({ steps, sections }: { steps: DebugDraftStep[]; sect
   }
   return (
     <ol className="flex flex-col divide-y divide-slate-100 rounded border border-slate-200 bg-white" data-worker-activity>
-      {steps.map(s => {
+      {groupByDesignSkips(steps).map(entry => {
+        if ('notDrafted' in entry) {
+          const first = entry.notDrafted[0]!
+          const open = expandedId === first.id
+          return (
+            <li key={first.id} className="flex flex-col bg-slate-50" data-step-kind="not_ai_drafted">
+              <button
+                type="button"
+                onClick={() => setExpandedId(open ? null : first.id)}
+                aria-expanded={open}
+                className="flex w-full cursor-pointer items-start gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-slate-100"
+              >
+                <span className="mt-0.5 h-2 w-2 flex-none rounded-full bg-slate-400" aria-hidden="true" />
+                <span className="flex-none font-mono text-[10px] text-slate-500 w-[64px] text-right">
+                  {elapsedLabel(first.elapsedMs)}
+                </span>
+                <span className="flex-none font-mono text-[10px] uppercase tracking-wider text-slate-500 w-[140px] truncate">
+                  not AI drafted
+                </span>
+                <span className="min-w-0 flex-1 text-slate-600">{notDraftedSummary(entry.notDrafted, sections)}</span>
+                <span
+                  aria-hidden="true"
+                  className="flex-none text-slate-400 transition-transform"
+                  style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                >▸</span>
+              </button>
+              {open && (
+                <ul className="border-t border-slate-200 bg-white py-1 pl-7 pr-3 text-[11px] text-slate-600">
+                  {entry.notDrafted.map(s => <li key={s.id} className="py-0.5">{s.message}</li>)}
+                </ul>
+              )}
+            </li>
+          )
+        }
+        const s = entry
         const keptNote = kept.get(s.id)
         const tone = keptNote ? { bg: 'bg-slate-50', dot: 'bg-slate-400', fg: 'text-slate-600' } : toneForKind(s.kind)
         const hasDetails = s.details && Object.keys(s.details).length > 0
         const isOpen = expandedId === s.id
-        const elapsed = s.elapsedMs !== null && s.elapsedMs !== undefined
-          ? (s.elapsedMs < 1000 ? `${s.elapsedMs}ms` : `${(s.elapsedMs / 1000).toFixed(1)}s`)
-          : '—'
+        const elapsed = elapsedLabel(s.elapsedMs)
         return (
           <li key={s.id} className={`flex flex-col ${tone.bg}`} data-step-kind={s.kind}>
             <button
